@@ -1,0 +1,325 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스타링크 실시간 모니터</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0B1426 0%, #1A2D5A 100%);
+            color: white; min-height: 100vh; padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { color: #00D2FF; margin-bottom: 10px; }
+        .status-bar { 
+            background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 20px; backdrop-filter: blur(10px);
+        }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { 
+            background: rgba(255,255,255,0.1); border-radius: 15px; padding: 20px;
+            backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2);
+        }
+        .card h3 { color: #00D2FF; margin-bottom: 15px; }
+        .metric { display: flex; justify-content: space-between; margin: 10px 0; }
+        .metric-value { font-weight: bold; }
+        .status-good { color: #4CAF50; }
+        .status-warning { color: #FF9800; }
+        .status-error { color: #F44336; }
+        .controls { text-align: center; margin: 20px 0; }
+        .btn { 
+            background: #00D2FF; color: white; border: none; padding: 10px 20px;
+            border-radius: 5px; margin: 0 10px; cursor: pointer; font-size: 16px;
+        }
+        .btn:hover { background: #00B8E6; }
+        .btn.stop { background: #F44336; }
+        .btn.stop:hover { background: #D32F2F; }
+        .chart-container { height: 200px; margin-top: 15px; }
+        .realtime-indicator { 
+            position: fixed; top: 10px; right: 10px; 
+            background: #4CAF50; color: white; padding: 5px 10px; 
+            border-radius: 5px; font-size: 12px;
+        }
+        .connection-status {
+            color: #4CAF50;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+        .disconnected { color: #F44336; }
+    </style>
+</head>
+<body>
+    <div class="realtime-indicator" id="realtime-status">🔴 연결 대기</div>
+    
+    <div class="container">
+        <div class="header">
+            <h1>🛰️ 스타링크 실시간 모니터</h1>
+            <p>WebSocket 실시간 연결 상태 및 성능 모니터링</p>
+        </div>
+        
+        <div class="status-bar">
+            <div>
+                <strong>API 상태:</strong> <span id="api-status" class="status-good">연결됨</span>
+                <span class="connection-status" id="websocket-status">WebSocket: 연결 중...</span>
+            </div>
+            <div>
+                <strong>업타임:</strong> <span id="uptime">00:00:00</span>
+            </div>
+            <div>
+                <strong>마지막 업데이트:</strong> <span id="last-update">-</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="btn" onclick="startMonitoring()">🚀 모니터링 시작</button>
+            <button class="btn stop" onclick="stopMonitoring()">⏹️ 모니터링 중지</button>
+            <button class="btn" onclick="testWebSocket()">🔧 WebSocket 테스트</button>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>📡 연결 상태</h3>
+                <div class="metric">
+                    <span>API 상태:</span>
+                    <span id="connection-api" class="metric-value">확인 중...</span>
+                </div>
+                <div class="metric">
+                    <span>gRPC 상태:</span>
+                    <span id="connection-grpc" class="metric-value">확인 중...</span>
+                </div>
+                <div class="metric">
+                    <span>Ping 지연시간:</span>
+                    <span id="ping-latency" class="metric-value">0 ms</span>
+                </div>
+                <div class="metric">
+                    <span>신호 강도:</span>
+                    <span id="signal-strength" class="metric-value">0%</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>🌐 네트워크 성능</h3>
+                <div class="metric">
+                    <span>다운로드 속도:</span>
+                    <span id="download-speed" class="metric-value">0 Mbps</span>
+                </div>
+                <div class="metric">
+                    <span>업로드 속도:</span>
+                    <span id="upload-speed" class="metric-value">0 Mbps</span>
+                </div>
+                <div class="metric">
+                    <span>지연시간:</span>
+                    <span id="network-latency" class="metric-value">0 ms</span>
+                </div>
+                <div class="metric">
+                    <span>위성 개수:</span>
+                    <span id="satellite-count" class="metric-value">0</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>💻 시스템 성능</h3>
+                <div class="metric">
+                    <span>CPU 사용률:</span>
+                    <span id="cpu-usage" class="metric-value">0%</span>
+                </div>
+                <div class="metric">
+                    <span>메모리 사용률:</span>
+                    <span id="memory-usage" class="metric-value">0%</span>
+                </div>
+                <div class="metric">
+                    <span>디스크 사용률:</span>
+                    <span id="disk-usage" class="metric-value">0%</span>
+                </div>
+                <div class="metric">
+                    <span>네트워크 수신:</span>
+                    <span id="data-received" class="metric-value">0 MB</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>🔥 하드웨어 상태</h3>
+                <div class="metric">
+                    <span>디시 온도:</span>
+                    <span id="dish-temperature" class="metric-value">0°C</span>
+                </div>
+                <div class="metric">
+                    <span>전력 소모:</span>
+                    <span id="power-consumption" class="metric-value">0W</span>
+                </div>
+                <div class="metric">
+                    <span>연결 타입:</span>
+                    <span id="connection-type" class="metric-value">starlink_mini</span>
+                </div>
+                <div class="metric">
+                    <span>업데이트 횟수:</span>
+                    <span id="update-count" class="metric-value status-good">0</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card" style="margin-top: 20px;">
+            <h3>📊 실시간 차트</h3>
+            <div class="chart-container">
+                <canvas id="performanceChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 🔥 명시적으로 포트 9999 지정하여 WebSocket 연결
+        const socket = io(':9999');
+        let chart;
+        let updateCount = 0;
+        const chartData = {
+            labels: [],
+            datasets: [
+                {
+                    label: '다운로드 속도 (Mbps)',
+                    data: [],
+                    borderColor: '#00D2FF',
+                    backgroundColor: 'rgba(0, 210, 255, 0.1)',
+                    tension: 0.4
+                },
+                {
+                    label: '신호 강도 (%)',
+                    data: [],
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    tension: 0.4
+                }
+            ]
+        };
+        
+        function initChart() {
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: 'white' } } },
+                    scales: {
+                        x: { ticks: { color: 'white' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                        y: { ticks: { color: 'white' }, grid: { color: 'rgba(255,255,255,0.1)' } }
+                    }
+                }
+            });
+        }
+        
+        function updateData(data) {
+            updateCount++;
+            
+            // 메트릭 업데이트
+            document.getElementById('api-status').textContent = data.api_status || 'unknown';
+            document.getElementById('uptime').textContent = data.uptime_formatted || '00:00:00';
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            document.getElementById('update-count').textContent = updateCount;
+            
+            document.getElementById('connection-api').textContent = data.api_status || 'unknown';
+            document.getElementById('connection-grpc').textContent = data.connection_status || 'unknown';
+            document.getElementById('ping-latency').textContent = (data.ping_latency_ms || 0) + ' ms';
+            document.getElementById('signal-strength').textContent = (data.signal_strength || 0) + '%';
+            
+            document.getElementById('download-speed').textContent = (data.download_speed_mbps || 0) + ' Mbps';
+            document.getElementById('upload-speed').textContent = (data.upload_speed_mbps || 0) + ' Mbps';
+            document.getElementById('network-latency').textContent = (data.latency_ms || 0) + ' ms';
+            document.getElementById('satellite-count').textContent = data.satellite_count || 0;
+            
+            document.getElementById('cpu-usage').textContent = (data.cpu_percent || 0) + '%';
+            document.getElementById('memory-usage').textContent = (data.memory_percent || 0) + '%';
+            document.getElementById('disk-usage').textContent = (data.disk_usage_percent || 0) + '%';
+            document.getElementById('data-received').textContent = (data.data_received_mb || 0) + ' MB';
+            
+            document.getElementById('dish-temperature').textContent = (data.dish_temperature || 0) + '°C';
+            document.getElementById('power-consumption').textContent = (data.power_consumption_w || 0) + 'W';
+            document.getElementById('connection-type').textContent = data.connection_type || 'unknown';
+            
+            // 차트 업데이트
+            const now = new Date().toLocaleTimeString();
+            chartData.labels.push(now);
+            chartData.datasets[0].data.push(data.download_speed_mbps || 0);
+            chartData.datasets[1].data.push(data.signal_strength || 0);
+            
+            if (chartData.labels.length > 20) {
+                chartData.labels.shift();
+                chartData.datasets[0].data.shift();
+                chartData.datasets[1].data.shift();
+            }
+            
+            if (chart) chart.update('none');
+            
+            // 실시간 표시기 업데이트
+            document.getElementById('realtime-status').innerHTML = `🟢 실시간 #${updateCount}`;
+        }
+        
+        function startMonitoring() {
+            fetch('/api/start').then(r => r.json()).then(data => {
+                console.log('모니터링 시작:', data);
+            });
+        }
+        
+        function stopMonitoring() {
+            fetch('/api/stop').then(r => r.json()).then(data => {
+                console.log('모니터링 중지:', data);
+            });
+        }
+        
+        function testWebSocket() {
+            console.log('WebSocket 연결 상태:', socket.connected);
+            if (socket.connected) {
+                alert('WebSocket 연결됨: ' + socket.id);
+            } else {
+                alert('WebSocket 연결 실패');
+                socket.connect();
+            }
+        }
+        
+        // WebSocket 이벤트 처리
+        socket.on('connect', function() {
+            console.log('✅ WebSocket 연결 성공:', socket.id);
+            document.getElementById('websocket-status').innerHTML = 'WebSocket: ✅ 연결됨';
+            document.getElementById('websocket-status').className = 'connection-status';
+            document.getElementById('realtime-status').innerHTML = '🟢 실시간 연결';
+        });
+        
+        socket.on('disconnect', function() {
+            console.log('❌ WebSocket 연결 해제');
+            document.getElementById('websocket-status').innerHTML = 'WebSocket: ❌ 연결 해제';
+            document.getElementById('websocket-status').className = 'connection-status disconnected';
+            document.getElementById('realtime-status').innerHTML = '🔴 연결 끊김';
+        });
+        
+        socket.on('update', function(data) {
+            console.log('📡 실시간 데이터 수신:', data.timestamp);
+            updateData(data);
+        });
+        
+        socket.on('status', function(msg) {
+            console.log('📊 상태 데이터:', msg);
+            if (msg.data) updateData(msg.data);
+        });
+        
+        socket.on('connect_error', function(error) {
+            console.error('WebSocket 연결 오류:', error);
+            document.getElementById('websocket-status').innerHTML = 'WebSocket: ❌ 연결 오류';
+            document.getElementById('websocket-status').className = 'connection-status disconnected';
+        });
+        
+        // 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 페이지 로드 완료, WebSocket 초기화');
+            initChart();
+            startMonitoring();
+        });
+    </script>
+</body>
+</html>

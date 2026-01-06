@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starlink 실시간 모니터링 대시보드</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- 헤더 -->
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+            <div class="container-fluid">
+                <span class="navbar-brand">
+                    <i class="fas fa-satellite"></i>
+                    Starlink 실시간 모니터링
+                </span>
+                <div class="navbar-nav ms-auto">
+                    <span class="nav-link" id="connection-status">
+                        <i class="fas fa-circle text-danger"></i>
+                        연결 대기중
+                    </span>
+                    <span class="nav-link" id="last-update">
+                        마지막 업데이트: -
+                    </span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 상태 카드 -->
+        <div class="row mb-4">
+            <div class="col-md-2">
+                <div class="card text-center status-card">
+                    <div class="card-body">
+                        <i class="fas fa-signal fa-2x text-primary"></i>
+                        <h6 class="card-title mt-2">SNR</h6>
+                        <h4 id="snr-value" class="text-primary">-</h4>
+                        <small>dB</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card text-center status-card">
+                    <div class="card-body">
+                        <i class="fas fa-download fa-2x text-success"></i>
+                        <h6 class="card-title mt-2">다운로드</h6>
+                        <h4 id="downlink-value" class="text-success">-</h4>
+                        <small>Mbps</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card text-center status-card">
+                    <div class="card-body">
+                        <i class="fas fa-upload fa-2x text-info"></i>
+                        <h6 class="card-title mt-2">업로드</h6>
+                        <h4 id="uplink-value" class="text-info">-</h4>
+                        <small>Mbps</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card text-center status-card">
+                    <div class="card-body">
+                        <i class="fas fa-clock fa-2x text-warning"></i>
+                        <h6 class="card-title mt-2">핑 지연</h6>
+                        <h4 id="ping-value" class="text-warning">-</h4>
+                        <small>ms</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card text-center status-card">
+                    <div class="card-body">
+                        <i class="fas fa-exclamation-triangle fa-2x text-danger"></i>
+                        <h6 class="card-title mt-2">패킷 손실</h6>
+                        <h4 id="packet-loss-value" class="text-danger">-</h4>
+                        <small>%</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card text-center status-card">
+                    <div class="card-body">
+                        <i class="fas fa-shield-alt fa-2x text-secondary"></i>
+                        <h6 class="card-title mt-2">장애물</h6>
+                        <h4 id="obstruction-value" class="text-secondary">-</h4>
+                        <small>%</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 차트 영역 -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-tachometer-alt"></i> 네트워크 처리량</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="throughputChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-wifi"></i> 신호 품질</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="signalChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 세부 정보 -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-info-circle"></i> 시스템 정보</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-sm">
+                            <tr>
+                                <td>하드웨어 버전:</td>
+                                <td id="hardware-version">-</td>
+                            </tr>
+                            <tr>
+                                <td>소프트웨어 버전:</td>
+                                <td id="software-version">-</td>
+                            </tr>
+                            <tr>
+                                <td>가동 시간:</td>
+                                <td id="uptime">-</td>
+                            </tr>
+                            <tr>
+                                <td>디바이스 상태:</td>
+                                <td id="device-state">-</td>
+                            </tr>
+                            <tr>
+                                <td>GPS 위성 수:</td>
+                                <td id="gps-sats">-</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-exclamation-triangle"></i> 경고 및 알림</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="alerts-container">
+                            <div class="alert alert-info">
+                                경고 정보를 불러오는 중...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
