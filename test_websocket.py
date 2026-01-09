@@ -30,8 +30,8 @@ def test_websocket():
         print(f"📊 상태 데이터: {json.dumps(data, indent=2, ensure_ascii=False)}")
     
     try:
-        print("🔗 WebSocket 연결 시도... (localhost:8080)")
-        sio.connect('http://localhost:8080')
+        print("🔗 WebSocket 연결 시도... (localhost:8888)")
+        sio.connect('http://localhost:8888')
         
         print("⏳ 10초간 실시간 업데이트 확인...")
         time.sleep(10)
