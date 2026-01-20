@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/pi/starlink_lte
-ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/ground_station/receiver.py
+ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/real_time_dashboard.py
 Restart=always
 RestartSec=1
 StartLimitIntervalSec=0
