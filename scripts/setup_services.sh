@@ -103,6 +103,7 @@ sudo sed -i "s|--data-dir /home/pi/lte-collector-data|--data-dir ${COLLECT_DATA_
 
 # Starlink services
 STARLINK_GS_DATA_DIR="${STARLINK_GS_DATA_DIR:-/home/${USER_NAME}/starlink-ground-station-data}"
+STARLINK_SIM_DATA_DIR="${STARLINK_SIM_DATA_DIR:-/home/${USER_NAME}/starlink-sim-data}"
 
 sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_SL_GS}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_SL_GS}"
@@ -122,7 +123,6 @@ sudo sed -i "s|WorkingDirectory=/home/pi/starlink_lte|WorkingDirectory=${BASE_DI
 sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${STARLINK_PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_REAL_COL}"
 
 # Ensure data directories exist
-STARLINK_SIM_DATA_DIR="${STARLINK_SIM_DATA_DIR:-/home/${USER_NAME}/starlink-sim-data}"
 mkdir -p "${GROUND_DATA_DIR}" "${COLLECT_DATA_DIR}" "${STARLINK_GS_DATA_DIR}" "${STARLINK_SIM_DATA_DIR}"
 
 # Reload and start
