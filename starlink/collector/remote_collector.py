@@ -8,7 +8,7 @@ import time
 import threading
 import os
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import logging
 from typing import Dict, List, Optional
@@ -93,7 +93,7 @@ class TestRemoteControlledCollector:
                     "duration": self._get_collection_duration(),
                     "file_count": len(self._get_today_files()),
                     "data_points": self.data_counter,
-                    "last_update": datetime.utcnow().isoformat() + 'Z'
+                    "last_update": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 })
         
         @self.app.route('/api/start', methods=['POST'])
@@ -206,7 +206,7 @@ class TestRemoteControlledCollector:
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         filename = f"test_starlink_{timestamp}.csv"
         self.current_file = self.data_dir / filename
-        self.file_start_time = datetime.utcnow()
+        self.file_start_time = datetime.now(timezone.utc)
         
         # 헤더 작성
         self.current_file_handle = open(self.current_file, 'w')
@@ -238,7 +238,7 @@ class TestRemoteControlledCollector:
             return False
         
         # 시간 체크 (테스트: 1분)
-        duration = datetime.utcnow() - self.file_start_time
+        duration = datetime.now(timezone.utc) - self.file_start_time
         if duration.total_seconds() > self.max_file_duration:
             return True
         
@@ -251,7 +251,7 @@ class TestRemoteControlledCollector:
     def _generate_mock_data(self) -> MockStarlinkData:
         """모의 스타링크 데이터 생성"""
         # 실제와 유사한 랜덤 데이터 생성
-        collect_time = datetime.utcnow()
+        collect_time = datetime.now(timezone.utc)
         precise_timestamp = collect_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         
         return MockStarlinkData(
