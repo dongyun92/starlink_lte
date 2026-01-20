@@ -119,9 +119,14 @@ class LTEModule:
     def send_at(self, cmd, timeout=3.0):
         if not self.connected:
             return None
-        self.ser.reset_input_buffer()
-        self.ser.write(f"{cmd}\r\n".encode())
-        return self.read_response(timeout)
+        try:
+            self.ser.reset_input_buffer()
+            self.ser.write(f"{cmd}\r\n".encode())
+            return self.read_response(timeout)
+        except Exception as e:
+            print(f"[ERROR] AT command failed: {e}")
+            self.connected = False
+            return None
 
     def get_signal_quality(self):
         r = self.send_at("AT+CSQ")
@@ -351,15 +356,40 @@ class LTEDataCollector:
     def worker(self):
         self.rotate_csv()
         while not self.stop_event.is_set():
+            loop_start = time.monotonic()
             if time.time() - self.last_rotate > CSV_ROTATION_MINUTES * 60:
                 self.rotate_csv()
 
-            data = self.collect_once()
-            self.csv_writer.writerow(asdict(data))
-            self.csv_file.flush()
-            self.data.append(data)
-            self.data = self.data[-100:]
-            time.sleep(COLLECTION_INTERVAL)
+            try:
+                if not self.modem.connected and not self.modem.connect():
+                    raise RuntimeError("LTE module not available")
+
+                data = self.collect_once()
+                try:
+                    self.csv_writer.writerow(asdict(data))
+                    self.csv_file.flush()
+                except Exception as e:
+                    print(f"[ERROR] CSV write failed: {e}")
+                    self.rotate_csv()
+                    self.csv_writer.writerow(asdict(data))
+                    self.csv_file.flush()
+
+                self.data.append(data)
+                self.data = self.data[-100:]
+                self.state = CollectorState.COLLECTING
+            except Exception as e:
+                print(f"[ERROR] Collection failed: {e}")
+                self.state = CollectorState.ERROR
+                try:
+                    if self.modem.ser:
+                        self.modem.ser.close()
+                except Exception:
+                    pass
+                self.modem.connected = False
+
+            elapsed = time.monotonic() - loop_start
+            sleep_time = max(0, COLLECTION_INTERVAL - elapsed)
+            time.sleep(sleep_time)
 
     def start(self):
         if self.state == CollectorState.COLLECTING:

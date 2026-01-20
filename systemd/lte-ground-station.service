@@ -7,8 +7,9 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/home/pi/starlink_lte
 ExecStart=/usr/bin/python3 /home/pi/starlink_lte/lte_ground_station.py --port 8079 --data-dir /opt/lte-ground-station-data
-Restart=on-failure
-RestartSec=2
+Restart=always
+RestartSec=1
+StartLimitIntervalSec=0
 User=pi
 Group=pi
 
