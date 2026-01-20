@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Quectel EC25/EC21 LTE 모듈 AT 명령어 테스트 스크립트
-실제 하드웨어 연결 시 AT 명령어가 제대로 작동하는지 테스트
+Quectel EC25/EC21 LTE Module AT Command Test Script
+Tests AT commands with actual hardware connection
 """
 
 import serial
@@ -10,46 +10,46 @@ import sys
 import argparse
 
 def test_at_command(ser, command, wait_time=1, description=""):
-    """AT 명령어 테스트 및 응답 출력"""
+    """Test AT command and display response"""
     print(f"\n{'='*60}")
     if description:
-        print(f"테스트: {description}")
-    print(f"명령어: {command}")
+        print(f"Test: {description}")
+    print(f"Command: {command}")
     print("-" * 40)
     
     try:
-        # 명령어 전송
+        # Send command
         ser.write(f"{command}\r\n".encode())
         time.sleep(wait_time)
         
-        # 응답 읽기
+        # Read response
         response = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
         
         if response:
-            print(f"응답:\n{response}")
+            print(f"Response:\n{response}")
             return True
         else:
-            print("응답 없음")
+            print("No response")
             return False
             
     except Exception as e:
-        print(f"에러: {e}")
+        print(f"Error: {e}")
         return False
 
 def main():
-    parser = argparse.ArgumentParser(description='LTE 모듈 AT 명령어 테스터')
-    parser.add_argument('--port', default='/dev/ttyUSB0', help='시리얼 포트')
-    parser.add_argument('--baudrate', type=int, default=115200, help='보드레이트')
+    parser = argparse.ArgumentParser(description='LTE Module AT Command Tester')
+    parser.add_argument('--port', default='/dev/ttyUSB0', help='Serial port')
+    parser.add_argument('--baudrate', type=int, default=115200, help='Baud rate')
     args = parser.parse_args()
     
     print("=" * 60)
-    print("Quectel EC25/EC21 LTE 모듈 테스트")
+    print("Quectel EC25/EC21 LTE Module Test")
     print("=" * 60)
-    print(f"포트: {args.port}")
-    print(f"보드레이트: {args.baudrate}")
+    print(f"Port: {args.port}")
+    print(f"Baud rate: {args.baudrate}")
     
     try:
-        # 시리얼 포트 연결
+        # Connect to serial port
         ser = serial.Serial(
             port=args.port,
             baudrate=args.baudrate,
@@ -58,26 +58,26 @@ def main():
             dsrdtr=True
         )
         
-        print(f"\n✅ 시리얼 포트 연결 성공: {args.port}")
+        print(f"\n✅ Serial port connected successfully: {args.port}")
         
-        # 기본 AT 명령어 테스트
+        # Basic AT command tests
         tests = [
-            ("AT", 1, "기본 통신 테스트"),
-            ("ATI", 1, "모듈 정보 조회"),
-            ("AT+CGMI", 1, "제조사 정보"),
-            ("AT+CGMM", 1, "모델명"),
-            ("AT+CGSN", 1, "IMEI 번호"),
-            ("AT+CSQ", 1, "신호 강도 (RSSI, BER)"),
-            ("AT+CREG?", 1, "2G/3G 네트워크 등록 상태"),
-            ("AT+CEREG?", 1, "LTE 네트워크 등록 상태"),
-            ("AT+COPS?", 1, "현재 네트워크 운영자"),
-            ("AT+QNWINFO", 1, "네트워크 정보 (타입, 밴드, 채널)"),
-            ("AT+CIMI", 1, "IMSI (SIM 카드 정보)"),
-            ("AT+CCID", 1, "SIM 카드 ID"),
-            ("AT+QGDCNT?", 1, "데이터 사용량 (RX/TX)"),
-            ("AT+CGPADDR", 1, "IP 주소"),
-            ("AT+QENG=\"servingcell\"", 2, "서빙 셀 상세 정보"),
-            ("AT+QCSQ", 1, "확장 신호 품질 정보"),
+            ("AT", 1, "Basic communication test"),
+            ("ATI", 1, "Module information"),
+            ("AT+CGMI", 1, "Manufacturer information"),
+            ("AT+CGMM", 1, "Model name"),
+            ("AT+CGSN", 1, "IMEI number"),
+            ("AT+CSQ", 1, "Signal strength (RSSI, BER)"),
+            ("AT+CREG?", 1, "2G/3G network registration status"),
+            ("AT+CEREG?", 1, "LTE network registration status"),
+            ("AT+COPS?", 1, "Current network operator"),
+            ("AT+QNWINFO", 1, "Network info (type, band, channel)"),
+            ("AT+CIMI", 1, "IMSI (SIM card information)"),
+            ("AT+CCID", 1, "SIM card ID"),
+            ("AT+QGDCNT?", 1, "Data usage (RX/TX)"),
+            ("AT+CGPADDR", 1, "IP address"),
+            ("AT+QENG=\"servingcell\"", 2, "Serving cell details"),
+            ("AT+QCSQ", 1, "Extended signal quality info"),
             ("AT+QRSRP", 1, "RSRP (Reference Signal Received Power)"),
             ("AT+QRSRQ", 1, "RSRQ (Reference Signal Received Quality)"),
             ("AT+QSINR", 1, "SINR (Signal to Interference plus Noise Ratio)"),
@@ -93,41 +93,41 @@ def main():
                 fail_count += 1
             time.sleep(0.5)
         
-        # 결과 요약
+        # Result summary
         print("\n" + "=" * 60)
-        print("테스트 결과 요약")
+        print("Test Result Summary")
         print("=" * 60)
-        print(f"✅ 성공: {success_count}개")
-        print(f"❌ 실패: {fail_count}개")
+        print(f"✅ Success: {success_count}")
+        print(f"❌ Failed: {fail_count}")
         
         if success_count > 0:
-            print("\n🎉 LTE 모듈이 정상적으로 작동합니다!")
-            print("실제 데이터 수집이 가능합니다.")
+            print("\n🎉 LTE module is working properly!")
+            print("Real data collection is available.")
         else:
-            print("\n⚠️ LTE 모듈 응답 없음")
-            print("다음 사항을 확인하세요:")
-            print("1. 모듈 전원 연결 상태")
-            print("2. 시리얼 포트 설정 (포트명, 보드레이트)")
-            print("3. USB 케이블 연결 상태")
-            print("4. 모듈 드라이버 설치 여부")
+            print("\n⚠️ No response from LTE module")
+            print("Please check the following:")
+            print("1. Module power connection status")
+            print("2. Serial port settings (port name, baud rate)")
+            print("3. USB cable connection status")
+            print("4. Module driver installation")
         
-        # 시리얼 포트 닫기
+        # Close serial port
         ser.close()
         
     except serial.SerialException as e:
-        print(f"\n❌ 시리얼 포트 연결 실패: {e}")
-        print("\n해결 방법:")
-        print("1. 올바른 포트명 확인:")
+        print(f"\n❌ Serial port connection failed: {e}")
+        print("\nSolutions:")
+        print("1. Check correct port name:")
         print("   - Linux: /dev/ttyUSB0, /dev/ttyUSB1, ...")
         print("   - Mac: /dev/cu.usbserial-*, /dev/tty.usbserial-*")
         print("   - Windows: COM3, COM4, ...")
-        print("2. 포트 권한 확인 (Linux/Mac):")
+        print("2. Check port permissions (Linux/Mac):")
         print("   sudo chmod 666 /dev/ttyUSB0")
-        print("3. 다른 프로그램이 포트를 사용 중인지 확인")
+        print("3. Check if another program is using the port")
         sys.exit(1)
         
     except Exception as e:
-        print(f"\n❌ 예상치 못한 에러: {e}")
+        print(f"\n❌ Unexpected error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

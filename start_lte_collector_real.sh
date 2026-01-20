@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "========================================="
-echo "LTE 실제 데이터 수집 시작 스크립트"
+echo "LTE Real Data Collection Start Script"
 echo "========================================="
 
 # Colors
@@ -10,63 +10,63 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# 기존 프로세스 종료
-echo -e "\n${YELLOW}기존 프로세스 종료 중...${NC}"
+# Terminate existing processes
+echo -e "\n${YELLOW}Terminating existing processes...${NC}"
 pkill -f "lte_remote_collector"
 sleep 2
 
-# 시리얼 포트 검색
-echo -e "\n${YELLOW}LTE 모듈 검색 중...${NC}"
+# Search for serial port
+echo -e "\n${YELLOW}Searching for LTE module...${NC}"
 
-# Linux 시리얼 포트 확인
+# Check Linux serial ports
 SERIAL_PORT=""
 for port in /dev/ttyUSB0 /dev/ttyUSB1 /dev/ttyUSB2 /dev/ttyACM0 /dev/ttyACM1; do
     if [ -e "$port" ]; then
-        echo -e "${GREEN}✓ 포트 발견: $port${NC}"
+        echo -e "${GREEN}✓ Port found: $port${NC}"
         SERIAL_PORT=$port
         break
     fi
 done
 
-# Mac 시리얼 포트 확인
+# Check Mac serial ports
 if [ -z "$SERIAL_PORT" ]; then
     for port in /dev/cu.usbserial* /dev/tty.usbserial* /dev/cu.usbmodem* /dev/tty.usbmodem*; do
         if [ -e "$port" ]; then
-            echo -e "${GREEN}✓ 포트 발견: $port${NC}"
+            echo -e "${GREEN}✓ Port found: $port${NC}"
             SERIAL_PORT=$port
             break
         fi
     done
 fi
 
-# 포트를 찾지 못한 경우
+# If port not found
 if [ -z "$SERIAL_PORT" ]; then
-    echo -e "${RED}✗ LTE 모듈을 찾을 수 없습니다${NC}"
-    echo -e "${YELLOW}Mock 모드로 실행합니다...${NC}"
-    SERIAL_PORT="/dev/ttyUSB0"  # 기본값 사용 (Mock 모드 자동 활성화)
+    echo -e "${RED}✗ LTE module not found${NC}"
+    echo -e "${YELLOW}Running in Mock mode...${NC}"
+    SERIAL_PORT="/dev/ttyUSB0"  # Use default (Mock mode auto-enabled)
 else
-    # 포트 권한 설정 (Linux/Mac)
-    echo -e "\n${YELLOW}포트 권한 설정 중...${NC}"
+    # Set port permissions (Linux/Mac)
+    echo -e "\n${YELLOW}Setting port permissions...${NC}"
     sudo chmod 666 $SERIAL_PORT 2>/dev/null || true
 fi
 
-# AT 명령어 테스트
-echo -e "\n${YELLOW}AT 명령어 테스트 실행...${NC}"
+# AT command test
+echo -e "\n${YELLOW}Running AT command test...${NC}"
 python3 test_at_commands.py --port $SERIAL_PORT --baudrate 115200
 
-# 사용자 확인
-echo -e "\n${YELLOW}LTE 데이터 수집을 시작하시겠습니까? (y/n)${NC}"
+# User confirmation
+echo -e "\n${YELLOW}Start LTE data collection? (y/n)${NC}"
 read -r response
 
 if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
-    # 데이터 디렉토리 생성
+    # Create data directory
     mkdir -p lte-collector-data
     
-    # LTE 컬렉터 시작
-    echo -e "\n${GREEN}LTE 데이터 수집 시작...${NC}"
-    echo "포트: $SERIAL_PORT"
-    echo "제어 포트: 8897"
-    echo "데이터 저장: ./lte-collector-data/"
+    # Start LTE collector
+    echo -e "\n${GREEN}Starting LTE data collection...${NC}"
+    echo "Port: $SERIAL_PORT"
+    echo "Control port: 8897"
+    echo "Data directory: ./lte-collector-data/"
     echo ""
     
     python3 lte_remote_collector_en.py \
@@ -76,5 +76,5 @@ if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
         --interval 5
         
 else
-    echo -e "${YELLOW}취소되었습니다${NC}"
+    echo -e "${YELLOW}Cancelled${NC}"
 fi
