@@ -38,19 +38,19 @@ class CollectorState(Enum):
 @dataclass
 class LTEStatus:
     timestamp: str
-    rssi: int  # Received Signal Strength Indicator
-    ber: float  # Bit Error Rate
+    rssi: int  # Received Signal Strength Indicator (dBm)
+    ber: float  # Bit Error Rate (%)
     network_type: str  # LTE/3G/2G
     network_operator: str
     cell_id: str
-    lac: str  # Location Area Code
+    lac: str  # Location Area Code  
     registration_status: str
     connection_state: str
-    rx_bytes: int
-    tx_bytes: int
-    latitude: float
-    longitude: float
-    altitude: float
+    rx_bytes: int  # Received bytes
+    tx_bytes: int  # Transmitted bytes
+    rsrp: int  # Reference Signal Received Power (dBm) - LTE only
+    rsrq: int  # Reference Signal Received Quality (dB) - LTE only
+    sinr: int  # Signal to Interference plus Noise Ratio (dB) - LTE only
 
 class LTEModule:
     def __init__(self, port=SERIAL_PORT, baudrate=SERIAL_BAUDRATE):
@@ -163,6 +163,94 @@ class LTEModule:
                 return rx_bytes, tx_bytes
         return 0, 0
     
+    def get_cell_info(self):
+        """Get cell ID and LAC using AT+QENG"""
+        response = self.send_at_command("AT+QENG=\"servingcell\"", wait_time=2)
+        if response and "+QENG:" in response:
+            # Parse serving cell info for cell_id and lac
+            lines = response.split('\n')
+            for line in lines:
+                if "LTE" in line or "servingcell" in line:
+                    parts = line.split(',')
+                    if len(parts) > 10:
+                        try:
+                            cell_id = parts[8] if len(parts) > 8 else "0"
+                            lac = parts[9] if len(parts) > 9 else "0"
+                            return cell_id.strip(), lac.strip()
+                        except:
+                            pass
+        return "0", "0"
+    
+    def get_extended_signal_info(self):
+        """Get extended signal information (RSRP, RSRQ, SINR)"""
+        info = {
+            'rsrp': -999,  # Reference Signal Received Power
+            'rsrq': -999,  # Reference Signal Received Quality
+            'sinr': -999   # Signal to Interference plus Noise Ratio
+        }
+        
+        # Get RSRP
+        response = self.send_at_command("AT+QRSRP")
+        if response and "+QRSRP:" in response:
+            match = re.search(r"\+QRSRP:\s*([-\d]+)", response)
+            if match:
+                info['rsrp'] = int(match.group(1))
+        
+        # Get RSRQ
+        response = self.send_at_command("AT+QRSRQ")
+        if response and "+QRSRQ:" in response:
+            match = re.search(r"\+QRSRQ:\s*([-\d]+)", response)
+            if match:
+                info['rsrq'] = int(match.group(1))
+                
+        # Get SINR
+        response = self.send_at_command("AT+QSINR")
+        if response and "+QSINR:" in response:
+            match = re.search(r"\+QSINR:\s*([-\d]+)", response)
+            if match:
+                info['sinr'] = int(match.group(1))
+                
+        return info
+    
+    def get_operator_name(self):
+        """Get current operator name using AT+COPS"""
+        response = self.send_at_command("AT+COPS?")
+        if response and "+COPS:" in response:
+            match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', response)
+            if match:
+                return match.group(1)
+        return "Unknown"
+    
+    def get_imei(self):
+        """Get IMEI number"""
+        response = self.send_at_command("AT+CGSN")
+        if response:
+            # IMEI is usually 15 digits
+            match = re.search(r"(\d{15})", response)
+            if match:
+                return match.group(1)
+        return "Unknown"
+    
+    def get_sim_info(self):
+        """Get SIM card information"""
+        info = {'imsi': 'Unknown', 'iccid': 'Unknown'}
+        
+        # Get IMSI
+        response = self.send_at_command("AT+CIMI")
+        if response:
+            match = re.search(r"(\d{15})", response)
+            if match:
+                info['imsi'] = match.group(1)
+        
+        # Get ICCID  
+        response = self.send_at_command("AT+CCID")
+        if response:
+            match = re.search(r"(\d{19,20})", response)
+            if match:
+                info['iccid'] = match.group(1)
+                
+        return info
+    
     def close(self):
         """Close serial connection"""
         if self.ser:
@@ -198,14 +286,25 @@ class LTEDataCollector:
         current_time = datetime.utcnow()
         
         # Simulate realistic LTE values
+        network_type = random.choice(['LTE', '3G', '2G'])
         rssi = random.randint(-110, -60)  # dBm
         ber = random.uniform(0, 2)  # Bit error rate
+        
+        # LTE specific values
+        if network_type == 'LTE':
+            rsrp = random.randint(-140, -80)  # Reference Signal Received Power
+            rsrq = random.randint(-20, -3)    # Reference Signal Received Quality
+            sinr = random.randint(-20, 30)    # Signal to Interference plus Noise Ratio
+        else:
+            rsrp = -999  # Not available for 2G/3G
+            rsrq = -999
+            sinr = -999
         
         return LTEStatus(
             timestamp=current_time.isoformat() + 'Z',
             rssi=rssi,
             ber=round(ber, 2),
-            network_type=random.choice(['LTE', '3G', '2G']),
+            network_type=network_type,
             network_operator='TestOperator',
             cell_id=f"{random.randint(10000, 99999)}",
             lac=f"{random.randint(1000, 9999)}",
@@ -213,17 +312,21 @@ class LTEDataCollector:
             connection_state='Connected',
             rx_bytes=random.randint(1000000, 10000000),
             tx_bytes=random.randint(500000, 5000000),
-            latitude=37.5665 + random.uniform(-0.01, 0.01),
-            longitude=126.9780 + random.uniform(-0.01, 0.01),
-            altitude=random.uniform(100, 1000)
+            rsrp=rsrp,
+            rsrq=rsrq,
+            sinr=sinr
         )
     
     def collect_lte_data(self) -> LTEStatus:
         """Collect real LTE data from module"""
         current_time = datetime.utcnow()
         
+        # For testing without hardware, use mock mode
         if self.mock_mode:
+            print("[INFO] Mock mode: Generating test data")
             return self.generate_mock_lte_data()
+        
+        print("[INFO] Collecting real LTE data from module...")
         
         # Get signal quality
         rssi, ber = self.lte_module.get_signal_quality()
@@ -231,27 +334,63 @@ class LTEDataCollector:
         # Get network info
         network_info = self.lte_module.get_network_info()
         
+        # Get operator name
+        operator = self.lte_module.get_operator_name()
+        if operator == "Unknown" and network_info['operator'] != "Unknown":
+            operator = network_info['operator']
+        
         # Get registration status
         reg_status = self.lte_module.get_registration_status()
         
+        # Get cell info
+        cell_id, lac = self.lte_module.get_cell_info()
+        
         # Get data usage
         rx_bytes, tx_bytes = self.lte_module.get_data_usage()
+        
+        # Get extended signal info (optional - may not be available on all modules)
+        try:
+            ext_signal = self.lte_module.get_extended_signal_info()
+            print(f"[DEBUG] Extended Signal: RSRP={ext_signal['rsrp']}, RSRQ={ext_signal['rsrq']}, SINR={ext_signal['sinr']}")
+        except:
+            ext_signal = {'rsrp': -999, 'rsrq': -999, 'sinr': -999}
+        
+        # Determine network type from network info
+        network_type = "Unknown"
+        if "LTE" in network_info['type'].upper():
+            network_type = "LTE"
+        elif "WCDMA" in network_info['type'].upper() or "UMTS" in network_info['type'].upper():
+            network_type = "3G"
+        elif "GSM" in network_info['type'].upper() or "EDGE" in network_info['type'].upper():
+            network_type = "2G"
+        elif network_info['type'] != "Unknown":
+            network_type = network_info['type']
+        
+        # Connection state based on registration and signal
+        connection_state = "Disconnected"
+        if "Registered" in reg_status and rssi > -999 and rssi != -113:
+            connection_state = "Connected"
+        
+        # Log collected data
+        print(f"[DATA] RSSI={rssi} dBm, BER={ber}, Type={network_type}, Operator={operator}")
+        print(f"[DATA] Cell={cell_id}, LAC={lac}, Status={reg_status}, State={connection_state}")
+        print(f"[DATA] RX={rx_bytes} bytes, TX={tx_bytes} bytes")
         
         return LTEStatus(
             timestamp=current_time.isoformat() + 'Z',
             rssi=rssi,
             ber=ber,
-            network_type=network_info['type'],
-            network_operator=network_info['operator'],
-            cell_id='0',  # Would need additional AT commands
-            lac='0',  # Would need additional AT commands
+            network_type=network_type,
+            network_operator=operator,
+            cell_id=cell_id,
+            lac=lac,
             registration_status=reg_status,
-            connection_state='Connected' if rssi > -999 else 'Disconnected',
+            connection_state=connection_state,
             rx_bytes=rx_bytes,
             tx_bytes=tx_bytes,
-            latitude=0.0,  # GPS would need separate module
-            longitude=0.0,
-            altitude=0.0
+            rsrp=ext_signal['rsrp'],  # LTE specific signal quality
+            rsrq=ext_signal['rsrq'],  # LTE specific signal quality  
+            sinr=ext_signal['sinr']   # LTE specific signal quality
         )
     
     def rotate_csv_if_needed(self):

@@ -193,16 +193,42 @@ class LTEGroundStationReceiver:
                     drone_address += ':8897'
                 
                 if action == 'start':
-                    response = requests.post(f"http://{drone_address}/api/start", timeout=10)
+                    # Try English collector endpoint first (without /api prefix)
+                    try:
+                        response = requests.post(f"http://{drone_address}/start", timeout=10)
+                    except requests.RequestException:
+                        # Fallback to Korean collector endpoint (with /api prefix)
+                        try:
+                            response = requests.post(f"http://{drone_address}/api/start", timeout=10)
+                        except requests.RequestException as e:
+                            return jsonify({"error": f"드론 LTE 연결 실패: {str(e)}"}), 500
                 elif action == 'stop':
-                    response = requests.post(f"http://{drone_address}/api/stop", timeout=10)
+                    # Try English collector endpoint first (without /api prefix)
+                    try:
+                        response = requests.post(f"http://{drone_address}/stop", timeout=10)
+                    except requests.RequestException:
+                        # Fallback to Korean collector endpoint (with /api prefix)
+                        try:
+                            response = requests.post(f"http://{drone_address}/api/stop", timeout=10)
+                        except requests.RequestException as e:
+                            return jsonify({"error": f"드론 LTE 연결 실패: {str(e)}"}), 500
                 else:
                     return jsonify({"error": "잘못된 액션입니다"}), 400
                 
-                if response.status_code == 200:
-                    return jsonify({"success": True, "message": response.json().get('message', 'Success')})
-                else:
-                    return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
+                # Check response and handle JSON parsing
+                try:
+                    if response.status_code == 200:
+                        result = response.json()
+                        return jsonify({"success": result.get('success', True), "message": result.get('message', 'Success')})
+                    else:
+                        # Try to parse error response
+                        try:
+                            error_data = response.json()
+                            return jsonify({"error": error_data.get('error', 'Unknown error')}), response.status_code
+                        except:
+                            return jsonify({"error": f"HTTP {response.status_code}: {response.text}"}), response.status_code
+                except json.JSONDecodeError:
+                    return jsonify({"error": f"Invalid JSON response: {response.text}"}), 500
                     
             except requests.RequestException as e:
                 return jsonify({"error": f"드론 LTE 연결 실패: {str(e)}"}), 500
@@ -217,7 +243,12 @@ class LTEGroundStationReceiver:
                 if ':' not in drone_address:
                     drone_address += ':8897'
                 
-                response = requests.get(f"http://{drone_address}/api/status", timeout=5)
+                # Try English collector endpoint first (without /api prefix)
+                try:
+                    response = requests.get(f"http://{drone_address}/status", timeout=5)
+                except requests.RequestException:
+                    # Fallback to Korean collector endpoint (with /api prefix)
+                    response = requests.get(f"http://{drone_address}/api/status", timeout=5)
                 
                 if response.status_code == 200:
                     return jsonify(response.json())
