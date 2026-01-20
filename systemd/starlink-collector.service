@@ -1,15 +1,15 @@
 [Unit]
-Description=Starlink Remote Collector
+Description=Starlink Simulator Collector
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 WorkingDirectory=/home/pi/starlink_lte
-ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/collector/remote_collector.py --control-port 8899 --data-dir /home/pi/starlink-data
+ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/collector/remote_collector.py --control-port 8899 --data-dir /home/pi/starlink-sim-data --mode mock
 Restart=always
 RestartSec=1
-StartLimitIntervalSec=0
 User=pi
 Group=pi
 
