@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 from enum import Enum
 import serial
+from serial.tools import list_ports
 import re
 
 # ================= Configuration =================
@@ -24,7 +25,7 @@ DATA_DIR = "./lte-data"
 CSV_PREFIX = "lte_data"
 CSV_ROTATION_MINUTES = 10
 CSV_MAX_SIZE_MB = 30
-SERIAL_PORT = "/dev/ttyUSB0"
+SERIAL_PORT = "auto"
 SERIAL_BAUDRATE = 115200
 COLLECTION_INTERVAL = 0.5
 # =================================================
@@ -86,8 +87,61 @@ class LTEModule:
         self.ser = None
         self.connected = False
 
+    def _detect_port(self):
+        ports = [p.device for p in list_ports.comports()]
+        if not ports:
+            return None
+
+        def rank_port(name):
+            if name.endswith("ttyUSB2"):
+                return 0
+            if name.endswith("ttyUSB1"):
+                return 1
+            if name.endswith("ttyUSB0"):
+                return 2
+            return 10
+
+        for port in sorted(ports, key=rank_port):
+            if self._probe_port(port):
+                return port
+        return None
+
+    def _probe_port(self, port):
+        ser = None
+        try:
+            ser = serial.Serial(
+                port=port,
+                baudrate=self.baudrate,
+                timeout=0.2,
+                rtscts=False,
+                dsrdtr=False,
+                xonxoff=False
+            )
+            ser.reset_input_buffer()
+            ser.write(b"AT\r\n")
+            end = time.time() + 1.0
+            buf = ""
+            while time.time() < end:
+                if ser.in_waiting:
+                    buf += ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+                    if "OK" in buf:
+                        return True
+                time.sleep(0.05)
+            return "OK" in buf
+        except Exception:
+            return False
+        finally:
+            if ser:
+                ser.close()
+
     def connect(self):
         try:
+            if self.port == "auto":
+                detected = self._detect_port()
+                if not detected:
+                    print("[ERROR] LTE auto-detect failed: no AT port found")
+                    return False
+                self.port = detected
             self.ser = serial.Serial(
                 port=self.port,
                 baudrate=self.baudrate,
@@ -459,7 +513,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LTE Remote Data Collector")
     parser.add_argument("--data-dir", default=DATA_DIR, help="Data directory")
     parser.add_argument("--control-port", type=int, default=CONTROL_PORT, help="Control API port")
-    parser.add_argument("--serial-port", default=SERIAL_PORT, help="Serial port for LTE module")
+    parser.add_argument("--serial-port", default=SERIAL_PORT, help="Serial port for LTE module (use 'auto' to detect)")
     parser.add_argument("--interval", type=float, default=COLLECTION_INTERVAL, help="Collection interval in seconds")
 
     args = parser.parse_args()
