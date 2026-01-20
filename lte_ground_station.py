@@ -40,13 +40,14 @@ class LTEGroundStationReceiver:
         
         # 로깅 설정
         logging.basicConfig(
-            level=logging.INFO,
+            level=logging.ERROR,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler(self.data_dir / 'lte_ground_station.log'),
                 logging.StreamHandler()
             ]
         )
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
         self.logger = logging.getLogger(__name__)
 
     def setup_database(self):
