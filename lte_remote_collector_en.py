@@ -47,6 +47,15 @@ class LTEStatus:
     network_operator_numeric: str
     network_band: str
     network_channel: int
+    mcc: int
+    mnc: int
+    pcid: int
+    earfcn: int
+    qeng_band_indicator: int
+    ul_bandwidth: int
+    dl_bandwidth: int
+    qeng_rssi: int
+    srxlev: int
     cell_id: str
     lac: str
     registration_status: str
@@ -143,8 +152,13 @@ class LTEModule:
 
     def get_eps_registration_detail(self):
         r = self.send_at("AT+CEREG?")
+        if not r:
+            time.sleep(0.1)
+            r = self.send_at("AT+CEREG?")
         m = re.search(r"\+CEREG:\s*(\d+),(\d+)(?:,([^,]+),([^,]+)(?:,(\d+))?)?", r or "")
         if not m:
+            if r:
+                print(f"[WARN] CEREG parse failed: {r}")
             return {}
         return {
             "stat": m.group(2),
@@ -155,8 +169,13 @@ class LTEModule:
 
     def get_cs_registration_detail(self):
         r = self.send_at("AT+CREG?")
+        if not r:
+            time.sleep(0.1)
+            r = self.send_at("AT+CREG?")
         m = re.search(r"\+CREG:\s*(\d+),(\d+)(?:,([^,]+),([^,]+)(?:,(\d+))?)?", r or "")
         if not m:
+            if r:
+                print(f"[WARN] CREG parse failed: {r}")
             return {}
         return {
             "stat": m.group(2),
@@ -193,12 +212,20 @@ class LTEModule:
                 m = re.search(r"-?\d+", token or "")
                 return int(m.group(0)) if m else -999
             return {
+                "mcc": parse_int(p[4]) if len(p) > 4 else -999,
+                "mnc": parse_int(p[5]) if len(p) > 5 else -999,
                 "cell_id": p[6] if len(p) > 6 else "0",
+                "pcid": parse_int(p[7]) if len(p) > 7 else -999,
+                "earfcn": parse_int(p[8]) if len(p) > 8 else -999,
+                "band_indicator": parse_int(p[9]) if len(p) > 9 else -999,
+                "ul_bandwidth": parse_int(p[10]) if len(p) > 10 else -999,
+                "dl_bandwidth": parse_int(p[11]) if len(p) > 11 else -999,
                 "tac": p[12] if len(p) > 12 else "0",
                 "rsrp": parse_int(p[13]) if len(p) > 13 else -999,
                 "rsrq": parse_int(p[14]) if len(p) > 14 else -999,
                 "rssi": parse_int(p[15]) if len(p) > 15 else -999,
                 "sinr": parse_int(p[16]) if len(p) > 16 else -999,
+                "srxlev": parse_int(p[17]) if len(p) > 17 else -999,
             }
         return {}
 
@@ -272,7 +299,12 @@ class LTEDataCollector:
         lac = eps_reg.get("tac") or serving.get("tac", "0")
         rx, tx = self.modem.get_data_usage()
         is_lte = "LTE" in net.get("type", "").upper()
-        rsrp, rsrq, sinr = self.modem.get_extended_signal(is_lte)
+        if is_lte:
+            rsrp = serving.get("rsrp", -999)
+            rsrq = serving.get("rsrq", -999)
+            sinr = serving.get("sinr", -999)
+        else:
+            rsrp, rsrq, sinr = -999, -999, -999
         ip_address = self.modem.get_pdp_address()
 
         data = LTEStatus(
@@ -284,6 +316,15 @@ class LTEDataCollector:
             network_operator_numeric=net.get("operator", "Unknown"),
             network_band=net.get("band", ""),
             network_channel=net.get("channel", 0),
+            mcc=serving.get("mcc", -999),
+            mnc=serving.get("mnc", -999),
+            pcid=serving.get("pcid", -999),
+            earfcn=serving.get("earfcn", -999),
+            qeng_band_indicator=serving.get("band_indicator", -999),
+            ul_bandwidth=serving.get("ul_bandwidth", -999),
+            dl_bandwidth=serving.get("dl_bandwidth", -999),
+            qeng_rssi=serving.get("rssi", -999),
+            srxlev=serving.get("srxlev", -999),
             cell_id=cell,
             lac=lac,
             registration_status=reg,

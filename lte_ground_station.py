@@ -53,35 +53,50 @@ class LTEGroundStationReceiver:
         """SQLite 데이터베이스 초기화"""
         with sqlite3.connect(self.db_file) as conn:
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS lte_drone_data (
+                CREATE TABLE IF NOT EXISTS lte_collector_data (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT,
-                    module_id TEXT,
                     connection_state TEXT,
-                    uptime INTEGER,
-                    signal_quality_rssi INTEGER,
-                    signal_quality_ber INTEGER,
+                    rssi INTEGER,
+                    ber INTEGER,
+                    network_type TEXT,
                     network_operator TEXT,
-                    network_mode TEXT,
-                    network_reg_status TEXT,
-                    eps_reg_status TEXT,
+                    network_operator_numeric TEXT,
+                    network_band TEXT,
+                    network_channel INTEGER,
+                    mcc INTEGER,
+                    mnc INTEGER,
+                    pcid INTEGER,
+                    earfcn INTEGER,
+                    qeng_band_indicator INTEGER,
+                    ul_bandwidth INTEGER,
+                    dl_bandwidth INTEGER,
+                    qeng_rssi INTEGER,
+                    srxlev INTEGER,
                     cell_id TEXT,
                     lac TEXT,
+                    registration_status TEXT,
+                    eps_reg_status TEXT,
+                    eps_tac TEXT,
+                    eps_cell_id TEXT,
+                    eps_act TEXT,
+                    cs_reg_status TEXT,
+                    cs_lac TEXT,
+                    cs_cell_id TEXT,
+                    cs_act TEXT,
                     rx_bytes INTEGER,
                     tx_bytes INTEGER,
+                    rsrp INTEGER,
+                    rsrq INTEGER,
+                    sinr INTEGER,
                     ip_address TEXT,
-                    frequency_band TEXT,
-                    earfcn INTEGER,
-                    latitude REAL,
-                    longitude REAL,
-                    altitude REAL,
                     received_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
             # 인덱스 생성
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_lte_timestamp ON lte_drone_data(timestamp)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_lte_received_at ON lte_drone_data(received_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_lte_timestamp ON lte_collector_data(timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_lte_received_at ON lte_collector_data(received_at)")
 
     def setup_routes(self):
         """Flask 라우트 설정"""
@@ -154,22 +169,22 @@ class LTEGroundStationReceiver:
                 conn.row_factory = sqlite3.Row
                 
                 # 총 데이터 수
-                total_count = conn.execute("SELECT COUNT(*) as count FROM lte_drone_data").fetchone()['count']
+                total_count = conn.execute("SELECT COUNT(*) as count FROM lte_collector_data").fetchone()['count']
                 
                 # 최근 1시간 데이터 수
                 recent_count = conn.execute("""
-                    SELECT COUNT(*) as count FROM lte_drone_data 
+                    SELECT COUNT(*) as count FROM lte_collector_data 
                     WHERE received_at > datetime('now', '-1 hour')
                 """).fetchone()['count']
                 
                 # 평균 성능 지표 (최근 1시간)
                 stats = conn.execute("""
                     SELECT 
-                        AVG(signal_quality_rssi) as avg_rssi,
+                        AVG(rssi) as avg_rssi,
                         AVG(rx_bytes) as avg_rx,
                         AVG(tx_bytes) as avg_tx,
                         COUNT(DISTINCT network_operator) as operator_count
-                    FROM lte_drone_data 
+                    FROM lte_collector_data 
                     WHERE received_at > datetime('now', '-1 hour')
                 """).fetchone()
                 
@@ -285,37 +300,56 @@ class LTEGroundStationReceiver:
 
     def save_to_database(self, data_list: List[Dict]):
         """데이터베이스에 LTE 데이터 저장"""
+        if isinstance(data_list, dict):
+            data_list = [data_list]
         with sqlite3.connect(self.db_file) as conn:
             for data in data_list:
                 conn.execute("""
-                    INSERT INTO lte_drone_data (
-                        timestamp, module_id, connection_state, uptime,
-                        signal_quality_rssi, signal_quality_ber, network_operator, network_mode,
-                        network_reg_status, eps_reg_status, cell_id, lac,
-                        rx_bytes, tx_bytes, ip_address, frequency_band, earfcn,
-                        latitude, longitude, altitude
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO lte_collector_data (
+                        timestamp, connection_state, rssi, ber,
+                        network_type, network_operator, network_operator_numeric,
+                        network_band, network_channel, mcc, mnc, pcid, earfcn,
+                        qeng_band_indicator, ul_bandwidth, dl_bandwidth, qeng_rssi, srxlev,
+                        cell_id, lac, registration_status, eps_reg_status, eps_tac, eps_cell_id,
+                        eps_act, cs_reg_status, cs_lac, cs_cell_id, cs_act,
+                        rx_bytes, tx_bytes, rsrp, rsrq, sinr, ip_address
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     data.get('timestamp'),
-                    data.get('module_id'),
                     data.get('connection_state'),
-                    data.get('uptime'),
-                    data.get('signal_quality_rssi'),
-                    data.get('signal_quality_ber'),
+                    data.get('rssi'),
+                    data.get('ber'),
+                    data.get('network_type'),
                     data.get('network_operator'),
-                    data.get('network_mode'),
-                    data.get('network_reg_status'),
-                    data.get('eps_reg_status'),
+                    data.get('network_operator_numeric'),
+                    data.get('network_band'),
+                    data.get('network_channel'),
+                    data.get('mcc'),
+                    data.get('mnc'),
+                    data.get('pcid'),
+                    data.get('earfcn'),
+                    data.get('qeng_band_indicator'),
+                    data.get('ul_bandwidth'),
+                    data.get('dl_bandwidth'),
+                    data.get('qeng_rssi'),
+                    data.get('srxlev'),
                     data.get('cell_id'),
                     data.get('lac'),
+                    data.get('registration_status'),
+                    data.get('eps_reg_status'),
+                    data.get('eps_tac'),
+                    data.get('eps_cell_id'),
+                    data.get('eps_act'),
+                    data.get('cs_reg_status'),
+                    data.get('cs_lac'),
+                    data.get('cs_cell_id'),
+                    data.get('cs_act'),
                     data.get('rx_bytes'),
                     data.get('tx_bytes'),
-                    data.get('ip_address'),
-                    data.get('frequency_band'),
-                    data.get('earfcn'),
-                    data.get('latitude'),
-                    data.get('longitude'),
-                    data.get('altitude')
+                    data.get('rsrp'),
+                    data.get('rsrq'),
+                    data.get('sinr'),
+                    data.get('ip_address')
                 ))
 
     def run(self):
@@ -544,6 +578,21 @@ LTE_DASHBOARD_HTML = """
                     <div class="stat-unit">%</div>
                 </div>
                 <div class="stat-card">
+                    <div class="stat-title">RSRP</div>
+                    <div class="stat-value" id="liveRsrp">0</div>
+                    <div class="stat-unit">dBm</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">RSRQ</div>
+                    <div class="stat-value" id="liveRsrq">0</div>
+                    <div class="stat-unit">dB</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">SINR</div>
+                    <div class="stat-value" id="liveSinr">0</div>
+                    <div class="stat-unit">dB</div>
+                </div>
+                <div class="stat-card">
                     <div class="stat-title">RX Data</div>
                     <div class="stat-value" id="liveRx">0.0</div>
                     <div class="stat-unit">KB</div>
@@ -577,9 +626,10 @@ LTE_DASHBOARD_HTML = """
         }
 
         function getConnectionStatusClass(state) {
-            if (state === 'CONNECTED') return 'connected';
-            if (state === 'REGISTERED') return 'registered';
-            if (state === 'SEARCHING') return 'searching';
+            const normalized = (state || '').toLowerCase();
+            if (normalized.includes('connected')) return 'connected';
+            if (normalized.includes('registered')) return 'registered';
+            if (normalized.includes('search')) return 'searching';
             return 'disconnected';
         }
 
@@ -609,37 +659,48 @@ LTE_DASHBOARD_HTML = """
                     return;
                 }
                 
-                // 실시간 데이터를 배열 형태로 변환
-                const data = [rawData];
+                const preferredFields = [
+                    'timestamp', 'connection_state', 'network_type', 'network_operator',
+                    'network_operator_numeric', 'network_band', 'network_channel',
+                    'mcc', 'mnc', 'pcid', 'earfcn', 'qeng_band_indicator',
+                    'ul_bandwidth', 'dl_bandwidth', 'cell_id', 'lac',
+                    'registration_status', 'eps_reg_status', 'eps_tac', 'eps_cell_id',
+                    'eps_act', 'cs_reg_status', 'cs_lac', 'cs_cell_id', 'cs_act',
+                    'ip_address', 'rssi', 'ber', 'rsrp', 'rsrq', 'sinr',
+                    'qeng_rssi', 'srxlev', 'rx_bytes', 'tx_bytes'
+                ];
+
+                const rows = [];
+                const remaining = new Set(Object.keys(rawData || {}));
+
+                preferredFields.forEach(key => {
+                    if (key in rawData) {
+                        rows.push([key, rawData[key]]);
+                        remaining.delete(key);
+                    }
+                });
+
+                Array.from(remaining).sort().forEach(key => {
+                    rows.push([key, rawData[key]]);
+                });
 
                 let html = `
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Time</th>
-                                <th>State</th>
-                                <th>RSSI</th>
-                                <th>Operator</th>
-                                <th>Mode</th>
-                                <th>IP Address</th>
-                                <th>RX/TX (KB)</th>
-                                <th>Band</th>
+                                <th>Field</th>
+                                <th>Value</th>
                             </tr>
                         </thead>
                         <tbody>
                 `;
 
-                data.reverse().forEach(item => {
+                rows.forEach(([key, value]) => {
+                    const displayValue = key === 'timestamp' ? formatTimestamp(value) : (value ?? '-');
                     html += `
                         <tr>
-                            <td>${formatTimestamp(item.timestamp)}</td>
-                            <td><span class="status ${getConnectionStatusClass(item.connection_state)}">${item.connection_state}</span></td>
-                            <td>${item.signal_quality_rssi || 0} dBm</td>
-                            <td>${item.network_operator || '-'}</td>
-                            <td>${item.network_mode || '-'}</td>
-                            <td>${item.ip_address || '-'}</td>
-                            <td>${((item.rx_bytes || 0) / 1024).toFixed(1)} / ${((item.tx_bytes || 0) / 1024).toFixed(1)}</td>
-                            <td>${item.frequency_band || '-'}</td>
+                            <td>${key}</td>
+                            <td>${displayValue}</td>
                         </tr>
                     `;
                 });
@@ -722,17 +783,23 @@ LTE_DASHBOARD_HTML = """
                     document.getElementById('liveBer').textContent = '0';
                     document.getElementById('liveRx').textContent = '0.0';
                     document.getElementById('liveTx').textContent = '0.0';
+                    document.getElementById('liveRsrp').textContent = '0';
+                    document.getElementById('liveRsrq').textContent = '0';
+                    document.getElementById('liveSinr').textContent = '0';
                     return;
                 }
                 
                 // 실시간 LTE 데이터로 스탯 카드 업데이트
-                document.getElementById('liveRssi').textContent = data.signal_quality_rssi || 0;
-                document.getElementById('liveBer').textContent = data.signal_quality_ber || 0;
+                document.getElementById('liveRssi').textContent = data.rssi || 0;
+                document.getElementById('liveBer').textContent = data.ber || 0;
                 document.getElementById('liveRx').textContent = ((data.rx_bytes || 0) / 1024).toFixed(1);
                 document.getElementById('liveTx').textContent = ((data.tx_bytes || 0) / 1024).toFixed(1);
+                document.getElementById('liveRsrp').textContent = data.rsrp || 0;
+                document.getElementById('liveRsrq').textContent = data.rsrq || 0;
+                document.getElementById('liveSinr').textContent = data.sinr || 0;
                 
                 // 상단 통계도 실시간 데이터로 업데이트
-                document.getElementById('avgRssi').textContent = data.signal_quality_rssi || 0;
+                document.getElementById('avgRssi').textContent = data.rssi || 0;
                 document.getElementById('totalRecords').textContent = 'Live';
                 document.getElementById('recentRecords').textContent = 'LTE';
                 document.getElementById('operatorCount').textContent = data.network_operator ? '1' : '0';
