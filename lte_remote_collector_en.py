@@ -12,7 +12,7 @@ import time
 import os
 import csv
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 from enum import Enum
 import serial
@@ -87,6 +87,8 @@ class LTEModule:
             )
             time.sleep(0.5)
             self.send_at("ATE0")
+            self.send_at("AT+CEREG=2")
+            self.send_at("AT+CREG=2")
             self.connected = True
             print(f"[INFO] LTE module connected on {self.port}")
             return True
@@ -176,22 +178,40 @@ class LTEModule:
             if "LTE" in line and "servingcell" in line:
                 p = [x.strip() for x in line.split(",")]
                 try:
-                    return p[-5], p[-6]
+                    return p[6], p[12]
                 except:
                     pass
         return "0", "0"
 
+    def get_servingcell_lte(self):
+        r = self.send_at('AT+QENG="servingcell"', timeout=3)
+        for line in (r or "").splitlines():
+            if "LTE" not in line or "servingcell" not in line:
+                continue
+            p = [x.strip() for x in line.split(",")]
+            def parse_int(token):
+                m = re.search(r"-?\d+", token or "")
+                return int(m.group(0)) if m else -999
+            return {
+                "cell_id": p[6] if len(p) > 6 else "0",
+                "tac": p[12] if len(p) > 12 else "0",
+                "rsrp": parse_int(p[13]) if len(p) > 13 else -999,
+                "rsrq": parse_int(p[14]) if len(p) > 14 else -999,
+                "rssi": parse_int(p[15]) if len(p) > 15 else -999,
+                "sinr": parse_int(p[16]) if len(p) > 16 else -999,
+            }
+        return {}
+
     def get_extended_signal(self, is_lte):
         if not is_lte:
             return -999, -999, -999
-        def parse(cmd, key):
-            r = self.send_at(cmd)
-            m = re.search(rf"\+{key}:\s*(-?\d+)", r or "")
-            return int(m.group(1)) if m else -999
+        serving = self.get_servingcell_lte()
+        if not serving:
+            return -999, -999, -999
         return (
-            parse("AT+QRSRP", "QRSRP"),
-            parse("AT+QRSRQ", "QRSRQ"),
-            parse("AT+QSINR", "QSINR"),
+            serving.get("rsrp", -999),
+            serving.get("rsrq", -999),
+            serving.get("sinr", -999),
         )
 
     def get_data_usage(self):
@@ -236,7 +256,7 @@ class LTEDataCollector:
         self.last_rotate = time.time()
 
     def collect_once(self):
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         rssi, ber = self.modem.get_signal_quality()
         net = self.modem.get_network_info()
         operator_name = self.modem.get_operator_name()
@@ -247,7 +267,9 @@ class LTEDataCollector:
             reg = "Registered (LTE)"
         elif cs_reg.get("stat") in {"1", "5"}:
             reg = "Registered (2G/3G)"
-        cell, lac = self.modem.get_cell_info()
+        serving = self.modem.get_servingcell_lte()
+        cell = eps_reg.get("ci") or serving.get("cell_id", "0")
+        lac = eps_reg.get("tac") or serving.get("tac", "0")
         rx, tx = self.modem.get_data_usage()
         is_lte = "LTE" in net.get("type", "").upper()
         rsrp, rsrq, sinr = self.modem.get_extended_signal(is_lte)
