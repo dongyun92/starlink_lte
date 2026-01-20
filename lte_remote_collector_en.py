@@ -29,6 +29,7 @@ COLLECTION_INTERVAL = 5
 # =================================================
 
 app = Flask(__name__)
+collector = None
 
 class CollectorState(Enum):
     IDLE = "idle"
@@ -234,18 +235,44 @@ class LTEDataCollector:
         self.stop_event.set()
         self.state = CollectorState.IDLE
 
-collector = LTEDataCollector()
-collector.start()
-
 # ================= API =================
 @app.route("/api/current_data")
 @app.route("/api/live_data")
 def live_data():
-    return jsonify(asdict(collector.data[-1])) if collector.data else jsonify({})
+    if not collector or not collector.data:
+        return jsonify({})
+    return jsonify(asdict(collector.data[-1]))
 
 @app.route("/health")
 def health():
     return jsonify({"status": "healthy"})
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="LTE Remote Data Collector")
+    parser.add_argument("--data-dir", default=DATA_DIR, help="Data directory")
+    parser.add_argument("--control-port", type=int, default=CONTROL_PORT, help="Control API port")
+    parser.add_argument("--serial-port", default=SERIAL_PORT, help="Serial port for LTE module")
+    parser.add_argument("--interval", type=int, default=COLLECTION_INTERVAL, help="Collection interval in seconds")
+
+    args = parser.parse_args()
+
+    DATA_DIR = args.data_dir
+    CONTROL_PORT = args.control_port
+    SERIAL_PORT = args.serial_port
+    COLLECTION_INTERVAL = args.interval
+
+    print("=" * 60)
+    print("LTE REMOTE DATA COLLECTOR")
+    print("=" * 60)
+    print(f"Control Port: {CONTROL_PORT}")
+    print(f"Data Directory: {DATA_DIR}")
+    print(f"Serial Port: {SERIAL_PORT}")
+    print(f"Collection Interval: {COLLECTION_INTERVAL} seconds")
+    print("=" * 60)
+
+    collector = LTEDataCollector()
+    collector.start()
+
     app.run(host="0.0.0.0", port=CONTROL_PORT)
