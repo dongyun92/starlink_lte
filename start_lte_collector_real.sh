@@ -13,6 +13,10 @@ NC='\033[0m'
 # Terminate existing processes
 echo -e "\n${YELLOW}Terminating existing processes...${NC}"
 pkill -f "lte_remote_collector"
+# Also kill any process using the serial port
+if [ -n "$SERIAL_PORT" ]; then
+    lsof -t $SERIAL_PORT 2>/dev/null | xargs -r kill -9 2>/dev/null
+fi
 sleep 2
 
 # Search for serial port

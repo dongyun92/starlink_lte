@@ -62,28 +62,52 @@ class LTEModule:
     def connect(self):
         """Connect to LTE module via serial port"""
         try:
+            # Simple connection without flow control for EC25
             self.ser = serial.Serial(
                 port=self.port,
                 baudrate=self.baudrate,
-                timeout=1,
-                rtscts=False,  # EC25 doesn't need hardware flow control
-                dsrdtr=False,  # EC25 doesn't need DSR/DTR
-                xonxoff=False  # No software flow control
+                timeout=2,  # Increased timeout
+                write_timeout=2,  # Add write timeout
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                rtscts=False,
+                dsrdtr=False,
+                xonxoff=False
             )
-            self.connected = True
-            print(f"[INFO] Connected to LTE module on {self.port} at {self.baudrate} baud")
             
-            # Initialize module with basic AT commands
+            # Wait for port to stabilize
+            time.sleep(0.5)
+            
+            # Clear any pending data
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            
+            # Test connection with simple AT command
             self.ser.write(b"AT\r\n")
             time.sleep(0.5)
-            self.ser.read(self.ser.in_waiting)  # Clear buffer
+            response = self.ser.read(self.ser.in_waiting)
             
-            # Disable echo for cleaner responses
-            self.ser.write(b"ATE0\r\n")
-            time.sleep(0.5)
-            self.ser.read(self.ser.in_waiting)
-            
-            return True
+            if b"OK" in response or b"AT" in response:
+                self.connected = True
+                print(f"[INFO] Connected to LTE module on {self.port} at {self.baudrate} baud")
+                
+                # Disable echo for cleaner responses
+                self.ser.write(b"ATE0\r\n")
+                time.sleep(0.5)
+                self.ser.read(self.ser.in_waiting)
+                
+                return True
+            else:
+                print(f"[WARNING] Port {self.port} opened but no AT response")
+                self.ser.close()
+                self.connected = False
+                return False
+                
+        except serial.SerialException as e:
+            print(f"[ERROR] Serial connection failed: {e}")
+            self.connected = False
+            return False
         except Exception as e:
             print(f"[ERROR] Failed to connect to LTE module: {e}")
             self.connected = False
