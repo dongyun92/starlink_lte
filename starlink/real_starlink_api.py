@@ -119,9 +119,8 @@ class RealStarlinkAPI:
                 parsed_data = self.parse_grpc_response(response.content)
                 if parsed_data:
                     return parsed_data
-                else:
-                    self.logger.warning("⚠️ 응답 파싱 실패, 기본값 사용")
-                    return self.create_realistic_data_from_api()
+                self.logger.error("❌ 응답 파싱 실패")
+                return {}
             else:
                 self.logger.error(f"❌ gRPC-Web 요청 실패: HTTP {response.status_code}")
                 return {}
@@ -145,8 +144,8 @@ class RealStarlinkAPI:
                 self.logger.info(f"📦 protobuf 메시지 수신: {message_length} 바이트")
                 
                 # 간단한 protobuf 파싱 시도 (실제 구조 분석 필요)
-                # 여기서는 응답이 있다는 것을 확인하고 현실적인 데이터 반환
-                return self.create_realistic_data_from_api()
+                # 실제 파싱 실패 시 빈 데이터 반환
+                return {}
             
             return {}
             
@@ -228,18 +227,17 @@ class RealStarlinkAPI:
         return data
     
     def get_status_with_fallback(self) -> Dict[str, Any]:
-        """실제 API 우선, 실패시 현실적 데이터"""
+        """실제 API만 사용 (실패시 오류)"""
         
-        # 1. 실제 스타링크 연결 시도
-        if self.test_real_connection():
-            real_data = self.get_real_status()
-            if real_data:
-                self.logger.info("🛰️ 실제 스타링크 API 데이터 사용")
-                return real_data
-        
-        # 2. 실패시 현실적 시뮬레이션
-        self.logger.warning("⚠️ 실제 API 접근 불가, 현실적 시뮬레이션 사용")
-        return self.create_realistic_data_from_api()
+        if not self.test_real_connection():
+            raise RuntimeError("Starlink gRPC-Web 연결 실패")
+
+        real_data = self.get_real_status()
+        if real_data:
+            self.logger.info("🛰️ 실제 스타링크 API 데이터 사용")
+            return real_data
+
+        raise RuntimeError("Starlink gRPC-Web 응답 파싱 실패")
 
 # 테스트 함수
 def test_real_api():
