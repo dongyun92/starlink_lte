@@ -4,7 +4,7 @@
 - 실제 gRPC 연결 (192.168.100.1)
 - status + usage 통계 조합
 - 실시간 그래프 + 누적 통계
-- 포트 8899 고정
+- 포트 9200 고정
 """
 import os
 import sys
@@ -713,15 +713,15 @@ def get_realtime_data():
     return jsonify(dashboard.get_combined_data())
 
 if __name__ == '__main__':
-    print("🔥 TRUE REALTIME Starlink Dashboard 시작")
-    print("📊 대시보드: http://localhost:8899")
+        print("🔥 TRUE REALTIME Starlink Dashboard 시작")
+        print("📊 대시보드: http://localhost:9200")
     print("🚀 100% Live gRPC | Status + Usage 조합")
     
     # 자동 모니터링 시작
     dashboard.start_monitoring()
     
     try:
-        app.run(host='0.0.0.0', port=8899, debug=False)
+        app.run(host='0.0.0.0', port=9200, debug=False)
     except KeyboardInterrupt:
         print("\n🛑 실시간 대시보드 종료")
         dashboard.monitoring_active = False
