@@ -263,6 +263,7 @@ class LTEDataCollector:
         self.csv_writer = None
         self.csv_path = None
         self.last_rotate = time.time()
+        self.start_time = None
 
         os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -366,11 +367,13 @@ class LTEDataCollector:
         self.stop_event.clear()
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.thread.start()
+        self.start_time = time.time()
         self.state = CollectorState.COLLECTING
 
     def stop(self):
         self.stop_event.set()
         self.state = CollectorState.IDLE
+        self.start_time = None
 
 # ================= API =================
 @app.route("/api/current_data")
@@ -383,6 +386,28 @@ def live_data():
 @app.route("/health")
 def health():
     return jsonify({"status": "healthy"})
+
+@app.route("/status")
+@app.route("/api/status")
+def status():
+    if not collector:
+        return jsonify({"state": "unknown", "error": "collector not initialized"}), 503
+    duration = None
+    if collector.start_time:
+        duration = int(time.time() - collector.start_time)
+    return jsonify({
+        "state": collector.state.value,
+        "current_file": collector.csv_path or "",
+        "duration": duration
+    })
+
+@app.route("/stop", methods=["POST"])
+@app.route("/api/stop", methods=["POST"])
+def stop():
+    if not collector:
+        return jsonify({"success": False, "error": "collector not initialized"}), 503
+    collector.stop()
+    return jsonify({"success": True, "message": "Collection stopped"})
 
 if __name__ == "__main__":
     import argparse
