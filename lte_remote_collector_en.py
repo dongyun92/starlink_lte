@@ -57,6 +57,8 @@ class LTEStatus:
     qeng_rssi: int
     srxlev: int
     cell_id: str
+    enodeb_id: int
+    cell_sector_id: int
     lac: str
     registration_status: str
     eps_reg_status: str
@@ -234,6 +236,15 @@ class LTEModule:
             }
         return {}
 
+    def split_ecell_id(self, cell_id):
+        if not cell_id or cell_id == "0":
+            return -1, -1
+        try:
+            eci = int(cell_id, 16)
+        except ValueError:
+            return -1, -1
+        return eci >> 8, eci & 0xFF
+
     def get_extended_signal(self, is_lte):
         if not is_lte:
             return -999, -999, -999
@@ -303,6 +314,7 @@ class LTEDataCollector:
         serving = self.modem.get_servingcell_lte()
         cell = eps_reg.get("ci") or serving.get("cell_id", "0")
         lac = eps_reg.get("tac") or serving.get("tac", "0")
+        enodeb_id, cell_sector_id = self.modem.split_ecell_id(cell)
         rx, tx = self.modem.get_data_usage()
         is_lte = "LTE" in net.get("type", "").upper()
         if is_lte:
@@ -332,6 +344,8 @@ class LTEDataCollector:
             qeng_rssi=serving.get("rssi", -999),
             srxlev=serving.get("srxlev", -999),
             cell_id=cell,
+            enodeb_id=enodeb_id,
+            cell_sector_id=cell_sector_id,
             lac=lac,
             registration_status=reg,
             eps_reg_status=eps_reg.get("stat", ""),

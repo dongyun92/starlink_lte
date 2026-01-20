@@ -74,6 +74,8 @@ class LTEGroundStationReceiver:
                     qeng_rssi INTEGER,
                     srxlev INTEGER,
                     cell_id TEXT,
+                    enodeb_id INTEGER,
+                    cell_sector_id INTEGER,
                     lac TEXT,
                     registration_status TEXT,
                     eps_reg_status TEXT,
@@ -93,10 +95,16 @@ class LTEGroundStationReceiver:
                     received_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # 인덱스 생성
             conn.execute("CREATE INDEX IF NOT EXISTS idx_lte_timestamp ON lte_collector_data(timestamp)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_lte_received_at ON lte_collector_data(received_at)")
+
+            # 컬럼 마이그레이션(기존 DB 호환)
+            existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(lte_collector_data)")}
+            for col, col_type in [("enodeb_id", "INTEGER"), ("cell_sector_id", "INTEGER")]:
+                if col not in existing_cols:
+                    conn.execute(f"ALTER TABLE lte_collector_data ADD COLUMN {col} {col_type}")
 
     def setup_routes(self):
         """Flask 라우트 설정"""
@@ -310,10 +318,10 @@ class LTEGroundStationReceiver:
                         network_type, network_operator, network_operator_numeric,
                         network_band, network_channel, mcc, mnc, pcid, earfcn,
                         qeng_band_indicator, ul_bandwidth, dl_bandwidth, qeng_rssi, srxlev,
-                        cell_id, lac, registration_status, eps_reg_status, eps_tac, eps_cell_id,
+                        cell_id, enodeb_id, cell_sector_id, lac, registration_status, eps_reg_status, eps_tac, eps_cell_id,
                         eps_act, cs_reg_status, cs_lac, cs_cell_id, cs_act,
                         rx_bytes, tx_bytes, rsrp, rsrq, sinr, ip_address
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     data.get('timestamp'),
                     data.get('connection_state'),
@@ -334,6 +342,8 @@ class LTEGroundStationReceiver:
                     data.get('qeng_rssi'),
                     data.get('srxlev'),
                     data.get('cell_id'),
+                    data.get('enodeb_id'),
+                    data.get('cell_sector_id'),
                     data.get('lac'),
                     data.get('registration_status'),
                     data.get('eps_reg_status'),
@@ -663,7 +673,7 @@ LTE_DASHBOARD_HTML = """
                     'timestamp', 'connection_state', 'network_type', 'network_operator',
                     'network_operator_numeric', 'network_band', 'network_channel',
                     'mcc', 'mnc', 'pcid', 'earfcn', 'qeng_band_indicator',
-                    'ul_bandwidth', 'dl_bandwidth', 'cell_id', 'lac',
+                    'ul_bandwidth', 'dl_bandwidth', 'cell_id', 'enodeb_id', 'cell_sector_id', 'lac',
                     'registration_status', 'eps_reg_status', 'eps_tac', 'eps_cell_id',
                     'eps_act', 'cs_reg_status', 'cs_lac', 'cs_cell_id', 'cs_act',
                     'ip_address', 'rssi', 'ber', 'rsrp', 'rsrq', 'sinr',
