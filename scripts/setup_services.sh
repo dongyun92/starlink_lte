@@ -108,6 +108,7 @@ sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_SL_GS}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_SL_GS}"
 sudo sed -i "s|WorkingDirectory=/home/pi/starlink_lte|WorkingDirectory=${BASE_DIR}|" "${UNIT_SL_GS}"
 sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${STARLINK_PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_GS}"
+sudo sed -i "s|--data-dir /home/pi/starlink-ground-station-data|--data-dir ${STARLINK_GS_DATA_DIR}|" "${UNIT_SL_GS}"
 
 sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_SL_SIM_COL}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_SL_SIM_COL}"
