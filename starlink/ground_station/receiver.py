@@ -558,8 +558,11 @@ DASHBOARD_HTML = """
         }
 
         function getStatusClass(state) {
-            if (state === 'CONNECTED') return 'connected';
-            if (state === 'SEARCHING') return 'connecting';
+            const normalized = (state || '').toLowerCase();
+            if (normalized.includes('connected') || normalized.includes('running')) return 'connected';
+            if (normalized.includes('start') || normalized.includes('search')) return 'connecting';
+            if (normalized.includes('idle') || normalized.includes('stop')) return 'disconnected';
+            if (normalized.includes('error')) return 'disconnected';
             return 'disconnected';
         }
 
@@ -585,7 +588,8 @@ DASHBOARD_HTML = """
                 const rawData = await response.json();
                 
                 if (rawData.error) {
-                    document.getElementById('dataContainer').innerHTML = '<p class="loading">No data received.</p>';
+                    const detail = rawData.detail ? `<br>${rawData.detail}` : '';
+                    document.getElementById('dataContainer').innerHTML = `<p class="loading">No data received.${detail}</p>`;
                     return;
                 }
                 
@@ -655,7 +659,8 @@ DASHBOARD_HTML = """
                     alert(`Success: ${result.message}`);
                     updateDroneStatus();  // 상태 즉시 업데이트
                 } else {
-                    alert(`Error: ${result.error}`);
+                    const detail = result.detail ? `\n${result.detail}` : '';
+                    alert(`Error: ${result.error}${detail}`);
                 }
             } catch (error) {
                 alert(`Connection error: ${error.message}`);
@@ -673,16 +678,23 @@ DASHBOARD_HTML = """
                 const status = await response.json();
                 
                 if (!status.error) {
-                    document.getElementById('droneState').textContent = status.state || '-';
+                    const state = status.state || '-';
+                    const stateEl = document.getElementById('droneState');
+                    stateEl.textContent = state;
+                    stateEl.className = `status ${getStatusClass(state)}`;
                     document.getElementById('droneFile').textContent = status.current_file || '-';
                     document.getElementById('droneDuration').textContent = status.duration || '-';
                 } else {
-                    document.getElementById('droneState').textContent = 'ERROR';
+                    const stateEl = document.getElementById('droneState');
+                    stateEl.textContent = 'ERROR';
+                    stateEl.className = 'status disconnected';
                     document.getElementById('droneFile').textContent = '-';
                     document.getElementById('droneDuration').textContent = '-';
                 }
             } catch (error) {
-                document.getElementById('droneState').textContent = 'OFFLINE';
+                const stateEl = document.getElementById('droneState');
+                stateEl.textContent = 'OFFLINE';
+                stateEl.className = 'status disconnected';
                 document.getElementById('droneFile').textContent = '-';
                 document.getElementById('droneDuration').textContent = '-';
             }
