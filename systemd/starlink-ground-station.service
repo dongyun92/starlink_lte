@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/pi/starlink_lte
-ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/ground_station/receiver.py --port 8080 --data-dir /home/pi/starlink-ground-station-data
+ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/ground_station/receiver.py
 Restart=always
 RestartSec=1
 StartLimitIntervalSec=0

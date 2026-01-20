@@ -1,772 +1,727 @@
 #!/usr/bin/env python3
 """
-지상국 데이터 수신 및 모니터링 시스템
-- 드론에서 전송된 압축 데이터 수신
-- 실시간 대시보드 제공
-- 데이터 저장 및 분석
+진짜 실시간 스타링크 대시보드 - 100% Live gRPC
+- 실제 gRPC 연결 (192.168.100.1)
+- status + usage 통계 조합
+- 실시간 그래프 + 누적 통계
+- 포트 8899 고정
 """
-
-import json
-import gzip
+import os
+import sys
+import subprocess
 import time
 import threading
-from datetime import datetime
+import json
+import csv
+from datetime import datetime, timedelta
 from pathlib import Path
-from flask import Flask, request, jsonify, render_template_string
-import logging
-from typing import Dict, List
-from collections import deque
-import sqlite3
-import requests
+from flask import Flask, render_template_string, jsonify
 
-class GroundStationReceiver:
-    """지상국 데이터 수신기"""
+app = Flask(__name__)
+
+class TrueRealtimeDashboard:
+    def __init__(self):
+        self.grpc_tools_path = str(Path(__file__).resolve().parents[2] / "starlink-grpc-tools")
+        self.monitoring_active = False
+        self.latest_data = {}
+        self.cumulative_stats = {
+            'total_download_bytes': 0,
+            'total_upload_bytes': 0,
+            'session_start': datetime.now(),
+            'peak_download_mbps': 0,
+            'peak_upload_mbps': 0,
+            'avg_ping': 0,
+            'total_measurements': 0,
+            'last_usage_download': 0,
+            'last_usage_upload': 0
+        }
+        
+        # 그래프용 데이터 (최근 30포인트)
+        self.chart_data = {
+            'timestamps': [],
+            'download_speeds': [],
+            'upload_speeds': [],
+            'ping_values': []
+        }
+        
+        # CSV 로깅
+        self.csv_file = f'live_starlink_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        self.init_csv()
+        
+    def init_csv(self):
+        """CSV 헤더 생성"""
+        with open(self.csv_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'timestamp', 'terminal_id', 'state', 'uptime', 
+                'download_throughput_bytes', 'upload_throughput_bytes',
+                'ping_latency_ms', 'snr_db', 'azimuth', 'elevation',
+                'cumulative_download_bytes', 'cumulative_upload_bytes',
+                'download_mbps', 'upload_mbps'
+            ])
     
-    def __init__(self, port=8080, data_dir="/opt/ground-station-data"):
-        self.port = port
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(exist_ok=True, parents=True)
-        
-        # Flask 앱
-        self.app = Flask(__name__)
-        self.setup_routes()
-        
-        # 최소화된 모니터링용 실시간 데이터 버퍼 (최근 50개만)
-        self.realtime_data = deque(maxlen=50)
-        
-        # 데이터베이스 설정
-        self.db_file = self.data_dir / "drone_data.db"
-        self.setup_database()
-        
-        # 로깅 설정
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(self.data_dir / 'ground_station.log'),
-                logging.StreamHandler()
+    def get_live_status_data(self):
+        """실시간 status 데이터 수집"""
+        try:
+            cmd = [
+                sys.executable, 'dish_grpc_text.py',
+                'status'
             ]
-        )
-        self.logger = logging.getLogger(__name__)
-
-    def setup_database(self):
-        """SQLite 데이터베이스 초기화"""
-        with sqlite3.connect(self.db_file) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS drone_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    terminal_id TEXT,
-                    state TEXT,
-                    uptime INTEGER,
-                    downlink_throughput_bps REAL,
-                    uplink_throughput_bps REAL,
-                    ping_drop_rate REAL,
-                    ping_latency_ms REAL,
-                    snr REAL,
-                    seconds_to_first_nonempty_slot INTEGER,
-                    azimuth REAL,
-                    elevation REAL,
-                    pop_ping_drop_rate REAL,
-                    pop_ping_latency_ms REAL,
-                    latitude REAL,
-                    longitude REAL,
-                    altitude REAL,
-                    received_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
             
-            # 인덱스 생성
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON drone_data(timestamp)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_received_at ON drone_data(received_at)")
-
-    def setup_routes(self):
-        """Flask 라우트 설정"""
-        
-        @self.app.route('/upload_status', methods=['POST'])
-        def upload_status():
-            """드론 상태 정보 수신"""
-            try:
-                # 압축 해제
-                if request.headers.get('Content-Encoding') == 'gzip':
-                    data = gzip.decompress(request.data)
-                    status_data = json.loads(data.decode('utf-8'))
-                else:
-                    status_data = request.get_json()
+            env = os.environ.copy()
+            env['PATH'] = f"{os.path.join(self.grpc_tools_path, 'grpc_env/bin')}:{env['PATH']}"
+            
+            result = subprocess.run(
+                cmd,
+                cwd=self.grpc_tools_path,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=env
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                line = result.stdout.strip()
+                parts = line.split(',')
                 
-                # 드론 상태 정보 처리
-                if 'recent_data' in status_data:
-                    # 최근 데이터가 있으면 데이터베이스에 저장
-                    self.save_to_database(status_data['recent_data'])
-                    # 실시간 버퍼 업데이트
-                    for item in status_data['recent_data']:
-                        self.realtime_data.append(item)
-                
-                self.logger.info(f"드론 상태 수신: {status_data.get('state', 'UNKNOWN')}")
-                return jsonify({"status": "success"})
-                
-            except Exception as e:
-                self.logger.error(f"상태 수신 오류: {e}")
-                return jsonify({"status": "error", "message": str(e)}), 400
-
-        @self.app.route('/upload_data', methods=['POST'])
-        def upload_data():
-            """드론에서 전송된 데이터 수신"""
-            try:
-                # 압축 해제
-                if request.headers.get('Content-Encoding') == 'gzip':
-                    data = gzip.decompress(request.data)
-                else:
-                    data = request.data
-                
-                # JSON 파싱
-                json_data = json.loads(data.decode('utf-8'))
-                
-                # 데이터베이스 저장
-                self.save_to_database(json_data)
-                
-                # 실시간 버퍼 업데이트
-                for item in json_data:
-                    self.realtime_data.append(item)
-                
-                self.logger.info(f"수신된 데이터: {len(json_data)}개")
-                
-                return jsonify({"status": "success", "received_count": len(json_data)})
-                
-            except Exception as e:
-                self.logger.error(f"데이터 수신 오류: {e}")
-                return jsonify({"status": "error", "message": str(e)}), 400
-
-        @self.app.route('/api/latest_data')
-        def get_latest_data():
-            """최신 데이터 반환 (최소화된 모니터링용)"""
-            if self.realtime_data:
-                return jsonify(list(self.realtime_data)[-5:])  # 최근 5개만
-            return jsonify([])
-
-        @self.app.route('/api/stats')
-        def get_stats():
-            """통계 정보 반환"""
-            with sqlite3.connect(self.db_file) as conn:
-                conn.row_factory = sqlite3.Row
-                
-                # 총 데이터 수
-                total_count = conn.execute("SELECT COUNT(*) as count FROM drone_data").fetchone()['count']
-                
-                # 최근 1시간 데이터 수
-                recent_count = conn.execute("""
-                    SELECT COUNT(*) as count FROM drone_data 
-                    WHERE received_at > datetime('now', '-1 hour')
-                """).fetchone()['count']
-                
-                # 평균 성능 지표 (최근 1시간)
-                stats = conn.execute("""
-                    SELECT 
-                        AVG(downlink_throughput_bps) as avg_downlink,
-                        AVG(uplink_throughput_bps) as avg_uplink,
-                        AVG(ping_latency_ms) as avg_latency,
-                        AVG(snr) as avg_snr
-                    FROM drone_data 
-                    WHERE received_at > datetime('now', '-1 hour')
-                """).fetchone()
-                
-                return jsonify({
-                    "total_records": total_count,
-                    "recent_hour_records": recent_count,
-                    "avg_downlink_mbps": round((stats['avg_downlink'] or 0) / 1024 / 1024, 2),
-                    "avg_uplink_mbps": round((stats['avg_uplink'] or 0) / 1024 / 1024, 2),
-                    "avg_latency_ms": round(stats['avg_latency'] or 0, 2),
-                    "avg_snr": round(stats['avg_snr'] or 0, 2)
-                })
-
-        @self.app.route('/api/drone_control/<action>', methods=['POST'])
-        def drone_control(action):
-            """드론 제어 (시작/중지)"""
-            try:
-                drone_address = request.json.get('drone_address', '192.168.1.100:8899')  # 기본 드론 주소:포트
-                
-                # 포트가 포함되지 않은 경우 기본 포트 추가
-                if ':' not in drone_address:
-                    drone_address += ':8899'
-                
-                if action == 'start':
-                    response = requests.post(f"http://{drone_address}/api/start", timeout=10)
-                elif action == 'stop':
-                    response = requests.post(f"http://{drone_address}/api/stop", timeout=10)
-                else:
-                    return jsonify({"error": "잘못된 액션입니다"}), 400
-                
-                if response.status_code == 200:
-                    return jsonify({"success": True, "message": response.json().get('message', 'Success')})
-                else:
-                    return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
+                if len(parts) >= 14:
+                    return {
+                        'timestamp': parts[0],
+                        'terminal_id': parts[1],
+                        'hardware_version': parts[2],
+                        'software_version': parts[3],
+                        'state': parts[4],
+                        'uptime': int(parts[5]) if parts[5] else 0,
+                        'download_throughput': float(parts[6]) if parts[6] else 0.0,
+                        'upload_throughput': float(parts[7]) if parts[7] else 0.0,
+                        'ping_latency': float(parts[8]) if parts[8] and parts[8] != '0.0' else None,
+                        'azimuth': float(parts[11]) if len(parts) > 11 and parts[11] else 0.0,
+                        'elevation': float(parts[12]) if len(parts) > 12 and parts[12] else 0.0,
+                        'snr': float(parts[13]) if len(parts) > 13 and parts[13] else 0.0
+                    }
                     
-            except requests.RequestException as e:
-                return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
-
-        @self.app.route('/api/drone_status')
-        def drone_status():
-            """드론 상태 조회"""
+        except Exception as e:
+            print(f"⚠️ Status 데이터 수집 실패: {e}")
+            
+        return None
+    
+    def get_live_usage_data(self):
+        """실시간 usage 누적 데이터 수집"""
+        try:
+            cmd = [
+                sys.executable, 'dish_grpc_text.py',
+                'usage'
+            ]
+            
+            env = os.environ.copy()
+            env['PATH'] = f"{os.path.join(self.grpc_tools_path, 'grpc_env/bin')}:{env['PATH']}"
+            
+            result = subprocess.run(
+                cmd,
+                cwd=self.grpc_tools_path,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=env
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                line = result.stdout.strip()
+                parts = line.split(',')
+                
+                if len(parts) >= 5:
+                    return {
+                        'timestamp': parts[0],
+                        'uptime': int(parts[1]) if parts[1] else 0,
+                        'ping_drop_rate': float(parts[2]) if parts[2] else 0.0,
+                        'download_bytes': int(parts[3]) if parts[3] else 0,
+                        'upload_bytes': int(parts[4]) if parts[4] else 0
+                    }
+                    
+        except Exception as e:
+            print(f"⚠️ Usage 데이터 수집 실패: {e}")
+            
+        return None
+    
+    def calculate_realtime_speeds(self, current_usage):
+        """누적 사용량에서 실시간 속도 계산"""
+        if not current_usage:
+            return 0.0, 0.0
+            
+        current_down = current_usage['download_bytes']
+        current_up = current_usage['upload_bytes']
+        
+        # 첫 측정이면 이전 값 저장만
+        if self.cumulative_stats['last_usage_download'] == 0:
+            self.cumulative_stats['last_usage_download'] = current_down
+            self.cumulative_stats['last_usage_upload'] = current_up
+            return 0.0, 0.0
+        
+        # 시간 간격 (3초 가정)
+        time_interval = 3.0
+        
+        # 바이트 차이 계산
+        down_diff = max(0, current_down - self.cumulative_stats['last_usage_download'])
+        up_diff = max(0, current_up - self.cumulative_stats['last_usage_upload'])
+        
+        # bytes/sec 계산
+        down_bps = down_diff / time_interval
+        up_bps = up_diff / time_interval
+        
+        # Mbps 변환
+        down_mbps = down_bps / 125000
+        up_mbps = up_bps / 125000
+        
+        # 이전 값 업데이트
+        self.cumulative_stats['last_usage_download'] = current_down
+        self.cumulative_stats['last_usage_upload'] = current_up
+        
+        return down_mbps, up_mbps
+    
+    def start_monitoring(self):
+        """실시간 모니터링 시작"""
+        if self.monitoring_active:
+            return
+            
+        self.monitoring_active = True
+        self.monitor_thread = threading.Thread(target=self._monitoring_loop)
+        self.monitor_thread.daemon = True
+        self.monitor_thread.start()
+        print("🚀 진짜 실시간 모니터링 시작 (Live gRPC)")
+        
+    def _monitoring_loop(self):
+        """실시간 데이터 수집 루프"""
+        while self.monitoring_active:
             try:
-                drone_address = request.args.get('drone_address', '192.168.1.100:8899')
+                # Status와 Usage 데이터 동시 수집
+                status_data = self.get_live_status_data()
+                usage_data = self.get_live_usage_data()
                 
-                # 포트가 포함되지 않은 경우 기본 포트 추가
-                if ':' not in drone_address:
-                    drone_address += ':8899'
+                if status_data:
+                    # 실시간 속도 계산 (usage 기반)
+                    realtime_down_mbps, realtime_up_mbps = self.calculate_realtime_speeds(usage_data)
+                    
+                    # Status의 throughput이 0이면 계산된 실시간 속도 사용
+                    if status_data['download_throughput'] == 0:
+                        final_down_mbps = realtime_down_mbps
+                        final_up_mbps = realtime_up_mbps
+                        final_down_bytes = realtime_down_mbps * 125000
+                        final_up_bytes = realtime_up_mbps * 125000
+                    else:
+                        final_down_bytes = status_data['download_throughput']
+                        final_up_bytes = status_data['upload_throughput']
+                        final_down_mbps = final_down_bytes / 125000
+                        final_up_mbps = final_up_bytes / 125000
+                    
+                    # 실시간 데이터 업데이트
+                    self.latest_data = {
+                        'timestamp': datetime.now().isoformat(),
+                        'terminal_id': status_data['terminal_id'],
+                        'hardware_version': status_data.get('hardware_version', 'unknown'),
+                        'software_version': status_data.get('software_version', 'unknown'),
+                        'state': status_data['state'],
+                        'uptime': status_data['uptime'],
+                        'download_throughput_bytes': final_down_bytes,
+                        'upload_throughput_bytes': final_up_bytes,
+                        'download_mbps': final_down_mbps,
+                        'upload_mbps': final_up_mbps,
+                        'ping_latency': status_data['ping_latency'],
+                        'snr': status_data['snr'],
+                        'azimuth': status_data['azimuth'],
+                        'elevation': status_data['elevation'],
+                        'cumulative_download': usage_data['download_bytes'] if usage_data else 0,
+                        'cumulative_upload': usage_data['upload_bytes'] if usage_data else 0,
+                        'data_source': 'live_grpc'
+                    }
+                    
+                    # 누적 통계 업데이트
+                    self._update_cumulative_stats(final_down_bytes, final_up_bytes, status_data['ping_latency'], final_down_mbps, final_up_mbps)
+                    
+                    # 그래프 데이터 업데이트
+                    self._update_chart_data(final_down_mbps, final_up_mbps, status_data['ping_latency'])
+                    
+                    # CSV 저장
+                    self._save_to_csv(self.latest_data)
+                    
+                    # 로깅
+                    print(f"📊 실시간: ⬇️{final_down_mbps:.1f}Mbps ⬆️{final_up_mbps:.1f}Mbps 📡{status_data['ping_latency']}ms")
+                else:
+                    print("⚠️ gRPC 연결 실패 - 재시도 중...")
                 
-                response = requests.get(f"http://{drone_address}/api/status", timeout=5)
-                if response.status_code != 200:
-                    return jsonify({"error": "상태 조회 실패", "detail": response.text}), response.status_code
-
-                try:
-                    return jsonify(response.json())
-                except ValueError as e:
-                    self.logger.exception(f"상태 JSON 파싱 실패: {e}")
-                    return jsonify({"error": "상태 응답 파싱 실패", "detail": response.text}), 502
-
-            except requests.RequestException as e:
-                self.logger.exception(f"드론 연결 실패: {e}")
-                return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
             except Exception as e:
-                self.logger.exception(f"드론 상태 조회 오류: {e}")
-                return jsonify({"error": "드론 상태 조회 오류", "detail": str(e)}), 500
-
-        @self.app.route('/api/live_data')
-        def get_live_data():
-            """드론에서 실시간 데이터 가져오기"""
-            try:
-                drone_address = request.args.get('drone_address', 'localhost:8899')
+                print(f"❌ 모니터링 오류: {e}")
                 
-                # 포트가 포함되지 않은 경우 기본 포트 추가
-                if ':' not in drone_address:
-                    drone_address += ':8899'
-                
-                response = requests.get(f"http://{drone_address}/api/current_data", timeout=5)
-                if response.status_code != 200:
-                    return jsonify({"error": "실시간 데이터 조회 실패", "detail": response.text}), response.status_code
+            time.sleep(3)  # 3초마다 업데이트
+            
+    def _update_cumulative_stats(self, download_bytes, upload_bytes, ping_ms, download_mbps, upload_mbps):
+        """누적 통계 업데이트"""
+        self.cumulative_stats['total_download_bytes'] += download_bytes * 3  # 3초간격 가정
+        self.cumulative_stats['total_upload_bytes'] += upload_bytes * 3
+        
+        if download_mbps > self.cumulative_stats['peak_download_mbps']:
+            self.cumulative_stats['peak_download_mbps'] = download_mbps
+            
+        if upload_mbps > self.cumulative_stats['peak_upload_mbps']:
+            self.cumulative_stats['peak_upload_mbps'] = upload_mbps
+            
+        self.cumulative_stats['total_measurements'] += 1
+        
+        if ping_ms is not None:
+            current_avg = self.cumulative_stats['avg_ping']
+            count = self.cumulative_stats['total_measurements']
+            self.cumulative_stats['avg_ping'] = ((current_avg * (count - 1)) + ping_ms) / count
+            
+    def _update_chart_data(self, download_mbps, upload_mbps, ping_ms):
+        """그래프 데이터 업데이트"""
+        current_time = datetime.now().strftime("%H:%M:%S")
+        
+        self.chart_data['timestamps'].append(current_time)
+        self.chart_data['download_speeds'].append(download_mbps)
+        self.chart_data['upload_speeds'].append(upload_mbps)
+        self.chart_data['ping_values'].append(ping_ms)
+        
+        # 최대 30개 포인트 유지
+        max_points = 30
+        if len(self.chart_data['timestamps']) > max_points:
+            self.chart_data['timestamps'] = self.chart_data['timestamps'][-max_points:]
+            self.chart_data['download_speeds'] = self.chart_data['download_speeds'][-max_points:]
+            self.chart_data['upload_speeds'] = self.chart_data['upload_speeds'][-max_points:]
+            self.chart_data['ping_values'] = self.chart_data['ping_values'][-max_points:]
+    
+    def _save_to_csv(self, data):
+        """CSV에 실시간 데이터 저장"""
+        try:
+            with open(self.csv_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    data['timestamp'],
+                    data['terminal_id'],
+                    data['state'],
+                    data['uptime'],
+                    data['download_throughput_bytes'],
+                    data['upload_throughput_bytes'],
+                    data['ping_latency'],
+                    data['snr'],
+                    data['azimuth'],
+                    data['elevation'],
+                    data['cumulative_download'],
+                    data['cumulative_upload'],
+                    data['download_mbps'],
+                    data['upload_mbps']
+                ])
+        except Exception as e:
+            print(f"⚠️ CSV 저장 실패: {e}")
+    
+    def get_combined_data(self):
+        """실시간 + 누적 + 그래프 데이터 결합"""
+        session_duration = datetime.now() - self.cumulative_stats['session_start']
+        
+        return {
+            # 실시간 데이터
+            'realtime': self.latest_data,
+            
+            # 누적 통계
+            'cumulative': {
+                'total_download_gb': self.cumulative_stats['total_download_bytes'] / (1024**3),
+                'total_upload_gb': self.cumulative_stats['total_upload_bytes'] / (1024**3),
+                'peak_download_mbps': self.cumulative_stats['peak_download_mbps'],
+                'peak_upload_mbps': self.cumulative_stats['peak_upload_mbps'],
+                'avg_ping': self.cumulative_stats['avg_ping'],
+                'session_duration_minutes': session_duration.total_seconds() / 60,
+                'total_measurements': self.cumulative_stats['total_measurements']
+            },
+            
+            # 그래프 데이터
+            'charts': self.chart_data
+        }
 
-                try:
-                    return jsonify(response.json())
-                except ValueError as e:
-                    self.logger.exception(f"실시간 데이터 JSON 파싱 실패: {e}")
-                    return jsonify({"error": "실시간 데이터 파싱 실패", "detail": response.text}), 502
+# Flask 웹 인터페이스
+dashboard = TrueRealtimeDashboard()
 
-            except requests.RequestException as e:
-                self.logger.exception(f"드론 연결 실패: {e}")
-                return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
-            except Exception as e:
-                self.logger.exception(f"실시간 데이터 조회 오류: {e}")
-                return jsonify({"error": "실시간 데이터 조회 오류", "detail": str(e)}), 500
-
-        @self.app.route('/')
-        def dashboard():
-            """지상국 대시보드"""
-            return render_template_string(DASHBOARD_HTML)
-
-    def save_to_database(self, data_list: List[Dict]):
-        """데이터베이스에 저장"""
-        with sqlite3.connect(self.db_file) as conn:
-            for data in data_list:
-                try:
-                    conn.execute("""
-                        INSERT INTO drone_data (
-                            timestamp, terminal_id, state, uptime,
-                            downlink_throughput_bps, uplink_throughput_bps,
-                            ping_drop_rate, ping_latency_ms, snr,
-                            seconds_to_first_nonempty_slot, azimuth, elevation,
-                            pop_ping_drop_rate, pop_ping_latency_ms,
-                            latitude, longitude, altitude
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        data.get('timestamp'),
-                        data.get('terminal_id'),
-                        data.get('state'),
-                        data.get('uptime'),
-                        data.get('downlink_throughput_bps'),
-                        data.get('uplink_throughput_bps'),
-                        data.get('ping_drop_rate'),
-                        data.get('ping_latency_ms'),
-                        data.get('snr'),
-                        data.get('seconds_to_first_nonempty_slot'),
-                        data.get('azimuth'),
-                        data.get('elevation'),
-                        data.get('pop_ping_drop_rate'),
-                        data.get('pop_ping_latency_ms'),
-                        data.get('latitude'),
-                        data.get('longitude'),
-                        data.get('altitude')
-                    ))
-                except Exception as e:
-                    self.logger.error(f"DB 저장 오류: {e}")
-                    try:
-                        conn.execute("""
-                            INSERT INTO drone_data (
-                                timestamp, terminal_id, state, uptime,
-                                downlink_throughput_bps, uplink_throughput_bps,
-                                ping_drop_rate, ping_latency_ms, snr,
-                                seconds_to_first_nonempty_slot, azimuth, elevation,
-                                pop_ping_drop_rate, pop_ping_latency_ms,
-                                latitude, longitude, altitude
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            data.get('timestamp'),
-                            data.get('terminal_id'),
-                            data.get('state'),
-                            data.get('uptime'),
-                            data.get('downlink_throughput_bps'),
-                            data.get('uplink_throughput_bps'),
-                            data.get('ping_drop_rate'),
-                            data.get('ping_latency_ms'),
-                            data.get('snr'),
-                            data.get('seconds_to_first_nonempty_slot'),
-                            data.get('azimuth'),
-                            data.get('elevation'),
-                            data.get('pop_ping_drop_rate'),
-                            data.get('pop_ping_latency_ms'),
-                            data.get('latitude'),
-                            data.get('longitude'),
-                            data.get('altitude')
-                        ))
-                    except Exception as retry_error:
-                        self.logger.error(f"DB 저장 재시도 실패: {retry_error}")
-
-    def run(self):
-        """지상국 서버 실행"""
-        self.logger.info(f"지상국 수신기 시작: http://0.0.0.0:{self.port}")
-        self.app.run(host='0.0.0.0', port=self.port, debug=False)
-
-
-# 대시보드 HTML 템플릿
-DASHBOARD_HTML = """
+# HTML 템플릿 - 실시간 강조
+HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="ko">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Starlink Ground Station Monitor</title>
+    <title>TRUE REALTIME Starlink Dashboard</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #0f1c3e 0%, #1a2851 100%);
-            color: #f0f4f8; line-height: 1.6; min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+            margin: 0; 
+            background: #0B0E11; 
+            color: #EAECEF; 
+            padding: 20px;
         }
-        .container { max-width: 1400px; margin: 0 auto; padding: 4px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        .header { text-align: center; margin-bottom: 6px; flex-shrink: 0; }
-        .header h1 { 
-            font-size: 1.2rem; color: #ffffff; margin-bottom: 2px; 
-            font-weight: 700; letter-spacing: -0.02em;
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 30px; 
+            padding: 20px; 
+            background: #1E2329; 
+            border-radius: 8px; 
         }
-        .header p { color: #8fa3b8; font-size: 0.7rem; font-weight: 400; }
-        .stats-grid { 
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); 
-            gap: 6px; margin-bottom: 6px; 
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
         }
-        .stat-card {
-            background: rgba(255, 255, 255, 0.1); 
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 6px; padding: 8px;
-            backdrop-filter: blur(10px); transition: all 0.3s ease;
+        .realtime-section {
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
+            gap: 15px;
         }
-        .stat-card:hover { 
-            border-color: rgba(255, 255, 255, 0.3); 
-            transform: translateY(-2px); 
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-        }
-        .stat-title { 
-            font-size: 0.75rem; color: #8fa3b8; margin-bottom: 4px; 
-            font-weight: 500; letter-spacing: 0.025em; text-transform: uppercase;
-        }
-        .stat-value { font-size: 1.1rem; font-weight: 700; color: #ffffff; line-height: 1; }
-        .stat-unit { font-size: 0.75rem; color: #8fa3b8; margin-left: 4px; }
-        .data-section { 
-            background: rgba(255, 255, 255, 0.05); 
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 6px; padding: 8px; margin-bottom: 4px; 
-            backdrop-filter: blur(10px); flex-shrink: 0;
+        .cumulative-section {
+            background: #1E2329;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #F0B90B;
         }
         .section-title {
-            font-size: 0.85rem; font-weight: 600; color: #ffffff; 
-            margin-bottom: 6px; letter-spacing: -0.01em;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #F0B90B;
         }
-        .data-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
-        .data-table th, .data-table td { 
-            text-align: left; padding: 3px 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); 
+        .status-card { 
+            background: #1E2329; 
+            border-radius: 8px; 
+            padding: 15px; 
+            border-left: 4px solid #2EBD85; 
         }
-        .data-table th { 
-            background: rgba(255, 255, 255, 0.05); color: #ffffff; font-weight: 600; 
-            font-size: 0.65rem; letter-spacing: 0.025em; text-transform: uppercase;
-        }
-        .data-table tr:hover { background: rgba(255, 255, 255, 0.05); }
-        .status { 
-            display: inline-block; padding: 3px 8px; border-radius: 6px; 
-            font-size: 0.65rem; font-weight: 600; letter-spacing: 0.025em;
-            text-transform: uppercase;
-        }
-        .status.connected { background: #10b981; color: #ffffff; }
-        .status.connecting { background: #f59e0b; color: #ffffff; }
-        .status.disconnected { background: #ef4444; color: #ffffff; }
-        .update-time { text-align: center; color: #8fa3b8; margin-top: 12px; font-size: 0.75rem; }
-        .loading { text-align: center; padding: 24px; color: #8fa3b8; font-size: 0.875rem; }
-        
-        /* 제어 패널 스타일 */
-        .control-panel { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; flex-wrap: wrap; }
-        .control-panel input { 
-            padding: 6px 10px; border: 1px solid rgba(255, 255, 255, 0.2); 
-            background: rgba(255, 255, 255, 0.1); color: #ffffff; 
-            border-radius: 6px; flex: 1; min-width: 200px;
-            font-size: 0.75rem; backdrop-filter: blur(10px);
-        }
-        .control-panel input::placeholder { color: #8fa3b8; }
-        .control-panel input:focus { 
-            outline: none; border-color: rgba(255, 255, 255, 0.4); 
-            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
-        }
-        .control-btn {
-            padding: 6px 10px; border: none; border-radius: 6px; font-weight: 600;
-            cursor: pointer; transition: all 0.3s ease; font-size: 0.65rem;
-            letter-spacing: 0.025em; text-transform: uppercase;
-        }
-        .start-btn { background: #10b981; color: #ffffff; }
-        .start-btn:hover { background: #059669; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3); }
-        .stop-btn { background: #ef4444; color: #ffffff; }
-        .stop-btn:hover { background: #dc2626; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3); }
-        .status-btn { background: #3b82f6; color: #ffffff; }
-        .status-btn:hover { background: #2563eb; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3); }
-        .control-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        .drone-status { 
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); 
-            gap: 6px; padding: 6px; background: rgba(255, 255, 255, 0.05); 
-            border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .status-item { color: #8fa3b8; font-size: 0.75rem; font-weight: 500; }
-        .status-item span { color: #ffffff; font-weight: 600; }
-        
-        /* 테이블 스크롤 */
-        .table-container {
-            height: 200px;
-            overflow-y: auto;
+        .cumulative-card {
+            background: #2A2E39;
             border-radius: 6px;
-            background: rgba(255, 255, 255, 0.02);
+            padding: 12px;
+            margin-bottom: 10px;
         }
-        .table-container::-webkit-scrollbar {
-            width: 6px;
+        .metric-title { 
+            font-size: 12px; 
+            color: #848E9C; 
+            margin-bottom: 6px; 
         }
-        .table-container::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
+        .metric-value { 
+            font-size: 20px; 
+            font-weight: bold; 
+            color: #EAECEF; 
         }
-        .table-container::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 3px;
+        .metric-unit { 
+            font-size: 14px; 
+            color: #848E9C; 
+            margin-left: 5px; 
         }
-        .table-container::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.5);
+        .charts-container { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr; 
+            gap: 20px; 
+            margin-top: 20px; 
+        }
+        .chart-card { 
+            background: #1E2329; 
+            border-radius: 8px; 
+            padding: 20px; 
+            height: 400px;
+        }
+        .chart-title { 
+            font-size: 16px; 
+            color: #EAECEF; 
+            margin-bottom: 15px; 
+            font-weight: bold; 
+        }
+        .connected { color: #2EBD85; }
+        .disconnected { color: #F6465D; }
+        .disclaimer { 
+            background: #2A2E39; 
+            border: 1px solid #F6465D; 
+            border-radius: 8px; 
+            padding: 15px; 
+            margin-bottom: 20px; 
+            color: #F6465D; 
+            text-align: center; 
+            font-weight: bold; 
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { border-color: #F6465D; }
+            50% { border-color: #2EBD85; }
+            100% { border-color: #F6465D; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>Starlink Ground Station Monitor</h1>
-            <p>Real-time monitoring and data collection management</p>
+    <div class="disclaimer">
+        🔥 TRUE REALTIME: 100% Live gRPC | Status + Usage 조합 | 실시간 속도 계산 | NO CSV!
+    </div>
+    
+    <div class="header">
+        <h1>🛰️ TRUE REALTIME Dashboard</h1>
+        <div>
+            <span id="status-indicator" class="connected">●</span>
+            <span id="connection-status">Live gRPC</span>
+            <span style="margin-left: 20px;">Source: <span id="data-source">실시간</span></span>
         </div>
+    </div>
 
-        <div class="data-section">
-            <h2 class="section-title">Drone Control</h2>
-            <div class="control-panel">
-                <input type="text" id="droneAddress" placeholder="Drone address (example: 192.168.1.100:8899)" value="localhost:8899">
-                <button id="startBtn" class="control-btn start-btn">Start Collection</button>
-                <button id="stopBtn" class="control-btn stop-btn">Stop Collection</button>
-                <button id="statusBtn" class="control-btn status-btn">Check Status</button>
-            </div>
-            <div id="droneStatus" class="drone-status">
-                <div class="status-item">Status: <span id="droneState">-</span></div>
-                <div class="status-item">Current File: <span id="droneFile">-</span></div>
-                <div class="status-item">Collection Time: <span id="droneDuration">-</span></div>
-            </div>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-title">Total Received Data</div>
-                <div class="stat-value" id="totalRecords">-</div>
-                <div class="stat-unit">records</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Last Hour</div>
-                <div class="stat-value" id="recentRecords">-</div>
-                <div class="stat-unit">records</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Average Download Speed</div>
-                <div class="stat-value" id="avgDownlink">-</div>
-                <div class="stat-unit">Mbps</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Average Latency</div>
-                <div class="stat-value" id="avgLatency">-</div>
-                <div class="stat-unit">ms</div>
-            </div>
-        </div>
-
+    <div class="main-grid">
         <!-- 실시간 데이터 섹션 -->
-        <div class="data-section">
-            <h2 class="section-title">Live Starlink Data</h2>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-title">Real-time Download</div>
-                    <div class="stat-value" id="liveDownlink">0.00</div>
-                    <div class="stat-unit">Mbps</div>
+        <div>
+            <div class="section-title">📊 실시간 데이터</div>
+            <div class="realtime-section">
+                <div class="status-card">
+                    <div class="metric-title">연결 상태</div>
+                    <div class="metric-value" id="state">CONNECTING</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-title">Real-time Upload</div>
-                    <div class="stat-value" id="liveUplink">0.00</div>
-                    <div class="stat-unit">Mbps</div>
+                
+                <div class="status-card">
+                    <div class="metric-title">다운로드 속도</div>
+                    <div class="metric-value" id="download-speed">0.0<span class="metric-unit">Mbps</span></div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-title">Real-time Latency</div>
-                    <div class="stat-value" id="liveLatency">0.0</div>
-                    <div class="stat-unit">ms</div>
+                
+                <div class="status-card">
+                    <div class="metric-title">업로드 속도</div>
+                    <div class="metric-value" id="upload-speed">0.0<span class="metric-unit">Mbps</span></div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-title">Real-time SNR</div>
-                    <div class="stat-value" id="liveSNR">0.0</div>
-                    <div class="stat-unit">dB</div>
+                
+                <div class="status-card">
+                    <div class="metric-title">핑 레이턴시</div>
+                    <div class="metric-value" id="ping-latency">측정중<span class="metric-unit"></span></div>
                 </div>
-            </div>
-            <div class="update-time">
-                Last Update: <span id="liveTimestamp">-</span>
+                
+                <div class="status-card">
+                    <div class="metric-title">신호 강도 (SNR)</div>
+                    <div class="metric-value" id="snr">0.0<span class="metric-unit">dB</span></div>
+                </div>
+                
+                <div class="status-card">
+                    <div class="metric-title">업타임</div>
+                    <div class="metric-value" id="uptime">0h 0m</div>
+                </div>
             </div>
         </div>
-
-        <div class="data-section" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
-            <h2 class="section-title">Recent Data</h2>
-            <div class="table-container" style="flex: 1;">
-                <div id="dataContainer" class="loading">Loading data...</div>
+        
+        <!-- 누적 통계 섹션 -->
+        <div class="cumulative-section">
+            <div class="section-title">📈 누적 통계</div>
+            
+            <div class="cumulative-card">
+                <div class="metric-title">총 다운로드</div>
+                <div class="metric-value" id="total-download">0.0<span class="metric-unit">GB</span></div>
+            </div>
+            
+            <div class="cumulative-card">
+                <div class="metric-title">총 업로드</div>
+                <div class="metric-value" id="total-upload">0.0<span class="metric-unit">GB</span></div>
+            </div>
+            
+            <div class="cumulative-card">
+                <div class="metric-title">최고 다운로드</div>
+                <div class="metric-value" id="peak-download">0.0<span class="metric-unit">Mbps</span></div>
+            </div>
+            
+            <div class="cumulative-card">
+                <div class="metric-title">최고 업로드</div>
+                <div class="metric-value" id="peak-upload">0.0<span class="metric-unit">Mbps</span></div>
+            </div>
+            
+            <div class="cumulative-card">
+                <div class="metric-title">평균 핑</div>
+                <div class="metric-value" id="avg-ping">0.0<span class="metric-unit">ms</span></div>
+            </div>
+            
+            <div class="cumulative-card">
+                <div class="metric-title">세션 시간</div>
+                <div class="metric-value" id="session-duration">0<span class="metric-unit">분</span></div>
             </div>
         </div>
+    </div>
 
-        <div class="update-time">
-            Last Update: <span id="lastUpdate">-</span>
+    <!-- 그래프 섹션 -->
+    <div class="charts-container">
+        <div class="chart-card">
+            <div class="chart-title">📊 실시간 속도 그래프</div>
+            <canvas id="speedChart" width="400" height="300"></canvas>
+        </div>
+        
+        <div class="chart-card">
+            <div class="chart-title">📡 핑 레이턴시 그래프</div>
+            <canvas id="pingChart" width="400" height="300"></canvas>
         </div>
     </div>
 
     <script>
-        function formatTimestamp(timestamp) {
-            return new Date(timestamp).toLocaleString('ko-KR');
-        }
-
-        function getStatusClass(state) {
-            const normalized = (state || '').toLowerCase();
-            if (normalized.includes('connected') || normalized.includes('running')) return 'connected';
-            if (normalized.includes('start') || normalized.includes('search')) return 'connecting';
-            if (normalized.includes('idle') || normalized.includes('stop')) return 'disconnected';
-            if (normalized.includes('error')) return 'disconnected';
-            return 'disconnected';
-        }
-
-        async function updateStats() {
-            try {
-                const response = await fetch('/api/stats');
-                const stats = await response.json();
-                
-                document.getElementById('totalRecords').textContent = stats.total_records.toLocaleString();
-                document.getElementById('recentRecords').textContent = stats.recent_hour_records.toLocaleString();
-                document.getElementById('avgDownlink').textContent = stats.avg_downlink_mbps;
-                document.getElementById('avgLatency').textContent = stats.avg_latency_ms;
-            } catch (error) {
-                console.error('Statistics update error:', error);
-            }
-        }
-
-        async function updateData() {
-            try {
-                // 실시간 데이터로 테이블 표시
-                const droneAddress = document.getElementById('droneAddress').value;
-                const response = await fetch(`/api/live_data?drone_address=${encodeURIComponent(droneAddress)}`);
-                const rawData = await response.json();
-                
-                if (rawData.error) {
-                    const detail = rawData.detail ? `<br>${rawData.detail}` : '';
-                    document.getElementById('dataContainer').innerHTML = `<p class="loading">No data received.${detail}</p>`;
-                    return;
+        // 차트 초기화
+        const speedCtx = document.getElementById('speedChart').getContext('2d');
+        const pingCtx = document.getElementById('pingChart').getContext('2d');
+        
+        const speedChart = new Chart(speedCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Download (Mbps)',
+                    data: [],
+                    borderColor: '#2EBD85',
+                    backgroundColor: 'rgba(46, 189, 133, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }, {
+                    label: 'Upload (Mbps)', 
+                    data: [],
+                    borderColor: '#F0B90B',
+                    backgroundColor: 'rgba(240, 185, 11, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { 
+                    y: { 
+                        beginAtZero: true,
+                        grid: { color: '#333' },
+                        ticks: { color: '#EAECEF' }
+                    },
+                    x: {
+                        grid: { color: '#333' },
+                        ticks: { color: '#EAECEF' }
+                    }
+                },
+                plugins: { 
+                    legend: { 
+                        labels: { color: '#EAECEF' } 
+                    } 
                 }
-                
-                // 실시간 데이터를 배열 형태로 변환
-                const data = [rawData];
-
-                let html = `
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Status</th>
-                                <th>Download</th>
-                                <th>Upload</th>
-                                <th>Latency</th>
-                                <th>SNR</th>
-                                <th>Azimuth</th>
-                                <th>Elevation</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
-
-                data.reverse().forEach(item => {
-                    html += `
-                        <tr>
-                            <td>${formatTimestamp(item.timestamp)}</td>
-                            <td><span class="status ${getStatusClass(item.state)}">${item.state}</span></td>
-                            <td>${((item.downlink_throughput_bps || 0) / 1024 / 1024).toFixed(2)} Mbps</td>
-                            <td>${((item.uplink_throughput_bps || 0) / 1024 / 1024).toFixed(2)} Mbps</td>
-                            <td>${(item.ping_latency_ms || 0).toFixed(1)} ms</td>
-                            <td>${(item.snr || 0).toFixed(1)} dB</td>
-                            <td>${(item.azimuth || 0).toFixed(1)}°</td>
-                            <td>${(item.elevation || 0).toFixed(1)}°</td>
-                        </tr>
-                    `;
-                });
-
-                html += '</tbody></table>';
-                document.getElementById('dataContainer').innerHTML = html;
-                document.getElementById('lastUpdate').textContent = new Date().toLocaleString('ko-KR');
-
-            } catch (error) {
-                console.error('Data update error:', error);
-                document.getElementById('dataContainer').innerHTML = '<p class="loading">Data loading error</p>';
             }
-        }
-
-        // 드론 제어 기능
-        async function controlDrone(action) {
-            const droneAddress = document.getElementById('droneAddress').value;
-            const buttons = document.querySelectorAll('.control-btn');
-            
-            // 버튼 비활성화
-            buttons.forEach(btn => btn.disabled = true);
-            
-            try {
-                const response = await fetch(`/api/drone_control/${action}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({drone_address: droneAddress})
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    alert(`Success: ${result.message}`);
-                    updateDroneStatus();  // 상태 즉시 업데이트
-                } else {
-                    const detail = result.detail ? `\n${result.detail}` : '';
-                    alert(`Error: ${result.error}${detail}`);
+        });
+        
+        const pingChart = new Chart(pingCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Ping (ms)',
+                    data: [],
+                    borderColor: '#F6465D',
+                    backgroundColor: 'rgba(244, 70, 93, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { 
+                    y: { 
+                        beginAtZero: true,
+                        grid: { color: '#333' },
+                        ticks: { color: '#EAECEF' }
+                    },
+                    x: {
+                        grid: { color: '#333' },
+                        ticks: { color: '#EAECEF' }
+                    }
+                },
+                plugins: { 
+                    legend: { 
+                        labels: { color: '#EAECEF' } 
+                    } 
                 }
-            } catch (error) {
-                alert(`Connection error: ${error.message}`);
-            } finally {
-                // 버튼 활성화
-                buttons.forEach(btn => btn.disabled = false);
             }
-        }
-
-        async function updateDroneStatus() {
-            const droneAddress = document.getElementById('droneAddress').value;
-            
-            try {
-                const response = await fetch(`/api/drone_status?drone_address=${encodeURIComponent(droneAddress)}`);
-                const status = await response.json();
-                
-                if (!status.error) {
-                    const state = status.state || '-';
-                    const stateEl = document.getElementById('droneState');
-                    stateEl.textContent = state;
-                    stateEl.className = `status ${getStatusClass(state)}`;
-                    document.getElementById('droneFile').textContent = status.current_file || '-';
-                    document.getElementById('droneDuration').textContent = status.duration || '-';
-                } else {
-                    const stateEl = document.getElementById('droneState');
-                    stateEl.textContent = 'ERROR';
-                    stateEl.className = 'status disconnected';
-                    document.getElementById('droneFile').textContent = '-';
-                    document.getElementById('droneDuration').textContent = '-';
-                }
-            } catch (error) {
-                const stateEl = document.getElementById('droneState');
-                stateEl.textContent = 'OFFLINE';
-                stateEl.className = 'status disconnected';
-                document.getElementById('droneFile').textContent = '-';
-                document.getElementById('droneDuration').textContent = '-';
-            }
-        }
+        });
 
         // 실시간 데이터 업데이트
-        async function updateLiveData() {
-            const droneAddress = document.getElementById('droneAddress').value;
-            
-            try {
-                const response = await fetch(`/api/live_data?drone_address=${encodeURIComponent(droneAddress)}`);
-                const data = await response.json();
-                
-                if (data.error) {
-                    // 실시간 데이터를 가져올 수 없으면 스탯 카드를 0으로 표시
-                    document.getElementById('liveDownlink').textContent = '0.00';
-                    document.getElementById('liveUplink').textContent = '0.00';
-                    document.getElementById('liveLatency').textContent = '0.0';
-                    document.getElementById('liveSNR').textContent = '0.0';
-                    return;
-                }
-                
-                // 실시간 데이터로 스탯 카드 업데이트
-                document.getElementById('liveDownlink').textContent = ((data.downlink_throughput_bps || 0) / 1024 / 1024).toFixed(2);
-                document.getElementById('liveUplink').textContent = ((data.uplink_throughput_bps || 0) / 1024 / 1024).toFixed(2);
-                document.getElementById('liveLatency').textContent = (data.ping_latency_ms || 0).toFixed(1);
-                document.getElementById('liveSNR').textContent = (data.snr || 0).toFixed(1);
-                
-                // 상단 통계도 실시간 데이터로 업데이트
-                document.getElementById('avgDownlink').textContent = ((data.downlink_throughput_bps || 0) / 1024 / 1024).toFixed(2);
-                document.getElementById('avgLatency').textContent = (data.ping_latency_ms || 0).toFixed(1);
-                document.getElementById('totalRecords').textContent = 'Simulation';
-                document.getElementById('recentRecords').textContent = 'LIVE';
-                
-                // 마지막 업데이트 시간 표시
-                document.getElementById('liveTimestamp').textContent = formatTimestamp(data.timestamp);
-                
-            } catch (error) {
-                console.error('Live data update error:', error);
-            }
+        function updateDashboard() {
+            fetch('/api/realtime-data')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Realtime data received:', data);
+                    
+                    const realtime = data.realtime || {};
+                    const cumulative = data.cumulative || {};
+                    const charts = data.charts || {};
+                    
+                    // 실시간 데이터 업데이트
+                    if (realtime) {
+                        document.getElementById('state').textContent = realtime.state || 'UNKNOWN';
+                        document.getElementById('download-speed').innerHTML = `${(realtime.download_mbps || 0).toFixed(1)}<span class="metric-unit">Mbps</span>`;
+                        document.getElementById('upload-speed').innerHTML = `${(realtime.upload_mbps || 0).toFixed(1)}<span class="metric-unit">Mbps</span>`;
+                        
+                        if (realtime.ping_latency !== null && realtime.ping_latency !== undefined) {
+                            document.getElementById('ping-latency').innerHTML = `${realtime.ping_latency.toFixed(1)}<span class="metric-unit">ms</span>`;
+                        } else {
+                            document.getElementById('ping-latency').innerHTML = `측정중<span class="metric-unit"></span>`;
+                        }
+                        
+                        document.getElementById('snr').innerHTML = `${(realtime.snr || 0).toFixed(1)}<span class="metric-unit">dB</span>`;
+                        
+                        // 업타임
+                        const uptime = realtime.uptime || 0;
+                        const hours = Math.floor(uptime / 3600);
+                        const minutes = Math.floor((uptime % 3600) / 60);
+                        document.getElementById('uptime').textContent = `${hours}h ${minutes}m`;
+                        
+                        document.getElementById('data-source').textContent = realtime.data_source || '실시간';
+                    }
+                    
+                    // 누적 통계 업데이트
+                    if (cumulative) {
+                        document.getElementById('total-download').innerHTML = `${(cumulative.total_download_gb || 0).toFixed(2)}<span class="metric-unit">GB</span>`;
+                        document.getElementById('total-upload').innerHTML = `${(cumulative.total_upload_gb || 0).toFixed(2)}<span class="metric-unit">GB</span>`;
+                        document.getElementById('peak-download').innerHTML = `${(cumulative.peak_download_mbps || 0).toFixed(1)}<span class="metric-unit">Mbps</span>`;
+                        document.getElementById('peak-upload').innerHTML = `${(cumulative.peak_upload_mbps || 0).toFixed(1)}<span class="metric-unit">Mbps</span>`;
+                        document.getElementById('avg-ping').innerHTML = `${(cumulative.avg_ping || 0).toFixed(1)}<span class="metric-unit">ms</span>`;
+                        document.getElementById('session-duration').innerHTML = `${Math.floor(cumulative.session_duration_minutes || 0)}<span class="metric-unit">분</span>`;
+                    }
+                    
+                    // 그래프 업데이트
+                    if (charts && charts.timestamps) {
+                        speedChart.data.labels = charts.timestamps;
+                        speedChart.data.datasets[0].data = charts.download_speeds;
+                        speedChart.data.datasets[1].data = charts.upload_speeds;
+                        speedChart.update('none');
+                        
+                        pingChart.data.labels = charts.timestamps;
+                        pingChart.data.datasets[0].data = charts.ping_values;
+                        pingChart.update('none');
+                    }
+                })
+                .catch(error => {
+                    console.error('데이터 업데이트 오류:', error);
+                });
         }
 
-        // 이벤트 리스너
-        document.getElementById('startBtn').addEventListener('click', () => controlDrone('start'));
-        document.getElementById('stopBtn').addEventListener('click', () => controlDrone('stop'));
-        document.getElementById('statusBtn').addEventListener('click', updateDroneStatus);
-
-        // 자동 업데이트
-        updateStats();
-        updateData();
-        updateDroneStatus();  // 드론 상태 초기 로드
-        updateLiveData();     // 실시간 데이터 초기 로드
-        setInterval(updateStats, 60000);     // 1분마다 통계 업데이트
-        setInterval(updateData, 2000);       // 2초마다 데이터 업데이트 (자연스러운 실시간)
-        setInterval(updateDroneStatus, 10000); // 10초마다 드론 상태 업데이트
-        setInterval(updateLiveData, 1000);   // 1초마다 실시간 데이터 업데이트
+        // 3초마다 업데이트 (실시간 gRPC와 동기화)
+        setInterval(updateDashboard, 3000);
+        updateDashboard(); // 즉시 첫 업데이트
     </script>
 </body>
 </html>
 """
 
-def main():
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='지상국 데이터 수신기')
-    parser.add_argument('--port', type=int, default=8080, help='수신 포트')
-    parser.add_argument('--data-dir', default='/opt/ground-station-data', help='데이터 저장 디렉토리')
-    
-    args = parser.parse_args()
-    
-    receiver = GroundStationReceiver(port=args.port, data_dir=args.data_dir)
-    receiver.run()
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
 
-if __name__ == "__main__":
-    main()
+@app.route('/api/realtime-data')
+def get_realtime_data():
+    """진짜 실시간 gRPC 데이터 API"""
+    return jsonify(dashboard.get_combined_data())
+
+if __name__ == '__main__':
+    print("🔥 TRUE REALTIME Starlink Dashboard 시작")
+    print("📊 대시보드: http://localhost:8899")
+    print("🚀 100% Live gRPC | Status + Usage 조합")
+    
+    # 자동 모니터링 시작
+    dashboard.start_monitoring()
+    
+    try:
+        app.run(host='0.0.0.0', port=8899, debug=False)
+    except KeyboardInterrupt:
+        print("\n🛑 실시간 대시보드 종료")
+        dashboard.monitoring_active = False
