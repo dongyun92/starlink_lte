@@ -7,7 +7,8 @@ GROUND_DATA_DIR="${GROUND_DATA_DIR:-/home/${USER_NAME}/lte-ground-station-data}"
 COLLECT_DATA_DIR="${COLLECT_DATA_DIR:-/home/${USER_NAME}/lte-collector-data}"
 STARLINK_GRPC_DIR="${BASE_DIR}/starlink-grpc-tools"
 VENV_DIR="${BASE_DIR}/.venv"
-PYTHON_BIN="/usr/bin/python3"
+LTE_PYTHON_BIN="/usr/bin/python3"
+STARLINK_PYTHON_BIN="/usr/bin/python3"
 
 UNIT_GS="/etc/systemd/system/lte-ground-station.service"
 UNIT_COL="/etc/systemd/system/lte-collector.service"
@@ -48,7 +49,7 @@ if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
   python3 -m venv "${VENV_DIR}"
   "${VENV_DIR}/bin/pip" install -r "${BASE_DIR}/requirements.txt"
 fi
-PYTHON_BIN="${VENV_DIR}/bin/python"
+STARLINK_PYTHON_BIN="${VENV_DIR}/bin/python"
 
 if [[ ! -f "${STARLINK_GRPC_DIR}/dish_grpc_text.py" ]]; then
   if [[ -d "${STARLINK_GRPC_DIR}/archive-old-files" ]]; then
@@ -91,13 +92,13 @@ sudo cp "${BASE_DIR}/systemd/starlink-real-collector.service" "${UNIT_SL_REAL_CO
 sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_GS}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_GS}"
 sudo sed -i "s|WorkingDirectory=/home/pi/starlink_lte|WorkingDirectory=${BASE_DIR}|" "${UNIT_GS}"
-sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_GS}"
+sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${LTE_PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_GS}"
 sudo sed -i "s|--data-dir /opt/lte-ground-station-data|--data-dir ${GROUND_DATA_DIR}|" "${UNIT_GS}"
 
 sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_COL}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_COL}"
 sudo sed -i "s|WorkingDirectory=/home/pi/starlink_lte|WorkingDirectory=${BASE_DIR}|" "${UNIT_COL}"
-sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_COL}"
+sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${LTE_PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_COL}"
 sudo sed -i "s|--data-dir /home/pi/lte-collector-data|--data-dir ${COLLECT_DATA_DIR}|" "${UNIT_COL}"
 
 # Starlink services
@@ -106,17 +107,17 @@ STARLINK_GS_DATA_DIR="${STARLINK_GS_DATA_DIR:-/home/${USER_NAME}/starlink-ground
 sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_SL_GS}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_SL_GS}"
 sudo sed -i "s|WorkingDirectory=/home/pi/starlink_lte|WorkingDirectory=${BASE_DIR}|" "${UNIT_SL_GS}"
-sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_GS}"
+sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${STARLINK_PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_GS}"
 
 sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_SL_SIM_COL}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_SL_SIM_COL}"
 sudo sed -i "s|WorkingDirectory=/home/pi/starlink_lte|WorkingDirectory=${BASE_DIR}|" "${UNIT_SL_SIM_COL}"
-sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_SIM_COL}"
+sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${STARLINK_PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_SIM_COL}"
 
 sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_SL_REAL_COL}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_SL_REAL_COL}"
 sudo sed -i "s|WorkingDirectory=/home/pi/starlink_lte|WorkingDirectory=${BASE_DIR}|" "${UNIT_SL_REAL_COL}"
-sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_REAL_COL}"
+sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${STARLINK_PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_REAL_COL}"
 
 # Ensure data directories exist
 STARLINK_SIM_DATA_DIR="${STARLINK_SIM_DATA_DIR:-/home/${USER_NAME}/starlink-sim-data}"
