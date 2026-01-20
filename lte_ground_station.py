@@ -274,13 +274,21 @@ class LTEGroundStationReceiver:
                     # Fallback to Korean collector endpoint (with /api prefix)
                     response = requests.get(f"http://{drone_address}/api/status", timeout=5)
                 
-                if response.status_code == 200:
+                if response.status_code != 200:
+                    return jsonify({"error": "LTE 상태 조회 실패", "detail": response.text}), response.status_code
+
+                try:
                     return jsonify(response.json())
-                else:
-                    return jsonify({"error": "LTE 상태 조회 실패"}), response.status_code
-                    
+                except ValueError as e:
+                    self.logger.exception(f"드론 상태 JSON 파싱 실패: {e}")
+                    return jsonify({"error": "드론 상태 응답 파싱 실패", "detail": response.text}), 502
+
             except requests.RequestException as e:
+                self.logger.exception(f"드론 LTE 연결 실패: {e}")
                 return jsonify({"error": f"드론 LTE 연결 실패: {str(e)}"}), 500
+            except Exception as e:
+                self.logger.exception(f"드론 상태 조회 오류: {e}")
+                return jsonify({"error": "드론 상태 조회 오류", "detail": str(e)}), 500
 
         @self.app.route('/api/live_data')
         def get_live_data():
@@ -294,13 +302,21 @@ class LTEGroundStationReceiver:
                 
                 response = requests.get(f"http://{drone_address}/api/current_data", timeout=5)
                 
-                if response.status_code == 200:
+                if response.status_code != 200:
+                    return jsonify({"error": "실시간 LTE 데이터 조회 실패", "detail": response.text}), response.status_code
+
+                try:
                     return jsonify(response.json())
-                else:
-                    return jsonify({"error": "실시간 LTE 데이터 조회 실패"}), response.status_code
-                    
+                except ValueError as e:
+                    self.logger.exception(f"실시간 데이터 JSON 파싱 실패: {e}")
+                    return jsonify({"error": "실시간 LTE 데이터 파싱 실패", "detail": response.text}), 502
+
             except requests.RequestException as e:
+                self.logger.exception(f"드론 LTE 연결 실패: {e}")
                 return jsonify({"error": f"드론 LTE 연결 실패: {str(e)}"}), 500
+            except Exception as e:
+                self.logger.exception(f"실시간 LTE 데이터 조회 오류: {e}")
+                return jsonify({"error": "실시간 LTE 데이터 조회 오류", "detail": str(e)}), 500
 
         @self.app.route('/')
         def dashboard():
