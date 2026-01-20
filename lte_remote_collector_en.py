@@ -11,6 +11,7 @@ import threading
 import time
 import os
 import csv
+import json
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -43,9 +44,21 @@ class LTEStatus:
     ber: int
     network_type: str
     network_operator: str
+    network_operator_numeric: str
+    network_band: str
+    network_channel: int
     cell_id: str
     lac: str
     registration_status: str
+    eps_reg_status: str
+    eps_tac: str
+    eps_cell_id: str
+    eps_act: str
+    cs_reg_status: str
+    cs_lac: str
+    cs_cell_id: str
+    cs_act: str
+    ip_address: str
     connection_state: str
     rx_bytes: int
     tx_bytes: int
@@ -114,7 +127,41 @@ class LTEModule:
         m = re.search(r'\+QNWINFO:\s*"([^"]+)","([^"]+)","([^"]+)",(\d+)', r or "")
         if not m:
             return {}
-        return {"type": m.group(1), "operator": m.group(2)}
+        return {
+            "type": m.group(1),
+            "operator": m.group(2),
+            "band": m.group(3),
+            "channel": int(m.group(4)),
+        }
+
+    def get_operator_name(self):
+        r = self.send_at("AT+COPS?")
+        m = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', r or "")
+        return m.group(1) if m else "Unknown"
+
+    def get_eps_registration_detail(self):
+        r = self.send_at("AT+CEREG?")
+        m = re.search(r"\+CEREG:\s*(\d+),(\d+)(?:,([^,]+),([^,]+)(?:,(\d+))?)?", r or "")
+        if not m:
+            return {}
+        return {
+            "stat": m.group(2),
+            "tac": (m.group(3) or "").strip('"'),
+            "ci": (m.group(4) or "").strip('"'),
+            "act": m.group(5) or "",
+        }
+
+    def get_cs_registration_detail(self):
+        r = self.send_at("AT+CREG?")
+        m = re.search(r"\+CREG:\s*(\d+),(\d+)(?:,([^,]+),([^,]+)(?:,(\d+))?)?", r or "")
+        if not m:
+            return {}
+        return {
+            "stat": m.group(2),
+            "lac": (m.group(3) or "").strip('"'),
+            "ci": (m.group(4) or "").strip('"'),
+            "act": m.group(5) or "",
+        }
 
     def get_registration(self):
         if re.search(r"\+CEREG:\s*\d+,(1|5)", self.send_at("AT+CEREG?") or ""):
@@ -152,6 +199,11 @@ class LTEModule:
         m = re.search(r"\+QGDCNT:\s*(\d+),(\d+)", r or "")
         return (int(m.group(2)), int(m.group(1))) if m else (0, 0)
 
+    def get_pdp_address(self, cid=1):
+        r = self.send_at(f"AT+CGPADDR={cid}")
+        m = re.search(rf"\+CGPADDR:\s*{cid},\"([^\"]+)\"", r or "")
+        return m.group(1) if m else ""
+
 
 # ================= COLLECTOR =================
 class LTEDataCollector:
@@ -187,21 +239,41 @@ class LTEDataCollector:
         now = datetime.utcnow().isoformat() + "Z"
         rssi, ber = self.modem.get_signal_quality()
         net = self.modem.get_network_info()
-        reg = self.modem.get_registration()
+        operator_name = self.modem.get_operator_name()
+        eps_reg = self.modem.get_eps_registration_detail()
+        cs_reg = self.modem.get_cs_registration_detail()
+        reg = "Not Registered"
+        if eps_reg.get("stat") in {"1", "5"}:
+            reg = "Registered (LTE)"
+        elif cs_reg.get("stat") in {"1", "5"}:
+            reg = "Registered (2G/3G)"
         cell, lac = self.modem.get_cell_info()
         rx, tx = self.modem.get_data_usage()
         is_lte = "LTE" in net.get("type", "").upper()
         rsrp, rsrq, sinr = self.modem.get_extended_signal(is_lte)
+        ip_address = self.modem.get_pdp_address()
 
-        return LTEStatus(
+        data = LTEStatus(
             timestamp=now,
             rssi=rssi,
             ber=ber,
             network_type="LTE" if is_lte else "OTHER",
-            network_operator=net.get("operator", "Unknown"),
+            network_operator=operator_name,
+            network_operator_numeric=net.get("operator", "Unknown"),
+            network_band=net.get("band", ""),
+            network_channel=net.get("channel", 0),
             cell_id=cell,
             lac=lac,
             registration_status=reg,
+            eps_reg_status=eps_reg.get("stat", ""),
+            eps_tac=eps_reg.get("tac", ""),
+            eps_cell_id=eps_reg.get("ci", ""),
+            eps_act=eps_reg.get("act", ""),
+            cs_reg_status=cs_reg.get("stat", ""),
+            cs_lac=cs_reg.get("lac", ""),
+            cs_cell_id=cs_reg.get("ci", ""),
+            cs_act=cs_reg.get("act", ""),
+            ip_address=ip_address,
             connection_state="Connected" if "Registered" in reg else "Disconnected",
             rx_bytes=rx,
             tx_bytes=tx,
@@ -209,6 +281,8 @@ class LTEDataCollector:
             rsrq=rsrq,
             sinr=sinr,
         )
+        print(json.dumps(asdict(data), ensure_ascii=True))
+        return data
 
     def worker(self):
         self.rotate_csv()
