@@ -66,11 +66,23 @@ class LTEModule:
                 port=self.port,
                 baudrate=self.baudrate,
                 timeout=1,
-                rtscts=True,
-                dsrdtr=True
+                rtscts=False,  # EC25 doesn't need hardware flow control
+                dsrdtr=False,  # EC25 doesn't need DSR/DTR
+                xonxoff=False  # No software flow control
             )
             self.connected = True
-            print(f"[INFO] Connected to LTE module on {self.port}")
+            print(f"[INFO] Connected to LTE module on {self.port} at {self.baudrate} baud")
+            
+            # Initialize module with basic AT commands
+            self.ser.write(b"AT\r\n")
+            time.sleep(0.5)
+            self.ser.read(self.ser.in_waiting)  # Clear buffer
+            
+            # Disable echo for cleaner responses
+            self.ser.write(b"ATE0\r\n")
+            time.sleep(0.5)
+            self.ser.read(self.ser.in_waiting)
+            
             return True
         except Exception as e:
             print(f"[ERROR] Failed to connect to LTE module: {e}")
@@ -83,9 +95,22 @@ class LTEModule:
             return None
         
         try:
+            # Clear any pending input first
+            self.ser.reset_input_buffer()
+            
+            # Send command
             self.ser.write(f"{command}\r\n".encode())
             time.sleep(wait_time)
+            
+            # Read response
             response = self.ser.read(self.ser.in_waiting).decode('utf-8', errors='ignore')
+            
+            # Debug logging
+            if response:
+                print(f"[DEBUG] AT Command: {command} -> Response: {response[:100]}")
+            else:
+                print(f"[DEBUG] AT Command: {command} -> No response")
+                
             return response.strip()
         except Exception as e:
             print(f"[ERROR] AT command failed: {e}")
@@ -544,6 +569,22 @@ def get_recent_data():
     count = request.args.get('count', 10, type=int)
     data = collector.get_recent_data(count)
     return jsonify([asdict(d) for d in data])
+
+@app.route('/api/current_data')
+def get_current_data():
+    """Get current (most recent) data - for ground station compatibility"""
+    data = collector.get_recent_data(1)
+    if data:
+        return jsonify(asdict(data[0]))
+    return jsonify({})
+
+@app.route('/api/live_data')
+def get_live_data():
+    """Get live data - for ground station compatibility"""
+    data = collector.get_recent_data(1)
+    if data:
+        return jsonify(asdict(data[0]))
+    return jsonify({})
 
 @app.route('/data/files')
 def list_data_files():
