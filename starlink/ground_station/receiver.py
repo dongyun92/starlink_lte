@@ -4,7 +4,7 @@
 - 실제 gRPC 연결 (192.168.100.1)
 - status + usage 통계 조합
 - 실시간 그래프 + 누적 통계
- - 대시보드 포트 8080 고정
+ - 대시보드 포트 8947 고정
 """
 import os
 import sys
@@ -17,11 +17,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from flask import Flask, render_template_string, jsonify
 
+from starlink_grpc_web import StarlinkGrpcWebMonitor
+
 app = Flask(__name__)
 
 class TrueRealtimeDashboard:
     def __init__(self):
         self.grpc_tools_path = str(Path(__file__).resolve().parents[2] / "starlink-grpc-tools")
+        self.grpc_web_monitor = StarlinkGrpcWebMonitor()
         self.monitoring_active = False
         self.latest_data = {}
         self.cumulative_stats = {
@@ -187,66 +190,50 @@ class TrueRealtimeDashboard:
         self.monitor_thread = threading.Thread(target=self._monitoring_loop)
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
-        print("🚀 진짜 실시간 모니터링 시작 (Live gRPC)")
+        print("🚀 진짜 실시간 모니터링 시작 (gRPC-Web)")
         
     def _monitoring_loop(self):
         """실시간 데이터 수집 루프"""
         while self.monitoring_active:
             try:
-                # Status와 Usage 데이터 동시 수집
-                status_data = self.get_live_status_data()
-                usage_data = self.get_live_usage_data()
-                
-                if status_data:
-                    # 실시간 속도 계산 (usage 기반)
-                    realtime_down_mbps, realtime_up_mbps = self.calculate_realtime_speeds(usage_data)
-                    
-                    # Status의 throughput이 0이면 계산된 실시간 속도 사용
-                    if status_data['download_throughput'] == 0:
-                        final_down_mbps = realtime_down_mbps
-                        final_up_mbps = realtime_up_mbps
-                        final_down_bytes = realtime_down_mbps * 125000
-                        final_up_bytes = realtime_up_mbps * 125000
-                    else:
-                        final_down_bytes = status_data['download_throughput']
-                        final_up_bytes = status_data['upload_throughput']
-                        final_down_mbps = final_down_bytes / 125000
-                        final_up_mbps = final_up_bytes / 125000
-                    
-                    # 실시간 데이터 업데이트
+                data = self.grpc_web_monitor.collect_data()
+                if data:
+                    down_bps = data.get('downlink_throughput_bps', 0) or 0
+                    up_bps = data.get('uplink_throughput_bps', 0) or 0
+                    ping_ms = data.get('pop_ping_latency_ms')
+                    if ping_ms is None:
+                        ping_ms = data.get('ping_latency_ms')
+                    snr = data.get('snr', 0) or 0
+
+                    down_mbps = down_bps / 1_000_000
+                    up_mbps = up_bps / 1_000_000
+
                     self.latest_data = {
                         'timestamp': datetime.now().isoformat(),
-                        'terminal_id': status_data['terminal_id'],
-                        'hardware_version': status_data.get('hardware_version', 'unknown'),
-                        'software_version': status_data.get('software_version', 'unknown'),
-                        'state': status_data['state'],
-                        'uptime': status_data['uptime'],
-                        'download_throughput_bytes': final_down_bytes,
-                        'upload_throughput_bytes': final_up_bytes,
-                        'download_mbps': final_down_mbps,
-                        'upload_mbps': final_up_mbps,
-                        'ping_latency': status_data['ping_latency'],
-                        'snr': status_data['snr'],
-                        'azimuth': status_data['azimuth'],
-                        'elevation': status_data['elevation'],
-                        'cumulative_download': usage_data['download_bytes'] if usage_data else 0,
-                        'cumulative_upload': usage_data['upload_bytes'] if usage_data else 0,
-                        'data_source': 'live_grpc'
+                        'terminal_id': data.get('terminal_id', ''),
+                        'hardware_version': data.get('hardware_version', 'unknown'),
+                        'software_version': data.get('software_version', 'unknown'),
+                        'state': data.get('state', 'unknown'),
+                        'uptime': data.get('uptime', 0),
+                        'download_throughput_bytes': down_bps,
+                        'upload_throughput_bytes': up_bps,
+                        'download_mbps': down_mbps,
+                        'upload_mbps': up_mbps,
+                        'ping_latency': ping_ms,
+                        'snr': snr,
+                        'azimuth': data.get('azimuth', 0.0),
+                        'elevation': data.get('elevation', 0.0),
+                        'cumulative_download': 0,
+                        'cumulative_upload': 0,
+                        'data_source': 'grpc_web'
                     }
-                    
-                    # 누적 통계 업데이트
-                    self._update_cumulative_stats(final_down_bytes, final_up_bytes, status_data['ping_latency'], final_down_mbps, final_up_mbps)
-                    
-                    # 그래프 데이터 업데이트
-                    self._update_chart_data(final_down_mbps, final_up_mbps, status_data['ping_latency'])
-                    
-                    # CSV 저장
+
+                    self._update_cumulative_stats(down_bps, up_bps, ping_ms, down_mbps, up_mbps)
+                    self._update_chart_data(down_mbps, up_mbps, ping_ms)
                     self._save_to_csv(self.latest_data)
-                    
-                    # 로깅
-                    print(f"📊 실시간: ⬇️{final_down_mbps:.1f}Mbps ⬆️{final_up_mbps:.1f}Mbps 📡{status_data['ping_latency']}ms")
+                    print(f"📊 실시간: ⬇️{down_mbps:.1f}Mbps ⬆️{up_mbps:.1f}Mbps 📡{ping_ms}ms")
                 else:
-                    print("⚠️ gRPC 연결 실패 - 재시도 중...")
+                    print("⚠️ gRPC-Web 연결 실패 - 재시도 중...")
                 
             except Exception as e:
                 print(f"❌ 모니터링 오류: {e}")
@@ -713,15 +700,15 @@ def get_realtime_data():
     return jsonify(dashboard.get_combined_data())
 
 if __name__ == '__main__':
-        print("🔥 TRUE REALTIME Starlink Dashboard 시작")
-        print("📊 대시보드: http://localhost:8080")
+    print("🔥 TRUE REALTIME Starlink Dashboard 시작")
+    print("📊 대시보드: http://localhost:8947")
     print("🚀 100% Live gRPC | Status + Usage 조합")
-    
+
     # 자동 모니터링 시작
     dashboard.start_monitoring()
-    
+
     try:
-        app.run(host='0.0.0.0', port=8080, debug=False)
+        app.run(host='0.0.0.0', port=8947, debug=False)
     except KeyboardInterrupt:
         print("\n🛑 실시간 대시보드 종료")
         dashboard.monitoring_active = False
