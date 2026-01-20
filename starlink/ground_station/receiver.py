@@ -215,14 +215,21 @@ class GroundStationReceiver:
                     drone_address += ':8899'
                 
                 response = requests.get(f"http://{drone_address}/api/status", timeout=5)
-                
-                if response.status_code == 200:
+                if response.status_code != 200:
+                    return jsonify({"error": "상태 조회 실패", "detail": response.text}), response.status_code
+
+                try:
                     return jsonify(response.json())
-                else:
-                    return jsonify({"error": "상태 조회 실패"}), response.status_code
-                    
+                except ValueError as e:
+                    self.logger.exception(f"상태 JSON 파싱 실패: {e}")
+                    return jsonify({"error": "상태 응답 파싱 실패", "detail": response.text}), 502
+
             except requests.RequestException as e:
+                self.logger.exception(f"드론 연결 실패: {e}")
                 return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
+            except Exception as e:
+                self.logger.exception(f"드론 상태 조회 오류: {e}")
+                return jsonify({"error": "드론 상태 조회 오류", "detail": str(e)}), 500
 
         @self.app.route('/api/live_data')
         def get_live_data():
@@ -235,14 +242,21 @@ class GroundStationReceiver:
                     drone_address += ':8899'
                 
                 response = requests.get(f"http://{drone_address}/api/current_data", timeout=5)
-                
-                if response.status_code == 200:
+                if response.status_code != 200:
+                    return jsonify({"error": "실시간 데이터 조회 실패", "detail": response.text}), response.status_code
+
+                try:
                     return jsonify(response.json())
-                else:
-                    return jsonify({"error": "실시간 데이터 조회 실패"}), response.status_code
-                    
+                except ValueError as e:
+                    self.logger.exception(f"실시간 데이터 JSON 파싱 실패: {e}")
+                    return jsonify({"error": "실시간 데이터 파싱 실패", "detail": response.text}), 502
+
             except requests.RequestException as e:
+                self.logger.exception(f"드론 연결 실패: {e}")
                 return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
+            except Exception as e:
+                self.logger.exception(f"실시간 데이터 조회 오류: {e}")
+                return jsonify({"error": "실시간 데이터 조회 오류", "detail": str(e)}), 500
 
         @self.app.route('/')
         def dashboard():
@@ -253,34 +267,68 @@ class GroundStationReceiver:
         """데이터베이스에 저장"""
         with sqlite3.connect(self.db_file) as conn:
             for data in data_list:
-                conn.execute("""
-                    INSERT INTO drone_data (
-                        timestamp, terminal_id, state, uptime,
-                        downlink_throughput_bps, uplink_throughput_bps,
-                        ping_drop_rate, ping_latency_ms, snr,
-                        seconds_to_first_nonempty_slot, azimuth, elevation,
-                        pop_ping_drop_rate, pop_ping_latency_ms,
-                        latitude, longitude, altitude
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    data.get('timestamp'),
-                    data.get('terminal_id'),
-                    data.get('state'),
-                    data.get('uptime'),
-                    data.get('downlink_throughput_bps'),
-                    data.get('uplink_throughput_bps'),
-                    data.get('ping_drop_rate'),
-                    data.get('ping_latency_ms'),
-                    data.get('snr'),
-                    data.get('seconds_to_first_nonempty_slot'),
-                    data.get('azimuth'),
-                    data.get('elevation'),
-                    data.get('pop_ping_drop_rate'),
-                    data.get('pop_ping_latency_ms'),
-                    data.get('latitude'),
-                    data.get('longitude'),
-                    data.get('altitude')
-                ))
+                try:
+                    conn.execute("""
+                        INSERT INTO drone_data (
+                            timestamp, terminal_id, state, uptime,
+                            downlink_throughput_bps, uplink_throughput_bps,
+                            ping_drop_rate, ping_latency_ms, snr,
+                            seconds_to_first_nonempty_slot, azimuth, elevation,
+                            pop_ping_drop_rate, pop_ping_latency_ms,
+                            latitude, longitude, altitude
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        data.get('timestamp'),
+                        data.get('terminal_id'),
+                        data.get('state'),
+                        data.get('uptime'),
+                        data.get('downlink_throughput_bps'),
+                        data.get('uplink_throughput_bps'),
+                        data.get('ping_drop_rate'),
+                        data.get('ping_latency_ms'),
+                        data.get('snr'),
+                        data.get('seconds_to_first_nonempty_slot'),
+                        data.get('azimuth'),
+                        data.get('elevation'),
+                        data.get('pop_ping_drop_rate'),
+                        data.get('pop_ping_latency_ms'),
+                        data.get('latitude'),
+                        data.get('longitude'),
+                        data.get('altitude')
+                    ))
+                except Exception as e:
+                    self.logger.error(f"DB 저장 오류: {e}")
+                    try:
+                        conn.execute("""
+                            INSERT INTO drone_data (
+                                timestamp, terminal_id, state, uptime,
+                                downlink_throughput_bps, uplink_throughput_bps,
+                                ping_drop_rate, ping_latency_ms, snr,
+                                seconds_to_first_nonempty_slot, azimuth, elevation,
+                                pop_ping_drop_rate, pop_ping_latency_ms,
+                                latitude, longitude, altitude
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            data.get('timestamp'),
+                            data.get('terminal_id'),
+                            data.get('state'),
+                            data.get('uptime'),
+                            data.get('downlink_throughput_bps'),
+                            data.get('uplink_throughput_bps'),
+                            data.get('ping_drop_rate'),
+                            data.get('ping_latency_ms'),
+                            data.get('snr'),
+                            data.get('seconds_to_first_nonempty_slot'),
+                            data.get('azimuth'),
+                            data.get('elevation'),
+                            data.get('pop_ping_drop_rate'),
+                            data.get('pop_ping_latency_ms'),
+                            data.get('latitude'),
+                            data.get('longitude'),
+                            data.get('altitude')
+                        ))
+                    except Exception as retry_error:
+                        self.logger.error(f"DB 저장 재시도 실패: {retry_error}")
 
     def run(self):
         """지상국 서버 실행"""

@@ -286,6 +286,14 @@ class TestRemoteControlledCollector:
             
         except Exception as e:
             self.logger.error(f"CSV 저장 오류: {e}")
+            try:
+                self._close_current_file()
+                self._create_new_file()
+                self.current_file_handle.write(','.join(map(str, row)) + '\n')
+                self.current_file_handle.flush()
+                self.data_counter += 1
+            except Exception as retry_error:
+                self.logger.error(f"CSV 저장 재시도 실패: {retry_error}")
 
     def _collection_loop(self):
         """메인 데이터 수집 루프"""
@@ -308,6 +316,11 @@ class TestRemoteControlledCollector:
             except Exception as e:
                 self.logger.error(f"수집 루프 오류: {e}")
                 self._set_state(CollectorState.ERROR)
+                try:
+                    if not self.current_file_handle:
+                        self._create_new_file()
+                except Exception as retry_error:
+                    self.logger.error(f"파일 복구 실패: {retry_error}")
             
             # 0.1초 주기 유지
             elapsed = time.time() - start_time

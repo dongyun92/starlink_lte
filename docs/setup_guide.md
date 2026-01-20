@@ -29,6 +29,8 @@ USER_NAME=youruser ./scripts/setup_services.sh
 ```sh
 systemctl status lte-collector.service --no-pager
 systemctl status lte-ground-station.service --no-pager
+systemctl status starlink-collector.service --no-pager
+systemctl status starlink-ground-station.service --no-pager
 ```
 
 ## 4) Dashboard access (LAN)
@@ -38,6 +40,11 @@ hostname -I
 Open in browser:
 ```
 http://<LAN-IP>:8079/
+```
+
+Starlink dashboard:
+```
+http://<LAN-IP>:8080/
 ```
 
 ## 5) CSV storage path
@@ -67,6 +74,11 @@ tailscale ip -4
 http://<tailscale-ip>:8079/
 ```
 
+Starlink:
+```
+http://<tailscale-ip>:8080/
+```
+
 ## Notes
 - If you only want the collector on the device, disable ground station:
   ```sh
@@ -75,4 +87,9 @@ http://<tailscale-ip>:8079/
 - If you only want ground station, disable collector:
   ```sh
   sudo systemctl disable --now lte-collector.service
+  ```
+- Starlink services can be disabled the same way:
+  ```sh
+  sudo systemctl disable --now starlink-ground-station.service
+  sudo systemctl disable --now starlink-collector.service
   ```

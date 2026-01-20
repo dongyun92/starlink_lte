@@ -1,0 +1,17 @@
+[Unit]
+Description=Starlink Ground Station Receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/starlink_lte
+ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/ground_station/receiver.py --port 8080 --data-dir /home/pi/starlink-ground-station-data
+Restart=always
+RestartSec=1
+StartLimitIntervalSec=0
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target
