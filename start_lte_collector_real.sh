@@ -73,6 +73,7 @@ if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
         --data-dir ./lte-collector-data \
         --control-port 8897 \
         --serial-port $SERIAL_PORT \
+        --baudrate 115200 \
         --interval 5
         
 else
