@@ -18,25 +18,37 @@ sleep 2
 # Search for serial port
 echo -e "\n${YELLOW}Searching for LTE module...${NC}"
 
-# Check Linux serial ports
-SERIAL_PORT=""
-for port in /dev/ttyUSB0 /dev/ttyUSB1 /dev/ttyUSB2 /dev/ttyACM0 /dev/ttyACM1; do
-    if [ -e "$port" ]; then
-        echo -e "${GREEN}✓ Port found: $port${NC}"
-        SERIAL_PORT=$port
-        break
-    fi
-done
-
-# Check Mac serial ports
-if [ -z "$SERIAL_PORT" ]; then
-    for port in /dev/cu.usbserial* /dev/tty.usbserial* /dev/cu.usbmodem* /dev/tty.usbmodem*; do
-        if [ -e "$port" ]; then
-            echo -e "${GREEN}✓ Port found: $port${NC}"
-            SERIAL_PORT=$port
-            break
+# First check if EC25 config exists from auto-detection
+if [ -f "ec25_config.txt" ]; then
+    echo -e "${GREEN}✓ Found EC25 configuration file${NC}"
+    SERIAL_PORT=$(grep "^PORT=" ec25_config.txt | cut -d'=' -f2)
+    BAUDRATE=$(grep "^BAUDRATE=" ec25_config.txt | cut -d'=' -f2)
+    echo -e "${GREEN}✓ Using detected port: $SERIAL_PORT @ $BAUDRATE baud${NC}"
+else
+    # Try auto-detection with find_ec25_port.py
+    echo -e "${YELLOW}Running EC25 auto-detection...${NC}"
+    if [ -f "find_ec25_port.py" ]; then
+        python3 find_ec25_port.py
+        if [ -f "ec25_config.txt" ]; then
+            SERIAL_PORT=$(grep "^PORT=" ec25_config.txt | cut -d'=' -f2)
+            BAUDRATE=$(grep "^BAUDRATE=" ec25_config.txt | cut -d'=' -f2)
+            echo -e "${GREEN}✓ Auto-detected port: $SERIAL_PORT @ $BAUDRATE baud${NC}"
         fi
-    done
+    fi
+    
+    # Fallback to manual search
+    if [ -z "$SERIAL_PORT" ]; then
+        echo -e "${YELLOW}Manual port search...${NC}"
+        # Prioritize /dev/ttyUSB2 for EC25
+        for port in /dev/ttyUSB2 /dev/ttyUSB0 /dev/ttyUSB1 /dev/ttyUSB3 /dev/ttyACM0 /dev/ttyACM1; do
+            if [ -e "$port" ]; then
+                echo -e "${GREEN}✓ Port found: $port${NC}"
+                SERIAL_PORT=$port
+                BAUDRATE=115200
+                break
+            fi
+        done
+    fi
 fi
 
 # If port not found
@@ -52,7 +64,7 @@ fi
 
 # AT command test
 echo -e "\n${YELLOW}Running AT command test...${NC}"
-python3 test_at_commands.py --port $SERIAL_PORT --baudrate 115200
+python3 test_at_commands.py --port $SERIAL_PORT --baudrate $BAUDRATE
 
 # User confirmation
 echo -e "\n${YELLOW}Start LTE data collection? (y/n)${NC}"
@@ -73,7 +85,7 @@ if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
         --data-dir ./lte-collector-data \
         --control-port 8897 \
         --serial-port $SERIAL_PORT \
-        --baudrate 115200 \
+        --baudrate $BAUDRATE \
         --interval 5
         
 else
