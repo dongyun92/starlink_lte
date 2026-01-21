@@ -31,9 +31,24 @@ systemctl status lte-collector.service --no-pager
 systemctl status lte-ground-station.service --no-pager
 systemctl status starlink-collector.service --no-pager
 systemctl status starlink-ground-station.service --no-pager
+systemctl status starlink-real-collector.service --no-pager
 ```
 
-## 4) Dashboard access (LAN)
+## 4) Port map (what connects to what)
+LTE:
+- Collector API: `8897`
+- Ground station dashboard: `8079`
+
+Starlink:
+- Simulator collector API: `8899`
+- Real gRPC-Web collector API: `9201` (this service talks to dish at `192.168.100.1:9201`)
+- Ground station dashboard: `8080`
+
+Dashboard input examples:
+- Starlink simulator: `http://<LAN-IP>:8899`
+- Starlink real: `http://<LAN-IP>:9201`
+
+## 5) Dashboard access (LAN)
 ```sh
 hostname -I
 ```
@@ -47,13 +62,13 @@ Starlink dashboard:
 http://<LAN-IP>:8080/
 ```
 
-## 5) CSV storage path
+## 6) CSV storage path
 Default:
 ```
 /home/<user>/lte-collector-data
 ```
 
-## 6) Tailscale for remote access
+## 7) Tailscale for remote access
 ### Install on Raspberry Pi
 ```sh
 curl -fsSL https://tailscale.com/install.sh | sh
