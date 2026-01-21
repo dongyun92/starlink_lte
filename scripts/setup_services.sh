@@ -128,9 +128,10 @@ sudo sed -i "s/User=pi/User=${USER_NAME}/" "${UNIT_SL_REAL_COL}"
 sudo sed -i "s/Group=pi/Group=${USER_NAME}/" "${UNIT_SL_REAL_COL}"
 sudo sed -i "s|WorkingDirectory=/home/pi/starlink_lte|WorkingDirectory=${BASE_DIR}|" "${UNIT_SL_REAL_COL}"
 sudo sed -i "s|ExecStart=/usr/bin/python3 /home/pi/starlink_lte/|ExecStart=${STARLINK_PYTHON_BIN} ${BASE_DIR}/|" "${UNIT_SL_REAL_COL}"
+sudo sed -i "s|--data-dir /home/hanul/starlink-collect-data|--data-dir /home/${USER_NAME}/starlink-collect-data|" "${UNIT_SL_REAL_COL}"
 
 # Ensure data directories exist
-mkdir -p "${GROUND_DATA_DIR}" "${COLLECT_DATA_DIR}" "${STARLINK_GS_DATA_DIR}" "${STARLINK_SIM_DATA_DIR}"
+mkdir -p "${GROUND_DATA_DIR}" "${COLLECT_DATA_DIR}" "${STARLINK_GS_DATA_DIR}" "${STARLINK_SIM_DATA_DIR}" "/home/${USER_NAME}/starlink-collect-data"
 
 # Reload and start
 sudo systemctl daemon-reload

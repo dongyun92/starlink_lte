@@ -7,7 +7,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 WorkingDirectory=/home/pi/starlink_lte
-ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/collector/grpc_web_collector.py --control-port 9201 --grpc-host 192.168.100.1 --grpc-port 9200
+ExecStart=/usr/bin/python3 /home/pi/starlink_lte/starlink/collector/grpc_web_collector.py --control-port 9201 --grpc-host 192.168.100.1 --grpc-port 9200 --data-dir /home/hanul/starlink-collect-data
 Restart=always
 RestartSec=1
 User=pi

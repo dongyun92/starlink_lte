@@ -13,6 +13,7 @@ import threading
 import time
 from pathlib import Path
 import sys
+import csv
 from flask import Flask, jsonify
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -50,7 +51,7 @@ class CollectorStatus:
 
 
 class GrpcWebCollector:
-    def __init__(self, grpc_host: str, grpc_port: int, interval: float):
+    def __init__(self, grpc_host: str, grpc_port: int, interval: float, data_dir: str):
         self.grpc_host = grpc_host
         self.grpc_port = grpc_port
         self.context = starlink_grpc.ChannelContext(target=f"{grpc_host}:{grpc_port}")
@@ -59,6 +60,13 @@ class GrpcWebCollector:
         self.last_error = ""
         self.last_update = ""
         self.current_data = {}
+        self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.current_file = None
+        self.current_writer = None
+        self.current_fields = None
+        self.file_start_time = None
+        self.max_file_duration = 600
         self._thread = None
         self._stop_event = threading.Event()
 
@@ -83,6 +91,8 @@ class GrpcWebCollector:
                 self.last_update = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 if self.state != CollectorState.RUNNING:
                     self.state = CollectorState.RUNNING
+                self._maybe_rotate_file()
+                self._write_csv(self.current_data)
                 logger.info("Starlink data collected (fields=%s)", len(self.current_data))
                 logger.info("Starlink data: %s", json.dumps(self.current_data, ensure_ascii=True))
             except Exception as exc:
@@ -121,6 +131,50 @@ class GrpcWebCollector:
             "raw_status": status,
             "raw_location": location,
         }
+
+    def _maybe_rotate_file(self):
+        if not self.current_file:
+            self._open_new_file()
+            return
+        if not self.file_start_time:
+            self._open_new_file()
+            return
+        if (datetime.now(timezone.utc) - self.file_start_time).total_seconds() >= self.max_file_duration:
+            self._open_new_file()
+
+    def _flatten(self, payload):
+        flat = {}
+        for key, value in payload.items():
+            if isinstance(value, dict):
+                for nested_key, nested_value in value.items():
+                    flat[f"{key}.{nested_key}"] = nested_value
+            else:
+                flat[key] = value
+        return flat
+
+    def _open_new_file(self):
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        self.current_file = self.data_dir / f"starlink_real_{timestamp}.csv"
+        if self.current_writer:
+            self.current_writer = None
+        self.current_fields = None
+        self.file_start_time = datetime.now(timezone.utc)
+
+    def _write_csv(self, payload):
+        if not payload:
+            return
+        flat = self._flatten(payload)
+        fieldnames = list(flat.keys())
+        if self.current_fields != fieldnames:
+            self.current_fields = fieldnames
+            with self.current_file.open("w", newline="") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=self.current_fields)
+                writer.writeheader()
+                writer.writerow(flat)
+            return
+        with self.current_file.open("a", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=self.current_fields)
+            writer.writerow(flat)
 
     def status(self) -> CollectorStatus:
         return CollectorStatus(
@@ -176,6 +230,7 @@ def main():
     parser.add_argument("--grpc-port", type=int, default=9200, help="Starlink gRPC port")
     parser.add_argument("--control-port", type=int, default=9201, help="Collector HTTP port")
     parser.add_argument("--interval", type=float, default=3.0, help="Collection interval in seconds")
+    parser.add_argument("--data-dir", default="/home/hanul/starlink-collect-data", help="CSV output directory")
     args = parser.parse_args()
 
     global collector
@@ -183,6 +238,7 @@ def main():
         grpc_host=args.grpc_host,
         grpc_port=args.grpc_port,
         interval=args.interval,
+        data_dir=args.data_dir,
     )
     collector.start()
 
