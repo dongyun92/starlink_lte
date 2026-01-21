@@ -7,6 +7,8 @@ can connect by port only.
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
+import json
+import logging
 import threading
 import time
 from pathlib import Path
@@ -30,6 +32,8 @@ except ImportError as exc:
 
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("starlink_grpc_collector")
 
 
 class CollectorState:
@@ -79,13 +83,16 @@ class GrpcWebCollector:
                 self.last_update = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 if self.state != CollectorState.RUNNING:
                     self.state = CollectorState.RUNNING
+                logger.info("Starlink data collected (fields=%s)", len(self.current_data))
+                logger.info("Starlink data: %s", json.dumps(self.current_data, ensure_ascii=True))
             except Exception as exc:
                 self.last_error = str(exc)
                 self.state = CollectorState.ERROR
+                logger.error("Collection error: %s", self.last_error)
             time.sleep(self.interval)
 
     def _fetch_status(self):
-        status, _, _ = starlink_grpc.status_data(context=self.context)
+        status, obstruction, alerts = starlink_grpc.status_data(context=self.context)
         location = starlink_grpc.location_data(context=self.context)
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return {
@@ -109,6 +116,10 @@ class GrpcWebCollector:
             "gps_sats": status.get("gps_sats"),
             "hardware_version": status.get("hardware_version"),
             "software_version": status.get("software_version"),
+            "alerts": alerts,
+            "obstruction": obstruction,
+            "raw_status": status,
+            "raw_location": location,
         }
 
     def status(self) -> CollectorStatus:
