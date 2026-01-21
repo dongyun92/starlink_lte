@@ -583,6 +583,13 @@ DASHBOARD_HTML = """
         </div>
 
         <div class="data-section" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+            <h2 class="section-title">All Fields</h2>
+            <div class="table-container" style="flex: 1;">
+                <div id="allFieldsContainer" class="loading">Waiting for data...</div>
+            </div>
+        </div>
+
+        <div class="data-section" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
             <h2 class="section-title">Recent Data</h2>
             <div class="table-container" style="flex: 1;">
                 <div id="dataContainer" class="loading">Loading data...</div>
@@ -606,6 +613,56 @@ DASHBOARD_HTML = """
             if (normalized.includes('idle') || normalized.includes('stop')) return 'disconnected';
             if (normalized.includes('error')) return 'disconnected';
             return 'disconnected';
+        }
+
+        function flattenObject(obj, prefix = '') {
+            const rows = [];
+            if (obj === null || obj === undefined) return rows;
+            const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
+            Object.keys(obj).sort().forEach(key => {
+                const value = obj[key];
+                const fullKey = prefix ? `${prefix}.${key}` : key;
+                if (isPlainObject(value)) {
+                    rows.push(...flattenObject(value, fullKey));
+                } else if (Array.isArray(value)) {
+                    rows.push([fullKey, JSON.stringify(value)]);
+                } else {
+                    rows.push([fullKey, value]);
+                }
+            });
+            return rows;
+        }
+
+        function renderAllFields(payload) {
+            const rows = flattenObject(payload);
+            if (!rows.length) {
+                document.getElementById('allFieldsContainer').innerHTML = '<p class="loading">No fields available</p>';
+                return;
+            }
+
+            let html = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Field</th>
+                            <th>Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            rows.forEach(([key, value]) => {
+                const display = (value === null || value === undefined) ? '-' : value;
+                html += `
+                    <tr>
+                        <td>${key}</td>
+                        <td>${display}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('allFieldsContainer').innerHTML = html;
         }
 
         async function updateStats() {
@@ -632,8 +689,11 @@ DASHBOARD_HTML = """
                 if (rawData.error) {
                     const detail = rawData.detail ? `<br>${rawData.detail}` : '';
                     document.getElementById('dataContainer').innerHTML = `<p class="loading">No data received.${detail}</p>`;
+                    document.getElementById('allFieldsContainer').innerHTML = '<p class="loading">No data received.</p>';
                     return;
                 }
+
+                renderAllFields(rawData);
                 
                 // 실시간 데이터를 배열 형태로 변환
                 const data = [rawData];
