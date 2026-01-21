@@ -94,7 +94,6 @@ class GrpcWebCollector:
                 self._maybe_rotate_file()
                 self._write_csv(self.current_data)
                 logger.info("Starlink data collected (fields=%s)", len(self.current_data))
-                logger.info("Starlink data: %s", json.dumps(self.current_data, ensure_ascii=True))
             except Exception as exc:
                 self.last_error = str(exc)
                 self.state = CollectorState.ERROR
