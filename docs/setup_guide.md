@@ -41,7 +41,7 @@ LTE:
 
 Starlink:
 - Simulator collector API: `8899`
-- Real gRPC-Web collector API: `9201` (this service talks to dish at `192.168.100.1:9201`)
+- Real gRPC collector API: `9201` (this service talks to dish at `192.168.100.1:9200`)
 - Ground station dashboard: `8080`
 
 Dashboard input examples:

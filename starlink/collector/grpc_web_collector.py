@@ -14,10 +14,16 @@ import sys
 from flask import Flask, jsonify
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+TOOLS_DIR = REPO_ROOT / "starlink-grpc-tools"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+if TOOLS_DIR.exists() and str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
 
-from starlink.real_starlink_api import RealStarlinkAPI
+try:
+    import starlink_grpc
+except ImportError as exc:
+    raise SystemExit("starlink_grpc module not available. Ensure starlink-grpc-tools is present.") from exc
 
 
 app = Flask(__name__)
@@ -37,8 +43,10 @@ class CollectorStatus:
 
 
 class GrpcWebCollector:
-    def __init__(self, dish_ip: str, interval: float):
-        self.api = RealStarlinkAPI(dish_ip=dish_ip)
+    def __init__(self, grpc_host: str, grpc_port: int, interval: float):
+        self.grpc_host = grpc_host
+        self.grpc_port = grpc_port
+        self.context = starlink_grpc.ChannelContext(target=f"{grpc_host}:{grpc_port}")
         self.interval = interval
         self.state = CollectorState.IDLE
         self.last_error = ""
@@ -62,8 +70,8 @@ class GrpcWebCollector:
     def _loop(self):
         while not self._stop_event.is_set():
             try:
-                data = self.api.get_status_with_fallback()
-                self.current_data = data
+                data = self._fetch_status()
+                self.current_data = data or {}
                 self.last_error = ""
                 self.last_update = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 if self.state != CollectorState.RUNNING:
@@ -72,6 +80,33 @@ class GrpcWebCollector:
                 self.last_error = str(exc)
                 self.state = CollectorState.ERROR
             time.sleep(self.interval)
+
+    def _fetch_status(self):
+        status, _, _ = starlink_grpc.status_data(context=self.context)
+        location = starlink_grpc.location_data(context=self.context)
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        return {
+            "timestamp": now,
+            "terminal_id": status.get("id"),
+            "state": status.get("state"),
+            "uptime": status.get("uptime"),
+            "downlink_throughput_bps": status.get("downlink_throughput_bps"),
+            "uplink_throughput_bps": status.get("uplink_throughput_bps"),
+            "ping_drop_rate": status.get("pop_ping_drop_rate"),
+            "ping_latency_ms": status.get("pop_ping_latency_ms"),
+            "snr": status.get("snr"),
+            "seconds_to_first_nonempty_slot": status.get("seconds_to_first_nonempty_slot"),
+            "azimuth": status.get("direction_azimuth"),
+            "elevation": status.get("direction_elevation"),
+            "pop_ping_drop_rate": status.get("pop_ping_drop_rate"),
+            "pop_ping_latency_ms": status.get("pop_ping_latency_ms"),
+            "latitude": location.get("latitude"),
+            "longitude": location.get("longitude"),
+            "altitude": location.get("altitude"),
+            "gps_sats": status.get("gps_sats"),
+            "hardware_version": status.get("hardware_version"),
+            "software_version": status.get("software_version"),
+        }
 
     def status(self) -> CollectorStatus:
         return CollectorStatus(
@@ -123,17 +158,22 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Starlink gRPC-Web collector")
-    parser.add_argument("--dish-ip", default="192.168.100.1", help="Starlink dish IP")
+    parser.add_argument("--grpc-host", default="192.168.100.1", help="Starlink gRPC host")
+    parser.add_argument("--grpc-port", type=int, default=9200, help="Starlink gRPC port")
     parser.add_argument("--control-port", type=int, default=9201, help="Collector HTTP port")
     parser.add_argument("--interval", type=float, default=3.0, help="Collection interval in seconds")
     args = parser.parse_args()
 
     global collector
-    collector = GrpcWebCollector(dish_ip=args.dish_ip, interval=args.interval)
+    collector = GrpcWebCollector(
+        grpc_host=args.grpc_host,
+        grpc_port=args.grpc_port,
+        interval=args.interval,
+    )
     collector.start()
 
-    print("Starlink gRPC-Web collector started")
-    print(f"Dish: {args.dish_ip}:9201")
+    print("Starlink gRPC collector started")
+    print(f"gRPC target: {args.grpc_host}:{args.grpc_port}")
     print(f"HTTP: 0.0.0.0:{args.control_port}")
     app.run(host="0.0.0.0", port=args.control_port)
 
