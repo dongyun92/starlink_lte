@@ -18,6 +18,7 @@ from typing import Dict, List
 from collections import deque
 import sqlite3
 import requests
+from urllib.parse import urlparse
 
 class GroundStationReceiver:
     """지상국 데이터 수신기"""
@@ -82,6 +83,23 @@ class GroundStationReceiver:
 
     def setup_routes(self):
         """Flask 라우트 설정"""
+
+        def normalize_target(raw_value: str, default_port: int) -> str:
+            """Normalize target address to host:port."""
+            if not raw_value:
+                raise ValueError("target address is empty")
+            value = raw_value.strip()
+            if value.startswith("http://") or value.startswith("https://"):
+                parsed = urlparse(value)
+                if not parsed.hostname:
+                    raise ValueError("invalid target address")
+                port = parsed.port or default_port
+                return f"{parsed.hostname}:{port}"
+            if "/" in value:
+                value = value.split("/", 1)[0]
+            if ":" not in value:
+                value = f"{value}:{default_port}"
+            return value
         
         @self.app.route('/upload_status', methods=['POST'])
         def upload_status():
@@ -183,11 +201,11 @@ class GroundStationReceiver:
         def drone_control(action):
             """드론 제어 (시작/중지)"""
             try:
-                drone_address = request.json.get('drone_address', '192.168.1.100:8899')  # 기본 드론 주소:포트
-                
-                # 포트가 포함되지 않은 경우 기본 포트 추가
-                if ':' not in drone_address:
-                    drone_address += ':8899'
+                payload = request.get_json(silent=True) or {}
+                drone_address = normalize_target(
+                    payload.get('drone_address', '192.168.1.100:8899'),
+                    8899,
+                )
                 
                 if action == 'start':
                     response = requests.post(f"http://{drone_address}/api/start", timeout=10)
@@ -201,6 +219,8 @@ class GroundStationReceiver:
                 else:
                     return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
                     
+            except ValueError as e:
+                return jsonify({"error": f"잘못된 주소: {str(e)}"}), 400
             except requests.RequestException as e:
                 return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
 
@@ -208,11 +228,10 @@ class GroundStationReceiver:
         def drone_status():
             """드론 상태 조회"""
             try:
-                drone_address = request.args.get('drone_address', '192.168.1.100:8899')
-                
-                # 포트가 포함되지 않은 경우 기본 포트 추가
-                if ':' not in drone_address:
-                    drone_address += ':8899'
+                drone_address = normalize_target(
+                    request.args.get('drone_address', '192.168.1.100:8899'),
+                    8899,
+                )
                 
                 response = requests.get(f"http://{drone_address}/api/status", timeout=5)
                 if response.status_code != 200:
@@ -224,6 +243,8 @@ class GroundStationReceiver:
                     self.logger.exception(f"상태 JSON 파싱 실패: {e}")
                     return jsonify({"error": "상태 응답 파싱 실패", "detail": response.text}), 502
 
+            except ValueError as e:
+                return jsonify({"error": f"잘못된 주소: {str(e)}"}), 400
             except requests.RequestException as e:
                 self.logger.exception(f"드론 연결 실패: {e}")
                 return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
@@ -235,11 +256,10 @@ class GroundStationReceiver:
         def get_live_data():
             """드론에서 실시간 데이터 가져오기"""
             try:
-                drone_address = request.args.get('drone_address', 'localhost:8899')
-                
-                # 포트가 포함되지 않은 경우 기본 포트 추가
-                if ':' not in drone_address:
-                    drone_address += ':8899'
+                drone_address = normalize_target(
+                    request.args.get('drone_address', 'localhost:8899'),
+                    8899,
+                )
                 
                 response = requests.get(f"http://{drone_address}/api/current_data", timeout=5)
                 if response.status_code != 200:
@@ -251,6 +271,8 @@ class GroundStationReceiver:
                     self.logger.exception(f"실시간 데이터 JSON 파싱 실패: {e}")
                     return jsonify({"error": "실시간 데이터 파싱 실패", "detail": response.text}), 502
 
+            except ValueError as e:
+                return jsonify({"error": f"잘못된 주소: {str(e)}"}), 400
             except requests.RequestException as e:
                 self.logger.exception(f"드론 연결 실패: {e}")
                 return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
