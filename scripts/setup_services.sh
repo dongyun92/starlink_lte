@@ -45,10 +45,13 @@ echo "[INFO] Using USER_NAME=${USER_NAME}"
 echo "[INFO] Using BASE_DIR=${BASE_DIR}"
 
 if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
-  echo "[INFO] Creating venv and installing Python dependencies"
+  echo "[INFO] Creating venv"
   python3 -m venv "${VENV_DIR}"
-  "${VENV_DIR}/bin/pip" install -r "${BASE_DIR}/requirements.txt"
 fi
+
+echo "[INFO] Installing Python dependencies in venv"
+"${VENV_DIR}/bin/pip" install -r "${BASE_DIR}/requirements.txt"
+"${VENV_DIR}/bin/python" -c "import flask" >/dev/null
 STARLINK_PYTHON_BIN="${VENV_DIR}/bin/python"
 
 if [[ ! -f "${STARLINK_GRPC_DIR}/dish_grpc_text.py" ]]; then
