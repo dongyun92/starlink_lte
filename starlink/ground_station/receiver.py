@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, render_template_string
 import logging
+import os
 from typing import Dict, List
 from collections import deque
 import sqlite3
@@ -27,7 +28,7 @@ class GroundStationReceiver:
         self.port = port
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True, parents=True)
-        
+
         # Flask 앱
         self.app = Flask(__name__)
         self.setup_routes()
@@ -40,8 +41,9 @@ class GroundStationReceiver:
         self.setup_database()
         
         # 로깅 설정
+        log_level = logging.DEBUG if os.getenv("STARLINK_GS_DEBUG") == "1" else logging.INFO
         logging.basicConfig(
-            level=logging.INFO,
+            level=log_level,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler(self.data_dir / 'ground_station.log'),
@@ -49,6 +51,7 @@ class GroundStationReceiver:
             ]
         )
         self.logger = logging.getLogger(__name__)
+        self.logger.info("Ground station logging level: %s", logging.getLevelName(log_level))
 
     def setup_database(self):
         """SQLite 데이터베이스 초기화"""
@@ -100,6 +103,23 @@ class GroundStationReceiver:
             if ":" not in value:
                 value = f"{value}:{default_port}"
             return value
+
+        @self.app.before_request
+        def log_request():
+            payload = request.get_json(silent=True)
+            payload_keys = list(payload.keys()) if isinstance(payload, dict) else None
+            self.logger.info(
+                "REQ %s %s args=%s json_keys=%s",
+                request.method,
+                request.path,
+                dict(request.args),
+                payload_keys,
+            )
+
+        @self.app.after_request
+        def log_response(response):
+            self.logger.info("RES %s %s status=%s", request.method, request.path, response.status_code)
+            return response
         
         @self.app.route('/upload_status', methods=['POST'])
         def upload_status():
