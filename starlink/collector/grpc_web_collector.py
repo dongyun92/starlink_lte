@@ -23,7 +23,10 @@ if TOOLS_DIR.exists() and str(TOOLS_DIR) not in sys.path:
 try:
     import starlink_grpc
 except ImportError as exc:
-    raise SystemExit("starlink_grpc module not available. Ensure starlink-grpc-tools is present.") from exc
+    raise SystemExit(
+        f"starlink_grpc import failed: {exc}. "
+        "Ensure starlink-grpc-tools is present and grpcio is installed."
+    ) from exc
 
 
 app = Flask(__name__)

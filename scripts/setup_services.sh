@@ -51,6 +51,10 @@ fi
 
 echo "[INFO] Installing Python dependencies in venv"
 "${VENV_DIR}/bin/pip" install -r "${BASE_DIR}/requirements.txt"
+if [[ -f "${STARLINK_GRPC_DIR}/requirements.txt" ]]; then
+  echo "[INFO] Installing starlink-grpc-tools dependencies in venv"
+  "${VENV_DIR}/bin/pip" install -r "${STARLINK_GRPC_DIR}/requirements.txt"
+fi
 "${VENV_DIR}/bin/python" -c "import flask" >/dev/null
 STARLINK_PYTHON_BIN="${VENV_DIR}/bin/python"
 
