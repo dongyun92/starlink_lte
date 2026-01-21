@@ -223,8 +223,8 @@ class GroundStationReceiver:
             try:
                 payload = request.get_json(silent=True) or {}
                 drone_address = normalize_target(
-                    payload.get('drone_address', '192.168.1.100:8899'),
-                    8899,
+                    payload.get('drone_address', '192.168.100.1:9201'),
+                    9201,
                 )
                 
                 if action == 'start':
@@ -249,8 +249,8 @@ class GroundStationReceiver:
             """드론 상태 조회"""
             try:
                 drone_address = normalize_target(
-                    request.args.get('drone_address', '192.168.1.100:8899'),
-                    8899,
+                    request.args.get('drone_address', '192.168.100.1:9201'),
+                    9201,
                 )
                 
                 response = requests.get(f"http://{drone_address}/api/status", timeout=5)
@@ -277,8 +277,8 @@ class GroundStationReceiver:
             """드론에서 실시간 데이터 가져오기"""
             try:
                 drone_address = normalize_target(
-                    request.args.get('drone_address', 'localhost:8899'),
-                    8899,
+                    request.args.get('drone_address', 'localhost:9201'),
+                    9201,
                 )
                 
                 response = requests.get(f"http://{drone_address}/api/current_data", timeout=5)
@@ -517,7 +517,7 @@ DASHBOARD_HTML = """
         <div class="data-section">
             <h2 class="section-title">Drone Control</h2>
             <div class="control-panel">
-                <input type="text" id="droneAddress" placeholder="Drone address (example: 192.168.1.100:8899)" value="localhost:8899">
+                <input type="text" id="droneAddress" placeholder="Drone address (example: 192.168.100.1:9201)" value="localhost:9201">
                 <button id="startBtn" class="control-btn start-btn">Start Collection</button>
                 <button id="stopBtn" class="control-btn stop-btn">Stop Collection</button>
                 <button id="statusBtn" class="control-btn status-btn">Check Status</button>
@@ -716,6 +716,9 @@ DASHBOARD_HTML = """
                 `;
 
                 data.reverse().forEach(item => {
+                    const snrValue = (item.snr === null || item.snr === undefined)
+                        ? 'N/A'
+                        : item.snr.toFixed(1);
                     html += `
                         <tr>
                             <td>${formatTimestamp(item.timestamp)}</td>
@@ -723,7 +726,7 @@ DASHBOARD_HTML = """
                             <td>${((item.downlink_throughput_bps || 0) / 1024 / 1024).toFixed(2)} Mbps</td>
                             <td>${((item.uplink_throughput_bps || 0) / 1024 / 1024).toFixed(2)} Mbps</td>
                             <td>${(item.ping_latency_ms || 0).toFixed(1)} ms</td>
-                            <td>${(item.snr || 0).toFixed(1)} dB</td>
+                            <td>${snrValue} dB</td>
                             <td>${(item.azimuth || 0).toFixed(1)}°</td>
                             <td>${(item.elevation || 0).toFixed(1)}°</td>
                         </tr>
@@ -823,13 +826,13 @@ DASHBOARD_HTML = """
                 document.getElementById('liveDownlink').textContent = ((data.downlink_throughput_bps || 0) / 1024 / 1024).toFixed(2);
                 document.getElementById('liveUplink').textContent = ((data.uplink_throughput_bps || 0) / 1024 / 1024).toFixed(2);
                 document.getElementById('liveLatency').textContent = (data.ping_latency_ms || 0).toFixed(1);
-                document.getElementById('liveSNR').textContent = (data.snr || 0).toFixed(1);
+                document.getElementById('liveSNR').textContent = (data.snr === null || data.snr === undefined)
+                    ? 'N/A'
+                    : data.snr.toFixed(1);
                 
                 // 상단 통계도 실시간 데이터로 업데이트
                 document.getElementById('avgDownlink').textContent = ((data.downlink_throughput_bps || 0) / 1024 / 1024).toFixed(2);
                 document.getElementById('avgLatency').textContent = (data.ping_latency_ms || 0).toFixed(1);
-                document.getElementById('totalRecords').textContent = 'Simulation';
-                document.getElementById('recentRecords').textContent = 'LIVE';
                 
                 // 마지막 업데이트 시간 표시
                 document.getElementById('liveTimestamp').textContent = formatTimestamp(data.timestamp);
