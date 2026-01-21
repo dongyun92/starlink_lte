@@ -140,11 +140,11 @@ class GroundStationReceiver:
                     for item in status_data['recent_data']:
                         self.realtime_data.append(item)
                 
-                self.logger.info(f"드론 상태 수신: {status_data.get('state', 'UNKNOWN')}")
+                self.logger.info(f"Drone status received: {status_data.get('state', 'UNKNOWN')}")
                 return jsonify({"status": "success"})
                 
             except Exception as e:
-                self.logger.error(f"상태 수신 오류: {e}")
+                self.logger.error(f"Status ingest error: {e}")
                 return jsonify({"status": "error", "message": str(e)}), 400
 
         @self.app.route('/upload_data', methods=['POST'])
@@ -167,12 +167,12 @@ class GroundStationReceiver:
                 for item in json_data:
                     self.realtime_data.append(item)
                 
-                self.logger.info(f"수신된 데이터: {len(json_data)}개")
+                self.logger.info(f"Data received: {len(json_data)} records")
                 
                 return jsonify({"status": "success", "received_count": len(json_data)})
                 
             except Exception as e:
-                self.logger.error(f"데이터 수신 오류: {e}")
+                self.logger.error(f"Data ingest error: {e}")
                 return jsonify({"status": "error", "message": str(e)}), 400
 
         @self.app.route('/api/latest_data')
@@ -232,7 +232,7 @@ class GroundStationReceiver:
                 elif action == 'stop':
                     response = requests.post(f"http://{drone_address}/api/stop", timeout=10)
                 else:
-                    return jsonify({"error": "잘못된 액션입니다"}), 400
+                    return jsonify({"error": "Invalid action"}), 400
                 
                 if response.status_code == 200:
                     return jsonify({"success": True, "message": response.json().get('message', 'Success')})
@@ -240,9 +240,9 @@ class GroundStationReceiver:
                     return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
                     
             except ValueError as e:
-                return jsonify({"error": f"잘못된 주소: {str(e)}"}), 400
+                return jsonify({"error": f"Invalid address: {str(e)}"}), 400
             except requests.RequestException as e:
-                return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
+                return jsonify({"error": f"Collector connection failed: {str(e)}"}), 500
 
         @self.app.route('/api/drone_status')
         def drone_status():
@@ -255,22 +255,22 @@ class GroundStationReceiver:
                 
                 response = requests.get(f"http://{drone_address}/api/status", timeout=5)
                 if response.status_code != 200:
-                    return jsonify({"error": "상태 조회 실패", "detail": response.text}), response.status_code
+                    return jsonify({"error": "Status request failed", "detail": response.text}), response.status_code
 
                 try:
                     return jsonify(response.json())
                 except ValueError as e:
-                    self.logger.exception(f"상태 JSON 파싱 실패: {e}")
-                    return jsonify({"error": "상태 응답 파싱 실패", "detail": response.text}), 502
+                    self.logger.exception(f"Status JSON parse failed: {e}")
+                    return jsonify({"error": "Status response parse failed", "detail": response.text}), 502
 
             except ValueError as e:
-                return jsonify({"error": f"잘못된 주소: {str(e)}"}), 400
+                return jsonify({"error": f"Invalid address: {str(e)}"}), 400
             except requests.RequestException as e:
-                self.logger.exception(f"드론 연결 실패: {e}")
-                return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
+                self.logger.exception(f"Collector connection failed: {e}")
+                return jsonify({"error": f"Collector connection failed: {str(e)}"}), 500
             except Exception as e:
-                self.logger.exception(f"드론 상태 조회 오류: {e}")
-                return jsonify({"error": "드론 상태 조회 오류", "detail": str(e)}), 500
+                self.logger.exception(f"Collector status request error: {e}")
+                return jsonify({"error": "Collector status request error", "detail": str(e)}), 500
 
         @self.app.route('/api/live_data')
         def get_live_data():
@@ -283,22 +283,22 @@ class GroundStationReceiver:
                 
                 response = requests.get(f"http://{drone_address}/api/current_data", timeout=5)
                 if response.status_code != 200:
-                    return jsonify({"error": "실시간 데이터 조회 실패", "detail": response.text}), response.status_code
+                    return jsonify({"error": "Live data request failed", "detail": response.text}), response.status_code
 
                 try:
                     return jsonify(response.json())
                 except ValueError as e:
-                    self.logger.exception(f"실시간 데이터 JSON 파싱 실패: {e}")
-                    return jsonify({"error": "실시간 데이터 파싱 실패", "detail": response.text}), 502
+                    self.logger.exception(f"Live data JSON parse failed: {e}")
+                    return jsonify({"error": "Live data response parse failed", "detail": response.text}), 502
 
             except ValueError as e:
-                return jsonify({"error": f"잘못된 주소: {str(e)}"}), 400
+                return jsonify({"error": f"Invalid address: {str(e)}"}), 400
             except requests.RequestException as e:
-                self.logger.exception(f"드론 연결 실패: {e}")
-                return jsonify({"error": f"드론 연결 실패: {str(e)}"}), 500
+                self.logger.exception(f"Collector connection failed: {e}")
+                return jsonify({"error": f"Collector connection failed: {str(e)}"}), 500
             except Exception as e:
-                self.logger.exception(f"실시간 데이터 조회 오류: {e}")
-                return jsonify({"error": "실시간 데이터 조회 오류", "detail": str(e)}), 500
+                self.logger.exception(f"Live data request error: {e}")
+                return jsonify({"error": "Live data request error", "detail": str(e)}), 500
 
         @self.app.route('/')
         def dashboard():
@@ -339,7 +339,7 @@ class GroundStationReceiver:
                         data.get('altitude')
                     ))
                 except Exception as e:
-                    self.logger.error(f"DB 저장 오류: {e}")
+                    self.logger.error(f"DB save error: {e}")
                     try:
                         conn.execute("""
                             INSERT INTO drone_data (
@@ -370,11 +370,11 @@ class GroundStationReceiver:
                             data.get('altitude')
                         ))
                     except Exception as retry_error:
-                        self.logger.error(f"DB 저장 재시도 실패: {retry_error}")
+                        self.logger.error(f"DB save retry failed: {retry_error}")
 
     def run(self):
         """지상국 서버 실행"""
-        self.logger.info(f"지상국 수신기 시작: http://0.0.0.0:{self.port}")
+        self.logger.info(f"Ground station started: http://0.0.0.0:{self.port}")
         self.app.run(host='0.0.0.0', port=self.port, debug=False)
 
 

@@ -58,15 +58,15 @@ class RealStarlinkAPI:
             
             full_message = compression_flag + message_length + request_msg
             
-            self.logger.info(f"gRPC 요청 생성: {len(full_message)} 바이트")
+            self.logger.info(f"gRPC request created: {len(full_message)} bytes")
             return full_message
             
         except Exception as e:
-            self.logger.error(f"gRPC 메시지 생성 실패: {e}")
+            self.logger.error(f"Failed to build gRPC message: {e}")
             return b''
     
     def test_real_connection(self) -> bool:
-        """실제 스타링크 디바이스 연결 테스트"""
+        """Test Starlink device connectivity"""
         try:
             # CORS preflight 요청
             options_response = requests.options(
@@ -80,24 +80,24 @@ class RealStarlinkAPI:
             )
             
             if options_response.status_code == 200:
-                self.logger.info("✅ 실제 스타링크 API 연결 가능")
+                self.logger.info("Starlink API reachable")
                 return True
             else:
-                self.logger.warning(f"⚠️ CORS preflight 실패: {options_response.status_code}")
+                self.logger.warning(f"CORS preflight failed: {options_response.status_code}")
                 return False
                 
         except requests.exceptions.ConnectTimeout:
-            self.logger.error("❌ 스타링크 디바이스 연결 시간 초과 (192.168.100.1에 접근 불가)")
+            self.logger.error("Starlink device connection timed out (192.168.100.1 unreachable)")
             return False
         except requests.exceptions.ConnectionError:
-            self.logger.error("❌ 스타링크 디바이스와 네트워크 연결 불가")
+            self.logger.error("Starlink device network connection failed")
             return False
         except Exception as e:
-            self.logger.error(f"❌ 연결 테스트 실패: {e}")
+            self.logger.error(f"Connectivity test failed: {e}")
             return False
     
     def get_real_status(self) -> Dict[str, Any]:
-        """실제 스타링크 상태 데이터 요청"""
+        """Request Starlink status data"""
         try:
             # gRPC-Web 요청 데이터 생성
             request_data = self.create_get_status_request()
@@ -113,24 +113,24 @@ class RealStarlinkAPI:
             )
             
             if response.status_code == 200:
-                self.logger.info(f"✅ 실제 gRPC-Web 응답 수신: {len(response.content)} 바이트")
+                self.logger.info(f"gRPC-Web response received: {len(response.content)} bytes")
                 
                 # 응답 데이터 파싱 시도
                 parsed_data = self.parse_grpc_response(response.content)
                 if parsed_data:
                     return parsed_data
-                self.logger.error("❌ 응답 파싱 실패")
+                self.logger.error("Response parse failed")
                 return {}
             else:
-                self.logger.error(f"❌ gRPC-Web 요청 실패: HTTP {response.status_code}")
+                self.logger.error(f"gRPC-Web request failed: HTTP {response.status_code}")
                 return {}
                 
         except Exception as e:
-            self.logger.error(f"❌ 실제 상태 데이터 요청 실패: {e}")
+            self.logger.error(f"Status request failed: {e}")
             return {}
     
     def parse_grpc_response(self, response_data: bytes) -> Dict[str, Any]:
-        """gRPC-Web 응답 파싱 시도"""
+        """Parse gRPC-Web response"""
         try:
             if len(response_data) < 5:
                 return {}
@@ -141,7 +141,7 @@ class RealStarlinkAPI:
             
             if message_length > 0 and len(response_data) >= 5 + message_length:
                 message_data = response_data[5:5+message_length]
-                self.logger.info(f"📦 protobuf 메시지 수신: {message_length} 바이트")
+                self.logger.info(f"Protobuf message received: {message_length} bytes")
                 
                 # 간단한 protobuf 파싱 시도 (실제 구조 분석 필요)
                 # 실제 파싱 실패 시 빈 데이터 반환
@@ -150,7 +150,7 @@ class RealStarlinkAPI:
             return {}
             
         except Exception as e:
-            self.logger.error(f"❌ gRPC 응답 파싱 오류: {e}")
+            self.logger.error(f"gRPC response parse error: {e}")
             return {}
     
     def create_realistic_data_from_api(self) -> Dict[str, Any]:
@@ -227,31 +227,31 @@ class RealStarlinkAPI:
         return data
     
     def get_status_with_fallback(self) -> Dict[str, Any]:
-        """실제 API만 사용 (실패시 오류)"""
+        """Use real API only (raise on failure)"""
         
         if not self.test_real_connection():
-            raise RuntimeError("Starlink gRPC-Web 연결 실패")
+            raise RuntimeError("Starlink gRPC-Web connection failed")
 
         real_data = self.get_real_status()
         if real_data:
-            self.logger.info("🛰️ 실제 스타링크 API 데이터 사용")
+            self.logger.info("Using real Starlink API data")
             return real_data
 
-        raise RuntimeError("Starlink gRPC-Web 응답 파싱 실패")
+        raise RuntimeError("Starlink gRPC-Web response parse failed")
 
 # 테스트 함수
 def test_real_api():
     api = RealStarlinkAPI()
-    print("🛰️ 실제 Starlink API 테스트")
+    print("Starlink API test")
     print("=" * 50)
     
     data = api.get_status_with_fallback()
     if data:
-        print(f"📡 데이터 소스: {data.get('data_source', 'unknown')}")
-        print(f"🌐 다운로드: {data.get('downlink_throughput_bps', 0) / 1000000:.1f} Mbps")
-        print(f"📤 업로드: {data.get('uplink_throughput_bps', 0) / 1000000:.1f} Mbps")
-        print(f"⏱️ 핑: {data.get('pop_ping_latency_ms', 0):.1f} ms")
-        print(f"📊 SNR: {data.get('snr', 0):.1f} dB")
+        print(f"Data source: {data.get('data_source', 'unknown')}")
+        print(f"Download: {data.get('downlink_throughput_bps', 0) / 1000000:.1f} Mbps")
+        print(f"Upload: {data.get('uplink_throughput_bps', 0) / 1000000:.1f} Mbps")
+        print(f"Ping: {data.get('pop_ping_latency_ms', 0):.1f} ms")
+        print(f"SNR: {data.get('snr', 0):.1f} dB")
 
 if __name__ == "__main__":
     test_real_api()

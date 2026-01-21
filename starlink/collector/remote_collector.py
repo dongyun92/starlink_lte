@@ -118,13 +118,13 @@ class TestRemoteControlledCollector:
             """수집 시작"""
             try:
                 if self.state != CollectorState.IDLE:
-                    return jsonify({"error": f"수집기가 {self.state.value} 상태입니다"}), 400
+                    return jsonify({"error": f"Collector is in {self.state.value} state"}), 400
                 
                 self._start_collection()
                 return jsonify({"message": "테스트 수집이 시작되었습니다", "state": self.state.value})
                 
             except Exception as e:
-                self.logger.error(f"수집 시작 오류: {e}")
+                self.logger.error(f"Start collection error: {e}")
                 return jsonify({"error": str(e)}), 500
         
         @self.app.route('/api/stop', methods=['POST'])
@@ -132,13 +132,13 @@ class TestRemoteControlledCollector:
             """수집 중지"""
             try:
                 if self.state not in [CollectorState.RUNNING, CollectorState.ERROR]:
-                    return jsonify({"error": f"수집기가 {self.state.value} 상태입니다"}), 400
+                    return jsonify({"error": f"Collector is in {self.state.value} state"}), 400
                 
                 self._stop_collection()
                 return jsonify({"message": "테스트 수집이 중지되었습니다", "state": self.state.value})
                 
             except Exception as e:
-                self.logger.error(f"수집 중지 오류: {e}")
+                self.logger.error(f"Stop collection error: {e}")
                 return jsonify({"error": str(e)}), 500
         
         @self.app.route('/api/files', methods=['GET'])
@@ -152,18 +152,18 @@ class TestRemoteControlledCollector:
             """현재 실시간 데이터 반환"""
             try:
                 if self.state != CollectorState.RUNNING:
-                    return jsonify({"error": "수집기가 실행 중이 아닙니다"})
+                    return jsonify({"error": "Collector is not running"})
                 
                 if self.mode == "real":
                     data = self._get_real_data()
                     if not data:
-                        return jsonify({"error": "실데이터 수집 실패"})
+                        return jsonify({"error": "Real data collection failed"})
                 else:
                     data = self._generate_mock_data()
                 return jsonify(asdict(data))
                 
             except Exception as e:
-                self.logger.error(f"현재 데이터 조회 오류: {e}")
+                self.logger.error(f"Current data fetch error: {e}")
                 return jsonify({"error": str(e)}), 500
 
     def _set_state(self, new_state: CollectorState):
@@ -171,7 +171,7 @@ class TestRemoteControlledCollector:
         with self.state_lock:
             old_state = self.state
             self.state = new_state
-            self.logger.info(f"상태 변경: {old_state.value} → {new_state.value}")
+            self.logger.info(f"State changed: {old_state.value} -> {new_state.value}")
 
     def _start_collection(self):
         """수집 시작"""
@@ -192,7 +192,7 @@ class TestRemoteControlledCollector:
             self.collection_thread.start()
             
             self._set_state(CollectorState.RUNNING)
-            self.logger.info("테스트 데이터 수집이 시작되었습니다")
+            self.logger.info("Test data collection started")
             
         except Exception as e:
             self._set_state(CollectorState.ERROR)
@@ -206,7 +206,7 @@ class TestRemoteControlledCollector:
             self.grpc_stub = device_pb2_grpc.DeviceStub(self.grpc_channel)
             return True
         except Exception as e:
-            self.logger.error(f"gRPC 연결 실패: {e}")
+            self.logger.error(f"gRPC connection failed: {e}")
             self.grpc_channel = None
             self.grpc_stub = None
             return False
@@ -242,7 +242,7 @@ class TestRemoteControlledCollector:
                 altitude=getattr(status.gps_stats, "altitude", 0.0),
             )
         except Exception as e:
-            self.logger.error(f"실데이터 수집 실패: {e}")
+            self.logger.error(f"Real data collection failed: {e}")
             self.grpc_stub = None
             return None
 
@@ -262,7 +262,7 @@ class TestRemoteControlledCollector:
             self._close_current_file()
             
             self._set_state(CollectorState.IDLE)
-            self.logger.info(f"테스트 데이터 수집이 중지되었습니다 (총 {self.data_counter}개 데이터 수집)")
+            self.logger.info(f"Test data collection stopped (total {self.data_counter} records)")
             
         except Exception as e:
             self._set_state(CollectorState.ERROR)
@@ -293,7 +293,7 @@ class TestRemoteControlledCollector:
         self.current_file_handle.write(','.join(header) + '\n')
         self.current_file_handle.flush()
         
-        self.logger.info(f"새 테스트 파일 생성: {filename}")
+        self.logger.info(f"New test file created: {filename}")
 
     def _close_current_file(self):
         """현재 파일 닫기"""
@@ -302,7 +302,7 @@ class TestRemoteControlledCollector:
             self.current_file_handle = None
             
             if self.current_file:
-                self.logger.info(f"파일 닫힘: {self.current_file.name}")
+                self.logger.info(f"File closed: {self.current_file.name}")
 
     def _should_rotate_file(self) -> bool:
         """파일 로테이션이 필요한지 확인"""
@@ -357,7 +357,7 @@ class TestRemoteControlledCollector:
             self.data_counter += 1
             
         except Exception as e:
-            self.logger.error(f"CSV 저장 오류: {e}")
+            self.logger.error(f"CSV save error: {e}")
             try:
                 self._close_current_file()
                 self._create_new_file()
@@ -365,11 +365,11 @@ class TestRemoteControlledCollector:
                 self.current_file_handle.flush()
                 self.data_counter += 1
             except Exception as retry_error:
-                self.logger.error(f"CSV 저장 재시도 실패: {retry_error}")
+                self.logger.error(f"CSV save retry failed: {retry_error}")
 
     def _collection_loop(self):
         """메인 데이터 수집 루프"""
-        self.logger.info("테스트 데이터 수집 루프 시작")
+        self.logger.info("Test data collection loop started")
         
         while self.running:
             start_time = time.time()
@@ -377,7 +377,7 @@ class TestRemoteControlledCollector:
             try:
                 # 파일 로테이션 확인
                 if self._should_rotate_file():
-                    self.logger.info("파일 로테이션 수행")
+                    self.logger.info("Rotating output file")
                     self._close_current_file()
                     self._create_new_file()
                 
@@ -394,20 +394,20 @@ class TestRemoteControlledCollector:
                     self._set_state(CollectorState.ERROR)
                 
             except Exception as e:
-                self.logger.error(f"수집 루프 오류: {e}")
+                self.logger.error(f"Collection loop error: {e}")
                 self._set_state(CollectorState.ERROR)
                 try:
                     if not self.current_file_handle:
                         self._create_new_file()
                 except Exception as retry_error:
-                    self.logger.error(f"파일 복구 실패: {retry_error}")
+                    self.logger.error(f"File recovery failed: {retry_error}")
             
             # 주기 유지
             elapsed = time.time() - start_time
             sleep_time = max(0, self.collection_interval - elapsed)
             time.sleep(sleep_time)
         
-        self.logger.info("테스트 데이터 수집 루프 종료")
+        self.logger.info("Test data collection loop ended")
 
     def _get_current_file_info(self) -> Optional[Dict]:
         """현재 파일 정보 반환"""
@@ -449,7 +449,7 @@ class TestRemoteControlledCollector:
 
     def run_control_server(self):
         """제어 서버 실행"""
-        self.logger.info(f"테스트 제어 서버 시작: http://0.0.0.0:{self.control_port}")
+        self.logger.info(f"Test control server started: http://0.0.0.0:{self.control_port}")
         self.app.run(host='0.0.0.0', port=self.control_port, debug=False)
 
 def main():
