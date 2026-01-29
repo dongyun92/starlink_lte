@@ -211,12 +211,18 @@ class FlightDataAnalyzer:
                 record['starlink_download'] = sl_closest['downlink_throughput_bps'] / 1e6  # Mbps
                 record['starlink_upload'] = sl_closest['uplink_throughput_bps'] / 1e6  # Mbps
                 record['starlink_snr'] = sl_closest['snr']
+                record['starlink_azimuth'] = sl_closest['azimuth']
+                record['starlink_elevation'] = sl_closest['elevation']
+                record['starlink_gps_sats'] = sl_closest['gps_sats']
                 record['starlink_available'] = True
             else:
                 record['starlink_latency'] = None
                 record['starlink_download'] = None
                 record['starlink_upload'] = None
                 record['starlink_snr'] = None
+                record['starlink_azimuth'] = None
+                record['starlink_elevation'] = None
+                record['starlink_gps_sats'] = None
                 record['starlink_available'] = False
 
             merged_records.append(record)
