@@ -391,6 +391,47 @@ DASHBOARD_HTML = """
             </div>
         </div>
 
+        <!-- 전문 보고서 -->
+        <div class="section">
+            <h2 class="section-title">전문 분석 보고서</h2>
+            <p class="section-subtitle">상세한 분석 설명 및 비행 시나리오 포함 (8 페이지 PDF)</p>
+
+            <div class="grid-2col">
+                <div class="viz-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                    <div class="viz-title" style="color: white;">전문 분석 보고서 (Professional Report)</div>
+                    <div class="viz-description" style="color: rgba(255,255,255,0.9);">
+                        <strong>포함 내용:</strong><br>
+                        • 표지 및 프로젝트 정보<br>
+                        • 주요 발견 사항 (Executive Summary)<br>
+                        • 비행 시나리오 및 이벤트 분석<br>
+                        • 상관관계 분석 (차트 + 상세 해석)<br>
+                        • 품질 분포 분석 (차트 + 통계)<br>
+                        • 시계열 비교 (6개 메트릭)<br>
+                        • 위성 추적 분석 (극좌표 플롯 + 해석)<br>
+                        • 위성-품질 상관관계 (역설적 발견 포함)
+                    </div>
+                    <a href="/download/professional_analysis_report.pdf" class="btn btn-full" style="margin-top: 15px; background: white; color: #667eea;">
+                        PDF 보고서 다운로드 (384 KB)
+                    </a>
+                </div>
+
+                <div class="viz-card">
+                    <div class="viz-title">보고서 하이라이트</div>
+                    <div class="viz-description">
+                        <strong>주요 특징:</strong><br>
+                        ✓ 8 페이지 전문 보고서<br>
+                        ✓ 5개 차트 + 상세 설명<br>
+                        ✓ 비행 시나리오 단계별 분석<br>
+                        ✓ 주요 이벤트 타임라인<br>
+                        ✓ 역설적 발견 해석 (위성 고도각 vs 레이턴시)<br>
+                        ✓ 실용적 권장사항<br>
+                        ✓ 네트워크 전환 전략<br>
+                        ✓ A4 크기, 인쇄 최적화
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 분석 도구 -->
         <div class="section">
             <h2 class="section-title">분석 도구 실행</h2>
@@ -418,6 +459,14 @@ DASHBOARD_HTML = """
                     <div class="viz-description">
                         <code>python satellite_tracking_visualization.py</code><br>
                         극좌표 플롯, 전환 탐지, 상관관계 분석
+                    </div>
+                </div>
+
+                <div class="viz-card">
+                    <div class="viz-title">전문 보고서 생성</div>
+                    <div class="viz-description">
+                        <code>python professional_report_generator.py</code><br>
+                        8페이지 PDF 보고서, 차트 + 설명 + 시나리오
                     </div>
                 </div>
             </div>
