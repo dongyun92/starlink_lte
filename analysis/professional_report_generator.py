@@ -16,9 +16,40 @@ from PIL import Image
 import warnings
 warnings.filterwarnings('ignore')
 
+# 한글 폰트 자동 감지 및 설정
+import matplotlib.font_manager as fm
+
+def get_korean_font():
+    """macOS에서 사용 가능한 한글 폰트 찾기"""
+    korean_fonts = [
+        'AppleGothic',
+        'AppleSDGothicNeo-Regular',
+        'NanumGothic',
+        'Malgun Gothic',
+        'Arial Unicode MS'
+    ]
+
+    available_fonts = [f.name for f in fm.fontManager.ttflist]
+
+    for font in korean_fonts:
+        if font in available_fonts:
+            return font
+
+    # 한글 포함된 폰트 찾기
+    for f in fm.fontManager.ttflist:
+        if 'gothic' in f.name.lower() or 'nanum' in f.name.lower():
+            return f.name
+
+    return 'DejaVu Sans'  # 기본 폰트
+
 # 한글 폰트 설정
-plt.rcParams['font.family'] = 'AppleGothic'
+korean_font = get_korean_font()
+print(f"Using font: {korean_font}")
+
+plt.rcParams['font.family'] = korean_font
 plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['font.size'] = 9  # 기본 폰트 크기
+plt.rcParams['figure.dpi'] = 100  # 해상도
 
 
 class ProfessionalReportGenerator:
@@ -91,8 +122,8 @@ class ProfessionalReportGenerator:
         """
 
         plt.text(0.5, 0.35, info_text, ha='center', va='center',
-                fontsize=10, family='monospace', color='#34495e',
-                bbox=dict(boxstyle='round', facecolor='#ecf0f1', alpha=0.8))
+                fontsize=9, color='#34495e',
+                bbox=dict(boxstyle='round', facecolor='#ecf0f1', alpha=0.8, pad=0.8))
 
         # 분석 일자
         plt.text(0.5, 0.1, '분석 일자: 2026년 1월 29일',
@@ -149,7 +180,7 @@ LTE는 안정적인 주 통신망으로 사용 가능. 전 구간에서 일정�
 고밀도 데이터 전송 가능.
         """
         ax_lte.text(0.05, 0.95, lte_summary, ha='left', va='top',
-                   fontsize=9, family='monospace',
+                   fontsize=9,
                    bbox=dict(boxstyle='round', facecolor='#e8f5e9', alpha=0.8))
         ax_lte.set_xlim(0, 1)
         ax_lte.set_ylim(0, 1)
@@ -184,7 +215,7 @@ Starlink는 보조 통신망으로 적합. 레이턴시 안정적이나 throughp
 데이터 전송 시 LTE 우선 사용 권장. 커버리지 53.9%로 전 구간 보장 불가.
         """
         ax_sl.text(0.05, 0.95, sl_summary, ha='left', va='top',
-                  fontsize=9, family='monospace',
+                  fontsize=9,
                   bbox=dict(boxstyle='round', facecolor='#fff3e0', alpha=0.8))
         ax_sl.set_xlim(0, 1)
         ax_sl.set_ylim(0, 1)
@@ -213,7 +244,7 @@ Starlink는 보조 통신망으로 적합. 레이턴시 안정적이나 throughp
   ✓ 비중요 데이터: 품질 좋은 네트워크 자동 선택
         """
         ax_rec.text(0.05, 0.95, recommendations, ha='left', va='top',
-                   fontsize=9, family='monospace',
+                   fontsize=9,
                    bbox=dict(boxstyle='round', facecolor='#e3f2fd', alpha=0.8))
         ax_rec.set_xlim(0, 1)
         ax_rec.set_ylim(0, 1)
@@ -258,7 +289,7 @@ Starlink는 보조 통신망으로 적합. 레이턴시 안정적이나 throughp
   ✓ 수집 시스템: 실시간 CSV 로깅 (0.5~0.6초 간격)
         """
         ax_plan.text(0.05, 0.95, plan_text, ha='left', va='top',
-                    fontsize=9, family='monospace',
+                    fontsize=9,
                     bbox=dict(boxstyle='round', facecolor='#f3e5f5', alpha=0.8))
         ax_plan.set_xlim(0, 1)
         ax_plan.set_ylim(0, 1)
@@ -292,7 +323,7 @@ Phase 3: 착륙 및 데이터 수집 종료 (06:12:01 ~ 06:15:25, 204초)
   → 총 수집 데이터: LTE 8,828개, Starlink 6,321개
         """
         ax_phases.text(0.05, 0.95, phases_text, ha='left', va='top',
-                      fontsize=9, family='monospace',
+                      fontsize=9,
                       bbox=dict(boxstyle='round', facecolor='#e0f7fa', alpha=0.8))
         ax_phases.set_xlim(0, 1)
         ax_phases.set_ylim(0, 1)
@@ -336,7 +367,7 @@ Starlink 네트워크 이벤트:
      → 효과: 한 네트워크 저하 시 다른 네트워크 보완 가능
         """
         ax_events.text(0.05, 0.95, events_text, ha='left', va='top',
-                      fontsize=9, family='monospace',
+                      fontsize=9,
                       bbox=dict(boxstyle='round', facecolor='#fff9c4', alpha=0.8))
         ax_events.set_xlim(0, 1)
         ax_events.set_ylim(0, 1)
@@ -365,7 +396,7 @@ Starlink 네트워크 이벤트:
   • 개선: +50% 데이터 활용도 증가
         """
         ax_quality.text(0.05, 0.95, quality_text, ha='left', va='top',
-                       fontsize=9, family='monospace',
+                       fontsize=9,
                        bbox=dict(boxstyle='round', facecolor='#e8eaf6', alpha=0.8))
         ax_quality.set_xlim(0, 1)
         ax_quality.set_ylim(0, 1)
@@ -396,7 +427,7 @@ Starlink 네트워크 이벤트:
         # 설명
         ax_desc = fig.add_subplot(gs[2])
         ax_desc.text(0.05, 0.95, description, ha='left', va='top',
-                    fontsize=9, family='monospace', wrap=True,
+                    fontsize=9,
                     bbox=dict(boxstyle='round', facecolor='#f5f5f5', alpha=0.9))
         ax_desc.set_xlim(0, 1)
         ax_desc.set_ylim(0, 1)
