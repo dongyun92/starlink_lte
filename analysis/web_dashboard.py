@@ -427,10 +427,10 @@ def main():
     print(f"📊 Analysis directory: {ANALYSIS_DIR}")
     print(f"📁 Resource directory: {RESOURCE_DIR}")
     print("\n✅ Server ready!")
-    print("🔗 Open your browser and go to: http://localhost:5000")
+    print("🔗 Open your browser and go to: http://localhost:5001")
     print("\nPress Ctrl+C to stop the server\n")
 
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=False)
 
 
 if __name__ == "__main__":
