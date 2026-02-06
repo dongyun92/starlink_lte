@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>비행 통신 품질 분석 플랫폼</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🛰️ 비행 통신 품질 분석 플랫폼</h1>
+            <p>ULG 비행 로그 분석 (LTE/Starlink 데이터 선택사항)</p>
+        </header>
+
+        <!-- 새 분석 시작 -->
+        <section class="upload-section">
+            <h2>📁 새 분석 시작</h2>
+            <form id="uploadForm">
+                <div class="file-input-group">
+                    <label for="flightLog">
+                        <span class="label-text">비행 로그 (ULG) - 여러 개 선택 가능:</span>
+                        <div class="file-drop-zone" id="flightLogZone">
+                            <input type="file" id="flightLog" name="flight_log" accept=".ulg" multiple required>
+                            <p>클릭하거나 파일을 드래그하세요 (여러 개 가능)</p>
+                            <p class="file-name"></p>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="file-input-group">
+                    <label for="lteData">
+                        <span class="label-text">LTE 데이터 (CSV) - 선택사항 (여러 개 가능):</span>
+                        <div class="file-drop-zone" id="lteDataZone">
+                            <input type="file" id="lteData" name="lte_data" accept=".csv" multiple>
+                            <p>클릭하거나 파일을 드래그하세요 (선택사항)</p>
+                            <p class="file-name"></p>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="file-input-group">
+                    <label for="starlinkData">
+                        <span class="label-text">Starlink 데이터 (CSV) - 선택사항 (여러 개 가능):</span>
+                        <div class="file-drop-zone" id="starlinkDataZone">
+                            <input type="file" id="starlinkData" name="starlink_data" accept=".csv" multiple>
+                            <p>클릭하거나 파일을 드래그하세요 (선택사항)</p>
+                            <p class="file-name"></p>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="metadata-group">
+                    <label for="sessionName">
+                        <span class="label-text">분석 이름 (선택):</span>
+                        <input type="text" id="sessionName" placeholder="예: 한울드론 비행 #1">
+                    </label>
+                </div>
+
+                <button type="submit" class="btn-primary" id="submitBtn">
+                    <span id="btnText">분석 시작</span>
+                    <span id="btnLoading" class="hidden">업로드 중...</span>
+                </button>
+            </form>
+
+            <div id="uploadProgress" class="hidden">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p id="progressText">파일 업로드 중... 0%</p>
+            </div>
+
+            <div id="uploadResult" class="hidden"></div>
+        </section>
+
+        <!-- 이전 분석 결과 -->
+        <section class="sessions-section">
+            <div class="sessions-header">
+                <h2>📊 분석 세션 목록</h2>
+                <div class="sessions-controls">
+                    <button class="btn-filter" onclick="filterSessions('all')" id="filter-all">전체</button>
+                    <button class="btn-filter" onclick="filterSessions('completed')">완료</button>
+                    <button class="btn-filter" onclick="filterSessions('processing')">진행중</button>
+                    <button class="btn-filter" onclick="filterSessions('failed')">실패</button>
+                    <button class="btn-compare" onclick="toggleCompareMode()" id="compareBtn">비교 모드</button>
+                </div>
+            </div>
+            <div id="sessionsList">
+                <p class="loading">세션 목록을 불러오는 중...</p>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/js/upload.js"></script>
+</body>
+</html>
