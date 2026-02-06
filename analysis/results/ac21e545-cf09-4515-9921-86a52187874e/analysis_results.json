@@ -1,0 +1,269 @@
+{
+  "session_id": "ac21e545-cf09-4515-9921-86a52187874e",
+  "start_time": "2026-02-06T15:35:46.775143",
+  "steps": [
+    {
+      "status": "success",
+      "message": "데이터 로드 완료: 13243 rows",
+      "rows": 13243,
+      "columns": 12,
+      "file_counts": {
+        "lte": 0,
+        "starlink": 0,
+        "flight_logs": 2
+      },
+      "step_name": "데이터 로드",
+      "step_number": 1
+    },
+    {
+      "status": "success",
+      "message": "상관관계 분석 완료: 20 주요 상관관계 발견",
+      "top_count": 20,
+      "step_name": "상관관계 분석",
+      "step_number": 2
+    },
+    {
+      "status": "success",
+      "message": "통신 품질 분석 완료",
+      "lte_avg_rsrp": 0,
+      "starlink_avg_snr": 0,
+      "step_name": "통신 품질 분석",
+      "step_number": 3
+    },
+    {
+      "status": "success",
+      "message": "고도별 분석 완료",
+      "step_name": "고도별 분석",
+      "step_number": 4
+    },
+    {
+      "status": "success",
+      "message": "9개 차트 생성 완료",
+      "chart_count": 9,
+      "charts": [
+        "altitude_vs_speed.png",
+        "correlation_matrix.png",
+        "speed_profile.png",
+        "flight_path_3d.png",
+        "flight_statistics_dashboard.png",
+        "flight_path_altitude_colored.png",
+        "altitude_quality.png",
+        "altitude_profile.png",
+        "quality_distribution.png"
+      ],
+      "has_lte": false,
+      "has_starlink": false,
+      "flight_only_mode": true,
+      "step_name": "차트 생성",
+      "step_number": 5
+    },
+    {
+      "status": "success",
+      "message": "지도 데이터 생성 완료 (13243 포인트)",
+      "geojson_path": "results/ac21e545-cf09-4515-9921-86a52187874e/map_data.geojson",
+      "step_name": "지도 데이터 생성",
+      "step_number": 6
+    },
+    {
+      "status": "success",
+      "message": "기본 보고서 생성 완료 (9개 차트)",
+      "step_name": "보고서 생성",
+      "step_number": 7
+    }
+  ],
+  "overall_status": "success",
+  "end_time": "2026-02-06T15:36:02.548927",
+  "analysis_results": {
+    "correlation": {
+      "matrix": {
+        "latitude": {
+          "latitude": 1.0,
+          "longitude": 0.05683396650582362,
+          "altitude": 0.3612469857209779,
+          "flight_id": -0.35498004845327935,
+          "distance_moved": 0.04658968872696838,
+          "speed_mps": 0.04658968872696838,
+          "distance_from_origin": 0.4441976342358428,
+          "flight_time_elapsed": -0.5091241389495008
+        },
+        "longitude": {
+          "latitude": 0.05683396650582362,
+          "longitude": 1.0,
+          "altitude": -0.3208005711726468,
+          "flight_id": 0.47704618674531085,
+          "distance_moved": -0.023641625859100148,
+          "speed_mps": -0.023641625859100148,
+          "distance_from_origin": -0.22326626005923797,
+          "flight_time_elapsed": 0.2845289554954368
+        },
+        "altitude": {
+          "latitude": 0.3612469857209779,
+          "longitude": -0.3208005711726468,
+          "altitude": 1.0,
+          "flight_id": -0.4877642808378178,
+          "distance_moved": 0.6297105981675519,
+          "speed_mps": 0.6297105981675519,
+          "distance_from_origin": 0.8720660090925336,
+          "flight_time_elapsed": -0.45802094330865056
+        },
+        "flight_id": {
+          "latitude": -0.35498004845327935,
+          "longitude": 0.47704618674531085,
+          "altitude": -0.4877642808378178,
+          "flight_id": 1.0,
+          "distance_moved": -0.020326010931056293,
+          "speed_mps": -0.020326010931056293,
+          "distance_from_origin": -0.36732361673201025,
+          "flight_time_elapsed": 0.8646539421597426
+        },
+        "distance_moved": {
+          "latitude": 0.04658968872696838,
+          "longitude": -0.023641625859100148,
+          "altitude": 0.6297105981675519,
+          "flight_id": -0.020326010931056293,
+          "distance_moved": 1.0,
+          "speed_mps": 1.0,
+          "distance_from_origin": 0.5078908855232909,
+          "flight_time_elapsed": -0.1280053089440931
+        },
+        "speed_mps": {
+          "latitude": 0.04658968872696838,
+          "longitude": -0.023641625859100148,
+          "altitude": 0.6297105981675519,
+          "flight_id": -0.020326010931056293,
+          "distance_moved": 1.0,
+          "speed_mps": 1.0,
+          "distance_from_origin": 0.5078908855232909,
+          "flight_time_elapsed": -0.1280053089440931
+        },
+        "distance_from_origin": {
+          "latitude": 0.4441976342358428,
+          "longitude": -0.22326626005923797,
+          "altitude": 0.8720660090925336,
+          "flight_id": -0.36732361673201025,
+          "distance_moved": 0.5078908855232909,
+          "speed_mps": 0.5078908855232909,
+          "distance_from_origin": 1.0,
+          "flight_time_elapsed": -0.4106356207707629
+        },
+        "flight_time_elapsed": {
+          "latitude": -0.5091241389495008,
+          "longitude": 0.2845289554954368,
+          "altitude": -0.45802094330865056,
+          "flight_id": 0.8646539421597426,
+          "distance_moved": -0.1280053089440931,
+          "speed_mps": -0.1280053089440931,
+          "distance_from_origin": -0.4106356207707629,
+          "flight_time_elapsed": 1.0
+        }
+      },
+      "top_correlations": [
+        {
+          "variable1": "distance_moved",
+          "variable2": "speed_mps",
+          "correlation": 1.0
+        },
+        {
+          "variable1": "altitude",
+          "variable2": "distance_from_origin",
+          "correlation": 0.8720660090925336
+        },
+        {
+          "variable1": "flight_id",
+          "variable2": "flight_time_elapsed",
+          "correlation": 0.8646539421597426
+        },
+        {
+          "variable1": "altitude",
+          "variable2": "distance_moved",
+          "correlation": 0.6297105981675519
+        },
+        {
+          "variable1": "altitude",
+          "variable2": "speed_mps",
+          "correlation": 0.6297105981675519
+        },
+        {
+          "variable1": "latitude",
+          "variable2": "flight_time_elapsed",
+          "correlation": -0.5091241389495008
+        },
+        {
+          "variable1": "distance_moved",
+          "variable2": "distance_from_origin",
+          "correlation": 0.5078908855232909
+        },
+        {
+          "variable1": "speed_mps",
+          "variable2": "distance_from_origin",
+          "correlation": 0.5078908855232909
+        },
+        {
+          "variable1": "altitude",
+          "variable2": "flight_id",
+          "correlation": -0.4877642808378178
+        },
+        {
+          "variable1": "longitude",
+          "variable2": "flight_id",
+          "correlation": 0.47704618674531085
+        },
+        {
+          "variable1": "altitude",
+          "variable2": "flight_time_elapsed",
+          "correlation": -0.45802094330865056
+        },
+        {
+          "variable1": "latitude",
+          "variable2": "distance_from_origin",
+          "correlation": 0.4441976342358428
+        },
+        {
+          "variable1": "distance_from_origin",
+          "variable2": "flight_time_elapsed",
+          "correlation": -0.4106356207707629
+        },
+        {
+          "variable1": "flight_id",
+          "variable2": "distance_from_origin",
+          "correlation": -0.36732361673201025
+        },
+        {
+          "variable1": "latitude",
+          "variable2": "altitude",
+          "correlation": 0.3612469857209779
+        },
+        {
+          "variable1": "latitude",
+          "variable2": "flight_id",
+          "correlation": -0.35498004845327935
+        },
+        {
+          "variable1": "longitude",
+          "variable2": "altitude",
+          "correlation": -0.3208005711726468
+        },
+        {
+          "variable1": "longitude",
+          "variable2": "flight_time_elapsed",
+          "correlation": 0.2845289554954368
+        },
+        {
+          "variable1": "longitude",
+          "variable2": "distance_from_origin",
+          "correlation": -0.22326626005923797
+        },
+        {
+          "variable1": "distance_moved",
+          "variable2": "flight_time_elapsed",
+          "correlation": -0.1280053089440931
+        }
+      ]
+    },
+    "quality": {
+      "lte": {},
+      "starlink": {}
+    },
+    "altitude": {}
+  }
+}

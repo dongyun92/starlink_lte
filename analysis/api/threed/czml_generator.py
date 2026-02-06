@@ -65,7 +65,17 @@ class CZMLGenerator:
         # Flight path entities
         if color_by == 'dual':
             # Dual path mode: LTE + Starlink
-            czml.extend(self._create_dual_path_entities(df))
+            # Check if LTE or Starlink data is available
+            has_lte = 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all()
+            has_starlink = 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all()
+
+            if has_lte or has_starlink:
+                # At least one data source available, use dual mode
+                czml.extend(self._create_dual_path_entities(df))
+            else:
+                # No LTE/Starlink data, fallback to altitude mode
+                print(f"⚠️ No LTE/Starlink data for session {self.session_id}, using altitude mode")
+                czml.extend(self._create_flight_path_entity(df, 'altitude'))
         else:
             # Single path mode (altitude, speed, etc.)
             czml.extend(self._create_flight_path_entity(df, color_by))

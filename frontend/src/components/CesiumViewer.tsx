@@ -129,27 +129,51 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         await cesiumViewerRef.current.dataSources.add(dataSource);
 
         // CZML 데이터에서 엔티티 정보 추출
-        // czmlData[0]: document header
-        // czmlData[1]: lte_path (polyline)
-        // czmlData[2]: starlink_path (polyline)
-        // czmlData[3]: aircraft (position with animation)
-        const lteEntityId = czmlData[1].id;
-        const starlinkEntityId = czmlData[2].id;
-        const aircraftEntityId = czmlData[3].id;
-        const firstPosition = czmlData[3].position.cartographicDegrees;
-        const lon = firstPosition[1];
-        const lat = firstPosition[2];
-        const alt = firstPosition[3];
+        // Dual mode (4 entities): [header, lte_path, starlink_path, aircraft]
+        // Single mode (3 entities): [header, flight_path, aircraft]
+        const isDualMode = czmlData.length === 4;
 
-        // Entity 참조 저장
-        const entities = dataSource.entities.values;
-        const lteEntity = entities.find((e: any) => e.id === lteEntityId);
-        const starlinkEntity = entities.find((e: any) => e.id === starlinkEntityId);
-        const aircraft = entities.find((e: any) => e.id === aircraftEntityId);
+        let lon, lat, alt, aircraft;
 
-        lteEntityRef.current = lteEntity;
-        starlinkEntityRef.current = starlinkEntity;
-        aircraftEntityRef.current = aircraft;
+        if (isDualMode) {
+          // Dual path mode
+          const lteEntityId = czmlData[1].id;
+          const starlinkEntityId = czmlData[2].id;
+          const aircraftEntityId = czmlData[3].id;
+          const firstPosition = czmlData[3].position.cartographicDegrees;
+          lon = firstPosition[1];
+          lat = firstPosition[2];
+          alt = firstPosition[3];
+
+          // Entity 참조 저장
+          const entities = dataSource.entities.values;
+          const lteEntity = entities.find((e: any) => e.id === lteEntityId);
+          const starlinkEntity = entities.find((e: any) => e.id === starlinkEntityId);
+          aircraft = entities.find((e: any) => e.id === aircraftEntityId);
+
+          lteEntityRef.current = lteEntity;
+          starlinkEntityRef.current = starlinkEntity;
+          aircraftEntityRef.current = aircraft;
+
+          console.log('📊 Dual path mode active (LTE + Starlink)');
+        } else {
+          // Single path mode (fallback)
+          const aircraftEntityId = czmlData[2].id;
+          const firstPosition = czmlData[2].position.cartographicDegrees;
+          lon = firstPosition[1];
+          lat = firstPosition[2];
+          alt = firstPosition[3];
+
+          // Entity 참조 저장
+          const entities = dataSource.entities.values;
+          aircraft = entities.find((e: any) => e.id === aircraftEntityId);
+
+          lteEntityRef.current = null;
+          starlinkEntityRef.current = null;
+          aircraftEntityRef.current = aircraft;
+
+          console.log('⚠️ Single path mode (no LTE/Starlink data)');
+        }
 
         console.log(`📍 First position: lon=${lon}, lat=${lat}, alt=${alt}`);
 
