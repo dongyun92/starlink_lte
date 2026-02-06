@@ -33,14 +33,20 @@ def list_flights():
                 # created_at is already a string from database
                 created_at = session.created_at if isinstance(session.created_at, str) else session.created_at.isoformat()
 
+                # Count actual files from filesystem
+                session_path = Path(__file__).parent.parent.parent / 'uploads' / session.id
+                flight_logs_count = len(list((session_path / 'flight_logs').glob('*.ulg'))) if (session_path / 'flight_logs').exists() else 0
+                lte_data_count = len(list((session_path / 'lte_data').glob('*.csv'))) if (session_path / 'lte_data').exists() else 0
+                starlink_data_count = len(list((session_path / 'starlink_data').glob('*.csv'))) if (session_path / 'starlink_data').exists() else 0
+
                 flights.append({
                     'id': session.id,
                     'name': session.name or f"Flight {session.id}",
                     'created_at': created_at,
                     'file_count': {
-                        'flight_logs': session.metadata.get('flight_log_count', 0),
-                        'lte_data': session.metadata.get('lte_data_count', 0),
-                        'starlink_data': session.metadata.get('starlink_data_count', 0)
+                        'flight_logs': flight_logs_count,
+                        'lte_data': lte_data_count,
+                        'starlink_data': starlink_data_count
                     }
                 })
 
