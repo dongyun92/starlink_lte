@@ -154,12 +154,55 @@ class LTEModule:
             self.send_at("ATE0")
             self.send_at("AT+CEREG=2")
             self.send_at("AT+CREG=2")
+
+            # 네트워크 등록 대기
+            if not self.wait_for_network_registration(timeout=60):
+                print("[WARNING] LTE network not registered, will continue anyway")
+
             self.connected = True
             print(f"[INFO] LTE module connected on {self.port}")
             return True
         except Exception as e:
             print(f"[ERROR] LTE connect failed: {e}")
             return False
+
+    def wait_for_network_registration(self, timeout=60):
+        """LTE 네트워크 등록 대기 (최대 timeout초)"""
+        print(f"[INFO] Waiting for LTE network registration (max {timeout}s)...")
+        start = time.time()
+        retry_count = 0
+
+        while time.time() - start < timeout:
+            try:
+                # AT+CEREG? 로 LTE 등록 상태 확인
+                response = self.send_at("AT+CEREG?", timeout=2.0)
+
+                # +CEREG: 2,1 (등록됨, 홈 네트워크) 또는
+                # +CEREG: 2,5 (등록됨, 로밍) 확인
+                if "+CEREG: 2,1" in response or "+CEREG: 2,5" in response:
+                    print(f"[SUCCESS] LTE network registered after {int(time.time() - start)}s")
+                    return True
+
+                # 등록 시도 중인지 확인
+                if "+CEREG: 2,2" in response:
+                    status = "searching"
+                elif "+CEREG: 2,0" in response:
+                    status = "not registered"
+                elif "+CEREG: 2,3" in response:
+                    status = "registration denied"
+                else:
+                    status = "unknown"
+
+                retry_count += 1
+                print(f"[WAIT] LTE registration status: {status} (retry {retry_count}, elapsed {int(time.time() - start)}s)")
+                time.sleep(5)  # 5초마다 확인
+
+            except Exception as e:
+                print(f"[ERROR] Network registration check failed: {e}")
+                time.sleep(5)
+
+        print(f"[TIMEOUT] LTE network registration timeout after {timeout}s")
+        return False
 
     def read_response(self, timeout=3.0):
         end = time.time() + timeout
@@ -185,14 +228,27 @@ class LTEModule:
             return None
 
     def get_signal_quality(self):
-        r = self.send_at("AT+CSQ")
-        m = re.search(r"\+CSQ:\s*(\d+),(\d+)", r or "")
-        if not m:
-            return -999, 0
-        rssi_raw = int(m.group(1))
-        ber = int(m.group(2))
-        rssi = -113 + rssi_raw * 2 if rssi_raw != 99 else -999
-        return rssi, ber
+        """신호 품질 조회 (재시도 로직 포함)"""
+        for attempt in range(3):  # 최대 3회 시도
+            try:
+                r = self.send_at("AT+CSQ", timeout=2.0)
+                m = re.search(r"\+CSQ:\s*(\d+),(\d+)", r or "")
+                if not m:
+                    if attempt < 2:  # 마지막 시도가 아니면
+                        time.sleep(0.5)
+                        continue
+                    return -999, 0
+                rssi_raw = int(m.group(1))
+                ber = int(m.group(2))
+                rssi = -113 + rssi_raw * 2 if rssi_raw != 99 else -999
+                return rssi, ber
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(0.5)
+                    continue
+                print(f"[ERROR] get_signal_quality failed: {e}")
+                return -999, 0
+        return -999, 0
 
     def get_network_info(self):
         r = self.send_at("AT+QNWINFO")
@@ -264,30 +320,42 @@ class LTEModule:
         return "0", "0"
 
     def get_servingcell_lte(self):
-        r = self.send_at('AT+QENG="servingcell"', timeout=3)
-        for line in (r or "").splitlines():
-            if "LTE" not in line or "servingcell" not in line:
-                continue
-            p = [x.strip() for x in line.split(",")]
-            def parse_int(token):
-                m = re.search(r"-?\d+", token or "")
-                return int(m.group(0)) if m else -999
-            return {
-                "mcc": parse_int(p[4]) if len(p) > 4 else -999,
-                "mnc": parse_int(p[5]) if len(p) > 5 else -999,
-                "cell_id": p[6] if len(p) > 6 else "0",
-                "pcid": parse_int(p[7]) if len(p) > 7 else -999,
-                "earfcn": parse_int(p[8]) if len(p) > 8 else -999,
-                "band_indicator": parse_int(p[9]) if len(p) > 9 else -999,
-                "ul_bandwidth": parse_int(p[10]) if len(p) > 10 else -999,
-                "dl_bandwidth": parse_int(p[11]) if len(p) > 11 else -999,
-                "tac": p[12] if len(p) > 12 else "0",
-                "rsrp": parse_int(p[13]) if len(p) > 13 else -999,
-                "rsrq": parse_int(p[14]) if len(p) > 14 else -999,
-                "rssi": parse_int(p[15]) if len(p) > 15 else -999,
-                "sinr": parse_int(p[16]) if len(p) > 16 else -999,
-                "srxlev": parse_int(p[17]) if len(p) > 17 else -999,
-            }
+        """LTE Serving Cell 정보 조회 (재시도 로직 포함)"""
+        for attempt in range(3):  # 최대 3회 시도
+            try:
+                r = self.send_at('AT+QENG="servingcell"', timeout=3)
+                for line in (r or "").splitlines():
+                    if "LTE" not in line or "servingcell" not in line:
+                        continue
+                    p = [x.strip() for x in line.split(",")]
+                    def parse_int(token):
+                        m = re.search(r"-?\d+", token or "")
+                        return int(m.group(0)) if m else -999
+                    return {
+                        "mcc": parse_int(p[4]) if len(p) > 4 else -999,
+                        "mnc": parse_int(p[5]) if len(p) > 5 else -999,
+                        "cell_id": p[6] if len(p) > 6 else "0",
+                        "pcid": parse_int(p[7]) if len(p) > 7 else -999,
+                        "earfcn": parse_int(p[8]) if len(p) > 8 else -999,
+                        "band_indicator": parse_int(p[9]) if len(p) > 9 else -999,
+                        "ul_bandwidth": parse_int(p[10]) if len(p) > 10 else -999,
+                        "dl_bandwidth": parse_int(p[11]) if len(p) > 11 else -999,
+                        "tac": p[12] if len(p) > 12 else "0",
+                        "rsrp": parse_int(p[13]) if len(p) > 13 else -999,
+                        "rsrq": parse_int(p[14]) if len(p) > 14 else -999,
+                        "rssi": parse_int(p[15]) if len(p) > 15 else -999,
+                        "sinr": parse_int(p[16]) if len(p) > 16 else -999,
+                        "srxlev": parse_int(p[17]) if len(p) > 17 else -999,
+                    }
+                # LTE 라인을 못 찾은 경우
+                if attempt < 2:
+                    time.sleep(0.5)
+                    continue
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(0.5)
+                    continue
+                print(f"[ERROR] get_servingcell_lte failed: {e}")
         return {}
 
     def split_ecell_id(self, cell_id):
