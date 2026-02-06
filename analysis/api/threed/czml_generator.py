@@ -273,25 +273,26 @@ class CZMLGenerator:
             entities.append(entity)
             return entities
 
-        signal_values = df[value_column].values
+        # CRITICAL FIX: aircraft_positions length = df length * 4
+        # Each row has: [time_offset, lon, lat, alt]
+        num_points = len(aircraft_positions) // 4
 
         # Create segments by consecutive points with same color category
         segment_id = 0
         current_segment = []
         current_color = None
 
-        for idx in range(len(signal_values)):
-            # Get position from aircraft_positions (skip time offset, take lon, lat, alt)
+        for idx in range(num_points):
+            # Get position from aircraft_positions
             pos_idx = idx * 4
-            if pos_idx + 3 >= len(aircraft_positions):
-                break
-
             lon = aircraft_positions[pos_idx + 1] + lon_offset
             lat = aircraft_positions[pos_idx + 2]
             alt = aircraft_positions[pos_idx + 3]
 
+            # Get signal value from DataFrame (same index, df is already sampled)
+            signal_val = df.iloc[idx][value_column]
+
             # Determine color category based on signal value
-            signal_val = signal_values[idx]
             if data_type == 'lte':
                 color = self._get_lte_color_category(signal_val)
             else:  # starlink
