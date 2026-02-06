@@ -277,6 +277,20 @@ class CZMLGenerator:
         # Each row has: [time_offset, lon, lat, alt]
         num_points = len(aircraft_positions) // 4
 
+        # DEBUG: Log data dimensions
+        import sys
+        print(f"\n{'='*60}", flush=True)
+        print(f"🔍 DEBUG {data_type.upper()} SEGMENT GENERATION", flush=True)
+        print(f"{'='*60}", flush=True)
+        print(f"   df length: {len(df)}", flush=True)
+        print(f"   aircraft_positions length: {len(aircraft_positions)}", flush=True)
+        print(f"   num_points: {num_points}", flush=True)
+        print(f"   lon_offset: {lon_offset}", flush=True)
+        print(f"   Sample aircraft_positions[0:12]: {aircraft_positions[0:12]}", flush=True)
+        if num_points > 0:
+            print(f"   Sample df.iloc[0]['{value_column}']: {df.iloc[0][value_column]}", flush=True)
+        sys.stdout.flush()
+
         # Create segments by consecutive points with same color category
         segment_id = 0
         current_segment = []
@@ -320,6 +334,15 @@ class CZMLGenerator:
                         }
                     }
                     entities.append(entity)
+
+                    # DEBUG: Print first 3 segments coordinates
+                    if segment_id < 3:
+                        import sys
+                        print(f"   Segment {segment_id}: {len(current_segment)//3} points, color={current_color}", flush=True)
+                        print(f"      First 9 coords: {current_segment[:9]}", flush=True)
+                        print(f"      Last 9 coords: {current_segment[-9:]}", flush=True)
+                        sys.stdout.flush()
+
                     segment_id += 1
 
                 # Start new segment with current point
@@ -343,6 +366,12 @@ class CZMLGenerator:
                 }
             }
             entities.append(entity)
+
+        # DEBUG: Summary
+        import sys
+        print(f"\n✅ {data_type.upper()} Summary: {len(entities)} segments created", flush=True)
+        print(f"{'='*60}\n", flush=True)
+        sys.stdout.flush()
 
         return entities
 

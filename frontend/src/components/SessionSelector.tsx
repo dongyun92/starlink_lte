@@ -14,6 +14,7 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
   const [sessions, setSessions] = useState<FlightSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     loadSessions();
@@ -40,10 +41,10 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
 
   if (loading) {
     return (
-      <div className="absolute top-4 left-4 z-10 bg-gray-900/90 text-white px-4 py-2 rounded-lg shadow-lg">
+      <div className="absolute top-4 right-4 z-20 bg-gray-900/90 text-white px-3 py-2 rounded-lg shadow-lg">
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          <span>Loading sessions...</span>
+          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -51,15 +52,15 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
 
   if (error) {
     return (
-      <div className="absolute top-4 left-4 z-10 bg-red-900/90 text-white px-4 py-3 rounded-lg shadow-lg max-w-md">
+      <div className="absolute top-4 right-4 z-20 bg-red-900/90 text-white px-3 py-2 rounded-lg shadow-lg max-w-xs">
         <div className="flex items-start gap-2">
-          <span className="text-xl">⚠️</span>
+          <span>⚠️</span>
           <div>
-            <div className="font-semibold">Error loading sessions</div>
-            <div className="text-sm mt-1">{error}</div>
+            <div className="font-semibold text-sm">Error</div>
+            <div className="text-xs mt-1">{error}</div>
             <button
               onClick={loadSessions}
-              className="mt-2 px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-sm transition"
+              className="mt-2 px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-xs transition"
             >
               Retry
             </button>
@@ -71,51 +72,97 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
 
   if (sessions.length === 0) {
     return (
-      <div className="absolute top-4 left-4 z-10 bg-gray-900/90 text-white px-4 py-3 rounded-lg shadow-lg">
-        <div className="flex items-center gap-2">
+      <div className="absolute top-4 right-4 z-20 bg-gray-900/90 text-white px-3 py-2 rounded-lg shadow-lg">
+        <div className="flex items-center gap-2 text-sm">
           <span>📭</span>
-          <span>No flight sessions available</span>
+          <span>No sessions</span>
         </div>
       </div>
     );
   }
 
+  const selectedSession = sessions.find((s) => s.id === selectedSessionId);
+
   return (
-    <div className="absolute top-4 left-4 z-10 bg-gray-900/95 text-white rounded-lg shadow-lg overflow-hidden min-w-[320px]">
-      <div className="px-4 py-3 border-b border-gray-700">
-        <h3 className="font-semibold text-sm">Flight Sessions ({sessions.length})</h3>
-      </div>
-
-      <div className="max-h-[400px] overflow-y-auto">
-        {sessions.map((session) => (
-          <button
-            key={session.id}
-            onClick={() => onSessionSelect(session.id)}
-            className={`
-              w-full text-left px-4 py-3 transition border-l-4
-              ${
-                selectedSessionId === session.id
-                  ? 'bg-blue-900/50 border-blue-500'
-                  : 'bg-transparent border-transparent hover:bg-gray-800/50'
-              }
-            `}
-          >
-            <div className="font-medium text-sm">{session.name}</div>
-            <div className="text-xs text-gray-400 mt-1">
-              {new Date(session.created_at).toLocaleString()}
+    <div className="absolute top-4 right-4 z-20">
+      {/* Compact dropdown button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="bg-gray-900/95 text-white px-3 py-2 rounded-lg shadow-lg hover:bg-gray-800/95 transition min-w-[280px]"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1 text-left">
+            <div className="font-medium text-sm truncate">
+              {selectedSession?.name || 'Select Session'}
             </div>
-            <div className="flex gap-3 text-xs text-gray-500 mt-2">
-              <span>✈️ {session.file_count.flight_logs} logs</span>
-              <span>📡 {session.file_count.lte_data} LTE</span>
-              <span>🛰️ {session.file_count.starlink_data} Starlink</span>
-            </div>
-          </button>
-        ))}
-      </div>
+            {selectedSession && (
+              <div className="flex gap-2 text-xs text-gray-400 mt-1">
+                <span>✈️ {selectedSession.file_count.flight_logs}</span>
+                <span>📡 {selectedSession.file_count.lte_data}</span>
+                <span>🛰️ {selectedSession.file_count.starlink_data}</span>
+              </div>
+            )}
+          </div>
+          <span className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+            ▼
+          </span>
+        </div>
+      </button>
 
-      <div className="px-4 py-2 bg-gray-800/50 border-t border-gray-700 text-xs text-gray-400">
-        Select a session to visualize
-      </div>
+      {/* Dropdown menu */}
+      {isOpen && (
+        <>
+          {/* Backdrop to close dropdown */}
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setIsOpen(false)}
+          />
+
+          {/* Dropdown content */}
+          <div className="absolute right-0 mt-2 bg-gray-900/95 text-white rounded-lg shadow-xl overflow-hidden min-w-[280px] max-w-[320px] z-20">
+            <div className="px-3 py-2 border-b border-gray-700">
+              <h3 className="font-semibold text-xs text-gray-400">
+                SESSIONS ({sessions.length})
+              </h3>
+            </div>
+
+            <div className="max-h-[400px] overflow-y-auto">
+              {sessions.map((session) => (
+                <button
+                  key={session.id}
+                  onClick={() => {
+                    onSessionSelect(session.id);
+                    setIsOpen(false);
+                  }}
+                  className={`
+                    w-full text-left px-3 py-2 transition border-l-2 text-sm
+                    ${
+                      selectedSessionId === session.id
+                        ? 'bg-blue-900/50 border-blue-500'
+                        : 'border-transparent hover:bg-gray-800/50'
+                    }
+                  `}
+                >
+                  <div className="font-medium truncate">{session.name}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    {new Date(session.created_at).toLocaleString('ko-KR', {
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </div>
+                  <div className="flex gap-2 text-xs text-gray-500 mt-1">
+                    <span>✈️ {session.file_count.flight_logs}</span>
+                    <span>📡 {session.file_count.lte_data}</span>
+                    <span>🛰️ {session.file_count.starlink_data}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
