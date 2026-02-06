@@ -109,45 +109,56 @@ class LTEModule:
         return None
 
     def _probe_port(self, port):
-        """EC25 모듈 감지 (find_ec25_port.py 로직 기반)"""
+        """EC25 모듈 감지 (빠른 실패로 타임아웃 최소화)"""
         ser = None
         try:
+            # 짧은 timeout으로 빠르게 실패
             ser = serial.Serial(
                 port=port,
                 baudrate=self.baudrate,
-                timeout=1,
+                timeout=0.3,  # 300ms로 짧게
+                write_timeout=0.3,  # write도 timeout 설정
                 rtscts=False,
                 dsrdtr=False,
                 xonxoff=False
             )
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-            time.sleep(0.2)
+            time.sleep(0.1)  # 초기화 대기 최소화
 
-            # 여러 AT 명령어로 EC25 모듈 확인
-            test_commands = [
-                ("AT", 0.5),
-                ("ATE0", 0.5),
-                ("AT+CGMI", 0.5),  # Manufacturer (Quectel 응답 기대)
-                ("AT+CGMM", 0.5),  # Model (EC25 응답 기대)
-            ]
+            # 버퍼 클리어
+            try:
+                ser.reset_input_buffer()
+                ser.reset_output_buffer()
+            except:
+                return False
 
-            for cmd, wait in test_commands:
-                ser.write(f"{cmd}\r\n".encode())
-                time.sleep(wait)
+            # 단순 AT 명령어 1개만 테스트 (빠른 감지)
+            try:
+                ser.write(b"AT\r\n")
+            except:
+                return False
 
-                response = ser.read(ser.in_waiting).decode('utf-8', errors='ignore').strip()
-
-                # OK, Quectel, EC25 키워드 확인
-                if response and ("OK" in response or "Quectel" in response.upper() or "EC25" in response.upper()):
-                    return True
+            # 최대 1초 대기
+            start = time.time()
+            buf = ""
+            while time.time() - start < 1.0:
+                try:
+                    if ser.in_waiting:
+                        buf += ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
+                        if "OK" in buf:
+                            return True
+                except:
+                    return False
+                time.sleep(0.05)
 
             return False
         except Exception as e:
             return False
         finally:
-            if ser:
-                ser.close()
+            try:
+                if ser and ser.is_open:
+                    ser.close()
+            except:
+                pass
 
     def connect(self):
         try:
