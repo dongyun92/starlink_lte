@@ -62,8 +62,13 @@ class CZMLGenerator:
         # Document header
         czml.append(self._create_document_header(df))
 
-        # Flight path entities (polyline + aircraft)
-        czml.extend(self._create_flight_path_entity(df, color_by))
+        # Flight path entities
+        if color_by == 'dual':
+            # Dual path mode: LTE + Starlink
+            czml.extend(self._create_dual_path_entities(df))
+        else:
+            # Single path mode (altitude, speed, etc.)
+            czml.extend(self._create_flight_path_entity(df, color_by))
 
         return czml
 
@@ -163,6 +168,101 @@ class CZMLGenerator:
 
         return [polyline_entity, aircraft_entity]
 
+    def _create_dual_path_entities(self, df) -> list:
+        """
+        Create dual flight path entities (LTE + Starlink) with offset
+
+        Args:
+            df: Flight data DataFrame
+
+        Returns:
+            List of CZML entities [lte_polyline, starlink_polyline, aircraft]
+        """
+        # Longitude offset for parallel paths (approximately 20 meters at equator)
+        LON_OFFSET = 0.0002
+
+        # Calculate colors for each data type
+        lte_colors = self._calculate_lte_colors(df)
+        starlink_colors = self._calculate_starlink_colors(df)
+
+        # Build position samples for aircraft (center path)
+        aircraft_positions = self._build_position_samples(df)
+
+        # Build LTE path (offset left)
+        lte_positions = []
+        for i in range(0, len(aircraft_positions), 4):
+            lon = aircraft_positions[i+1] - LON_OFFSET
+            lat = aircraft_positions[i+2]
+            alt = aircraft_positions[i+3]
+            lte_positions.extend([lon, lat, alt])
+
+        # Build Starlink path (offset right)
+        starlink_positions = []
+        for i in range(0, len(aircraft_positions), 4):
+            lon = aircraft_positions[i+1] + LON_OFFSET
+            lat = aircraft_positions[i+2]
+            alt = aircraft_positions[i+3]
+            starlink_positions.extend([lon, lat, alt])
+
+        # LTE path material (average red-yellow-green gradient)
+        lte_material = self._build_path_material(lte_colors)
+
+        # Starlink path material (average blue-cyan-white gradient)
+        starlink_material = self._build_path_material(starlink_colors)
+
+        # Entity 1: LTE polyline (left path)
+        lte_entity = {
+            "id": f"lte_path_{self.session_id}",
+            "name": f"LTE Signal Path - Session {self.session_id}",
+            "polyline": {
+                "positions": {
+                    "cartographicDegrees": lte_positions
+                },
+                "show": True,
+                "width": 6,
+                "material": lte_material,
+                "clampToGround": False
+            }
+        }
+
+        # Entity 2: Starlink polyline (right path)
+        starlink_entity = {
+            "id": f"starlink_path_{self.session_id}",
+            "name": f"Starlink Signal Path - Session {self.session_id}",
+            "polyline": {
+                "positions": {
+                    "cartographicDegrees": starlink_positions
+                },
+                "show": True,
+                "width": 6,
+                "material": starlink_material,
+                "clampToGround": False
+            }
+        }
+
+        # Entity 3: Aircraft (center, animated)
+        aircraft_entity = {
+            "id": f"aircraft_{self.session_id}",
+            "name": f"Aircraft - Session {self.session_id}",
+            "availability": f"{df.index.min().isoformat()}/{df.index.max().isoformat()}",
+            "position": {
+                "epoch": df.index.min().isoformat(),
+                "cartographicDegrees": aircraft_positions
+            },
+            "point": {
+                "pixelSize": 10,
+                "color": {
+                    "rgba": [255, 0, 0, 255]
+                },
+                "outlineColor": {
+                    "rgba": [255, 255, 255, 255]
+                },
+                "outlineWidth": 2
+            }
+        }
+
+        return [lte_entity, starlink_entity, aircraft_entity]
+
     def _calculate_colors(self, df, color_by: str) -> np.ndarray:
         """
         Calculate colors for each position based on parameter
@@ -231,6 +331,102 @@ class CZMLGenerator:
             # Interpolate RGB
             rgb = viridis_colors[idx0] * (1 - frac) + viridis_colors[idx1] * frac
             colors[i] = [int(rgb[0]), int(rgb[1]), int(rgb[2]), 255]
+
+        return colors
+
+    def _calculate_lte_colors(self, df) -> np.ndarray:
+        """
+        Calculate colors based on LTE RSRP values
+
+        RSRP Color Mapping:
+        - Red (< -110 dBm): Very poor signal
+        - Orange (-110 ~ -100 dBm): Poor signal
+        - Yellow (-100 ~ -90 dBm): Fair signal
+        - Light Green (-90 ~ -80 dBm): Good signal
+        - Green (> -80 dBm): Excellent signal
+
+        Args:
+            df: Flight data DataFrame with 'lte_rsrp' column
+
+        Returns:
+            Array of RGBA color values (0-255)
+        """
+        if 'lte_rsrp' not in df.columns:
+            # Return gray if no LTE data
+            n = len(df)
+            return np.full((n, 4), [128, 128, 128, 255], dtype=np.uint8)
+
+        rsrp_values = df['lte_rsrp'].values
+        n = len(rsrp_values)
+        colors = np.zeros((n, 4), dtype=np.uint8)
+
+        for i, rsrp in enumerate(rsrp_values):
+            if np.isnan(rsrp):
+                # Gray for missing data
+                colors[i] = [128, 128, 128, 255]
+            elif rsrp < -110:
+                # Red - Very poor
+                colors[i] = [255, 0, 0, 255]
+            elif rsrp < -100:
+                # Orange - Poor
+                colors[i] = [255, 165, 0, 255]
+            elif rsrp < -90:
+                # Yellow - Fair
+                colors[i] = [255, 255, 0, 255]
+            elif rsrp < -80:
+                # Light Green - Good
+                colors[i] = [144, 238, 144, 255]
+            else:
+                # Green - Excellent
+                colors[i] = [0, 255, 0, 255]
+
+        return colors
+
+    def _calculate_starlink_colors(self, df) -> np.ndarray:
+        """
+        Calculate colors based on Starlink SNR values
+
+        SNR Color Mapping:
+        - Dark Blue (< 3 dB): Very poor signal
+        - Blue (3 ~ 5 dB): Poor signal
+        - Sky Blue (5 ~ 8 dB): Fair signal
+        - Cyan (8 ~ 12 dB): Good signal
+        - White (> 12 dB): Excellent signal
+
+        Args:
+            df: Flight data DataFrame with 'starlink_snr' column
+
+        Returns:
+            Array of RGBA color values (0-255)
+        """
+        if 'starlink_snr' not in df.columns:
+            # Return gray if no Starlink data
+            n = len(df)
+            return np.full((n, 4), [128, 128, 128, 255], dtype=np.uint8)
+
+        snr_values = df['starlink_snr'].values
+        n = len(snr_values)
+        colors = np.zeros((n, 4), dtype=np.uint8)
+
+        for i, snr in enumerate(snr_values):
+            if np.isnan(snr):
+                # Gray for missing data
+                colors[i] = [128, 128, 128, 255]
+            elif snr < 3:
+                # Dark Blue - Very poor
+                colors[i] = [0, 0, 139, 255]
+            elif snr < 5:
+                # Blue - Poor
+                colors[i] = [0, 0, 255, 255]
+            elif snr < 8:
+                # Sky Blue - Fair
+                colors[i] = [135, 206, 235, 255]
+            elif snr < 12:
+                # Cyan - Good
+                colors[i] = [0, 255, 255, 255]
+            else:
+                # White - Excellent
+                colors[i] = [255, 255, 255, 255]
 
         return colors
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCZMLData } from '@/services/api';
+import { DataLayerControl } from './DataLayerControl';
 
 interface CesiumViewerProps {
   className?: string;
@@ -17,8 +18,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const cesiumViewerRef = useRef<any>(null);
   const czmlDataSourceRef = useRef<any>(null);
   const aircraftEntityRef = useRef<any>(null);
+  const lteEntityRef = useRef<any>(null);
+  const starlinkEntityRef = useRef<any>(null);
 
   const [cameraMode, setCameraMode] = useState<CameraMode>('free');
+  const [lteLayers, setLteLayers] = useState<boolean>(true);
+  const [starlinkLayers, setStarlinkLayers] = useState<boolean>(true);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -108,10 +113,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           czmlDataSourceRef.current = null;
         }
 
-        // CZML 데이터 가져오기
+        // CZML 데이터 가져오기 (듀얼 모드)
         const czmlData = await getCZMLData(selectedSessionId, {
           sample_rate: 1,
-          color_by: 'altitude',
+          color_by: 'dual',
         });
 
         console.log('📦 CZML data loaded:', czmlData);
@@ -123,19 +128,27 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
         await cesiumViewerRef.current.dataSources.add(dataSource);
 
-        // CZML 데이터에서 첫 번째 좌표 추출
+        // CZML 데이터에서 엔티티 정보 추출
         // czmlData[0]: document header
-        // czmlData[1]: flight_path (polyline)
-        // czmlData[2]: aircraft (position with animation)
-        const aircraftEntityId = czmlData[2].id;
-        const firstPosition = czmlData[2].position.cartographicDegrees;
+        // czmlData[1]: lte_path (polyline)
+        // czmlData[2]: starlink_path (polyline)
+        // czmlData[3]: aircraft (position with animation)
+        const lteEntityId = czmlData[1].id;
+        const starlinkEntityId = czmlData[2].id;
+        const aircraftEntityId = czmlData[3].id;
+        const firstPosition = czmlData[3].position.cartographicDegrees;
         const lon = firstPosition[1];
         const lat = firstPosition[2];
         const alt = firstPosition[3];
 
-        // Aircraft entity를 ref에 저장 (추적 모드에서 사용)
+        // Entity 참조 저장
         const entities = dataSource.entities.values;
+        const lteEntity = entities.find((e: any) => e.id === lteEntityId);
+        const starlinkEntity = entities.find((e: any) => e.id === starlinkEntityId);
         const aircraft = entities.find((e: any) => e.id === aircraftEntityId);
+
+        lteEntityRef.current = lteEntity;
+        starlinkEntityRef.current = starlinkEntity;
         aircraftEntityRef.current = aircraft;
 
         console.log(`📍 First position: lon=${lon}, lat=${lat}, alt=${alt}`);
@@ -181,12 +194,40 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     }
   }, [cameraMode]);
 
+  // LTE 레이어 토글 효과
+  useEffect(() => {
+    if (!lteEntityRef.current) return;
+
+    if (lteEntityRef.current.polyline) {
+      lteEntityRef.current.polyline.show = lteLayers;
+      console.log(`🔴 LTE layer: ${lteLayers ? 'visible' : 'hidden'}`);
+    }
+  }, [lteLayers]);
+
+  // Starlink 레이어 토글 효과
+  useEffect(() => {
+    if (!starlinkEntityRef.current) return;
+
+    if (starlinkEntityRef.current.polyline) {
+      starlinkEntityRef.current.polyline.show = starlinkLayers;
+      console.log(`🔵 Starlink layer: ${starlinkLayers ? 'visible' : 'hidden'}`);
+    }
+  }, [starlinkLayers]);
+
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
   };
 
   return (
     <div className={className}>
+      {/* 데이터 레이어 컨트롤 */}
+      <DataLayerControl
+        lteLayers={lteLayers}
+        starlinkLayers={starlinkLayers}
+        onLteToggle={setLteLayers}
+        onStarlinkToggle={setStarlinkLayers}
+      />
+
       {/* 카메라 모드 전환 버튼 */}
       <div className="absolute top-20 right-4 z-10">
         <button
