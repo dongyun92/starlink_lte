@@ -31,22 +31,25 @@ class FlightDataAnalyzer:
         self.merged_data = None
 
     def load_ulg_data(self) -> pd.DataFrame:
-        """ULG 비행 로그에서 GPS 데이터 추출"""
+        """ULG 비행 로그에서 GPS 및 자세 데이터 추출"""
         print(f"📁 Loading ULG: {self.ulg_path.name}")
 
         ulg = pyulog.ULog(str(self.ulg_path))
 
         # GPS 데이터 찾기
         gps_topic = None
+        attitude_topic = None
+
         for topic in ulg.data_list:
             if topic.name == 'vehicle_gps_position':
                 gps_topic = topic
-                break
+            elif topic.name == 'vehicle_attitude':
+                attitude_topic = topic
 
         if not gps_topic:
             raise ValueError("GPS data not found in ULG file")
 
-        # DataFrame 생성
+        # GPS DataFrame 생성
         df = pd.DataFrame({
             'timestamp_us': gps_topic.data['timestamp'],
             'latitude': gps_topic.data['latitude_deg'],
@@ -57,10 +60,55 @@ class FlightDataAnalyzer:
         # ULG 타임스탬프를 초 단위로 변환
         df['time_sec'] = df['timestamp_us'] / 1e6
 
+        # 자세 데이터 병합 (있는 경우)
+        if attitude_topic:
+            print(f"  Found attitude data")
+
+            # Quaternion에서 Euler 각도로 변환
+            q = attitude_topic.data
+
+            # Roll, Pitch, Yaw 계산
+            q0 = q['q[0]']
+            q1 = q['q[1]']
+            q2 = q['q[2]']
+            q3 = q['q[3]']
+
+            roll = np.arctan2(2*(q0*q1 + q2*q3), 1 - 2*(q1**2 + q2**2))
+            pitch = np.arcsin(2*(q0*q2 - q3*q1))
+            yaw = np.arctan2(2*(q0*q3 + q1*q2), 1 - 2*(q2**2 + q3**2))
+
+            attitude_df = pd.DataFrame({
+                'timestamp_us': q['timestamp'],
+                'roll': np.degrees(roll),  # 라디안 -> 도
+                'pitch': np.degrees(pitch),
+                'yaw': np.degrees(yaw),
+            })
+
+            attitude_df['time_sec'] = attitude_df['timestamp_us'] / 1e6
+
+            # GPS 타임스탬프에 맞춰 보간 (nearest neighbor)
+            df['roll'] = np.nan
+            df['pitch'] = np.nan
+            df['yaw'] = np.nan
+
+            for i, row in df.iterrows():
+                # 가장 가까운 자세 데이터 찾기
+                time_diff = np.abs(attitude_df['time_sec'] - row['time_sec'])
+                closest_idx = time_diff.argmin()
+
+                if time_diff.iloc[closest_idx] < 0.1:  # 100ms 이내
+                    df.at[i, 'roll'] = attitude_df.iloc[closest_idx]['roll']
+                    df.at[i, 'pitch'] = attitude_df.iloc[closest_idx]['pitch']
+                    df.at[i, 'yaw'] = attitude_df.iloc[closest_idx]['yaw']
+
         print(f"✓ Loaded {len(df)} GPS points")
         print(f"  Duration: {df['time_sec'].max() - df['time_sec'].min():.2f} seconds")
         print(f"  Lat range: {df['latitude'].min():.6f} to {df['latitude'].max():.6f}")
         print(f"  Lon range: {df['longitude'].min():.6f} to {df['longitude'].max():.6f}")
+        if attitude_topic:
+            print(f"  Attitude: Roll={df['roll'].min():.1f}° to {df['roll'].max():.1f}°")
+            print(f"            Pitch={df['pitch'].min():.1f}° to {df['pitch'].max():.1f}°")
+            print(f"            Yaw={df['yaw'].min():.1f}° to {df['yaw'].max():.1f}°")
 
         self.flight_data = df
         return df
@@ -187,6 +235,12 @@ class FlightDataAnalyzer:
                 'altitude': flight_row['altitude'],
             }
 
+            # 자세 데이터 추가 (있는 경우)
+            if 'roll' in flight_row and pd.notna(flight_row['roll']):
+                record['roll'] = flight_row['roll']
+                record['pitch'] = flight_row['pitch']
+                record['yaw'] = flight_row['yaw']
+
             # 가장 가까운 LTE 데이터 찾기
             lte_mask = np.abs(self.lte_data['unix_timestamp'] - flight_row['unix_timestamp']) < time_window
             if lte_mask.any():
@@ -228,6 +282,47 @@ class FlightDataAnalyzer:
             merged_records.append(record)
 
         merged_df = pd.DataFrame(merged_records)
+
+        # 파생 지표 계산 (속도, 거리, 비행 시간)
+        from geopy.distance import geodesic
+
+        # 시작점 저장
+        start_point = (merged_df.iloc[0]['latitude'], merged_df.iloc[0]['longitude'])
+        start_time = merged_df.iloc[0]['timestamp']
+
+        # 이동 거리, 속도, 원점 거리, 비행 시간 계산
+        distance_moved = []
+        speed_mps = []
+        distance_from_origin = []
+        flight_time_elapsed = []
+
+        for i in range(len(merged_df)):
+            current_point = (merged_df.iloc[i]['latitude'], merged_df.iloc[i]['longitude'])
+
+            # 원점으로부터의 거리
+            dist_origin = geodesic(start_point, current_point).meters
+            distance_from_origin.append(dist_origin)
+
+            # 비행 시간
+            elapsed = merged_df.iloc[i]['timestamp'] - start_time
+            flight_time_elapsed.append(elapsed)
+
+            # 이동 거리 및 속도 계산
+            if i == 0:
+                distance_moved.append(0.0)
+                speed_mps.append(0.0)
+            else:
+                prev_point = (merged_df.iloc[i-1]['latitude'], merged_df.iloc[i-1]['longitude'])
+                dist = geodesic(prev_point, current_point).meters
+                time_diff = merged_df.iloc[i]['timestamp'] - merged_df.iloc[i-1]['timestamp']
+
+                distance_moved.append(dist)
+                speed_mps.append(dist / time_diff if time_diff > 0 else 0.0)
+
+        merged_df['distance_moved'] = distance_moved
+        merged_df['speed_mps'] = speed_mps
+        merged_df['distance_from_origin'] = distance_from_origin
+        merged_df['flight_time_elapsed'] = flight_time_elapsed
 
         # 통계 출력
         lte_coverage = merged_df['lte_available'].sum() / len(merged_df) * 100

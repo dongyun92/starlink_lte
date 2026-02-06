@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>분석 결과 - 비행 통신 품질 분석</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .results-container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .result-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+
+        .result-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 2em;
+        }
+
+        .result-section {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .result-section h2 {
+            color: #667eea;
+            margin-top: 0;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .chart-item {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: transform 0.2s;
+        }
+
+        .chart-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .chart-item img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .chart-title {
+            padding: 10px 15px;
+            background: #f5f7fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .btn-download {
+            flex: 1;
+            padding: 15px 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-download:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+        }
+
+        .statistics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .back-button {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #2c3e50;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            transition: background 0.3s;
+        }
+
+        .back-button:hover {
+            background: #34495e;
+        }
+    </style>
+</head>
+<body>
+    <div class="results-container">
+        <a href="/" class="back-button">← 메인으로 돌아가기</a>
+
+        <div class="result-header">
+            <h1 id="session-name">분석 결과</h1>
+            <p id="session-date">분석 날짜: </p>
+            <p id="session-status">상태: <span class="session-status"></span></p>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>분석 결과를 불러오는 중...</p>
+        </div>
+
+        <div id="results-content" style="display: none;">
+            <!-- 다운로드 버튼 -->
+            <div class="result-section">
+                <h2>📥 다운로드</h2>
+                <div class="download-buttons">
+                    <a href="#" id="download-report" class="btn-download">
+                        📄 Word 보고서 다운로드
+                    </a>
+                    <a href="#" id="download-charts" class="btn-download btn-secondary">
+                        🖼️ 모든 차트 다운로드 (ZIP)
+                    </a>
+                </div>
+            </div>
+
+            <!-- 통계 요약 -->
+            <div class="result-section">
+                <h2>📊 통계 요약</h2>
+                <div class="statistics-grid" id="statistics-grid">
+                    <!-- JavaScript로 동적 생성 -->
+                </div>
+            </div>
+
+            <!-- 지도 -->
+            <div class="result-section">
+                <h2>🗺️ 비행 경로 & 품질 히트맵</h2>
+
+                <!-- 히트맵 선택 탭 -->
+                <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    <button class="btn-download btn-secondary" onclick="switchHeatmap('combined')" id="btn-combined" style="flex: 1; min-width: 150px;">
+                        🗺️ 통합 맵 (LTE + Starlink)
+                    </button>
+                    <button class="btn-download btn-secondary" onclick="switchHeatmap('lte')" id="btn-lte" style="flex: 1; min-width: 150px;">
+                        🔥 LTE 품질 히트맵
+                    </button>
+                    <button class="btn-download btn-secondary" onclick="switchHeatmap('starlink')" id="btn-starlink" style="flex: 1; min-width: 150px;">
+                        🛰️ Starlink 품질 히트맵
+                    </button>
+                    <button class="btn-download" onclick="toggleFullscreen()" id="btn-fullscreen" style="min-width: 150px;">
+                        🖥️ 전체화면
+                    </button>
+                </div>
+
+                <!-- 히트맵 iframe -->
+                <div id="map-container" style="position: relative;">
+                    <iframe id="heatmap-frame" style="width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 8px;"></iframe>
+                </div>
+
+                <!-- 새 탭에서 열기 링크 -->
+                <div style="margin-top: 15px; text-align: center;">
+                    <a href="#" id="link-open-newtab" class="btn-download btn-secondary" target="_blank">
+                        🔗 새 탭에서 히트맵 열기
+                    </a>
+                </div>
+            </div>
+
+            <!-- 차트 갤러리 -->
+            <div class="result-section">
+                <h2>📈 분석 차트</h2>
+                <div class="charts-grid" id="charts-grid">
+                    <!-- JavaScript로 동적 생성 -->
+                </div>
+            </div>
+        </div>
+
+        <div id="error-container"></div>
+    </div>
+
+    <script>
+        const sessionId = window.location.pathname.split('/').pop();
+
+        async function loadResults() {
+            try {
+                // 세션 정보 가져오기
+                const statusResponse = await fetch(`/api/session/${sessionId}/status`);
+                const statusData = await statusResponse.json();
+
+                document.getElementById('session-name').textContent = statusData.name || `세션 ${sessionId}`;
+                document.getElementById('session-date').textContent = `분석 날짜: ${new Date(statusData.created_at).toLocaleString('ko-KR')}`;
+                document.querySelector('.session-status').textContent = getStatusText(statusData.status);
+                document.querySelector('.session-status').className = `session-status status-${statusData.status}`;
+
+                if (statusData.status !== 'completed') {
+                    document.getElementById('loading').innerHTML = `
+                        <div class="spinner"></div>
+                        <p>분석 진행 중: ${statusData.current_step} (${statusData.progress}%)</p>
+                        <p>잠시 후 다시 시도해주세요.</p>
+                    `;
+                    return;
+                }
+
+                // 분석 결과 가져오기
+                const resultsResponse = await fetch(`/api/session/${sessionId}/results`);
+                const resultsData = await resultsResponse.json();
+
+                // 다운로드 링크 설정
+                document.getElementById('download-report').href = `/api/session/${sessionId}/download/report`;
+                document.getElementById('download-charts').href = `/api/session/${sessionId}/download/charts`;
+
+                // 통계 표시
+                displayStatistics(resultsData.analysis_results);
+
+                // 차트 갤러리 표시
+                displayCharts(resultsData.charts);
+
+                // 지도 표시
+                await displayMap();
+
+                // 로딩 숨기고 결과 표시
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('results-content').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error loading results:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error-container').innerHTML = `
+                    <div class="error-message">
+                        <strong>오류 발생:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function displayStatistics(analysisResults) {
+            const statsGrid = document.getElementById('statistics-grid');
+
+            if (!analysisResults || !analysisResults.quality) {
+                statsGrid.innerHTML = '<p>통계 데이터를 불러올 수 없습니다.</p>';
+                return;
+            }
+
+            const stats = [];
+
+            // LTE 통계
+            if (analysisResults.quality.lte) {
+                const lte = analysisResults.quality.lte;
+                if (lte.avg_rsrp !== undefined) {
+                    stats.push({
+                        label: 'LTE 평균 RSRP',
+                        value: lte.avg_rsrp.toFixed(1) + ' dBm',
+                        gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                    });
+                }
+                if (lte.avg_sinr !== undefined) {
+                    stats.push({
+                        label: 'LTE 평균 SINR',
+                        value: lte.avg_sinr.toFixed(1) + ' dB',
+                        gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+                    });
+                }
+            }
+
+            // Starlink 통계
+            if (analysisResults.quality.starlink) {
+                const starlink = analysisResults.quality.starlink;
+                if (starlink.avg_snr !== undefined) {
+                    stats.push({
+                        label: 'Starlink 평균 SNR',
+                        value: starlink.avg_snr.toFixed(1) + ' dB',
+                        gradient: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)'
+                    });
+                }
+                if (starlink.avg_signal_quality !== undefined) {
+                    stats.push({
+                        label: 'Starlink 신호 품질',
+                        value: starlink.avg_signal_quality.toFixed(1) + '%',
+                        gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
+                    });
+                }
+            }
+
+            statsGrid.innerHTML = stats.map(stat => `
+                <div class="stat-card" style="background: ${stat.gradient}">
+                    <div class="stat-label">${stat.label}</div>
+                    <div class="stat-value">${stat.value}</div>
+                </div>
+            `).join('');
+        }
+
+        function displayCharts(charts) {
+            const chartsGrid = document.getElementById('charts-grid');
+
+            if (!charts || charts.length === 0) {
+                chartsGrid.innerHTML = '<p>생성된 차트가 없습니다.</p>';
+                return;
+            }
+
+            chartsGrid.innerHTML = charts.map(chart => `
+                <div class="chart-item">
+                    <div class="chart-title">${chart.title}</div>
+                    <img src="${chart.url}" alt="${chart.name}" />
+                </div>
+            `).join('');
+        }
+
+        // 현재 선택된 히트맵 타입
+        let currentHeatmapType = 'combined';
+
+        // 히트맵 초기화 및 표시
+        async function displayMap() {
+            // 기본 히트맵 로드 (통합 맵)
+            switchHeatmap('combined');
+        }
+
+        // 히트맵 전환 함수
+        function switchHeatmap(type) {
+            currentHeatmapType = type;
+
+            const heatmapFiles = {
+                'combined': 'combined_quality_map.html',
+                'lte': 'lte_quality_heatmap.html',
+                'starlink': 'starlink_quality_heatmap.html'
+            };
+
+            const filename = heatmapFiles[type];
+            const iframe = document.getElementById('heatmap-frame');
+            const newTabLink = document.getElementById('link-open-newtab');
+
+            // iframe src 설정 (캐시 방지를 위해 타임스탬프 추가)
+            const timestamp = new Date().getTime();
+            iframe.src = `/results/${sessionId}/${filename}?t=${timestamp}`;
+
+            // 새 탭 링크 업데이트
+            newTabLink.href = `/results/${sessionId}/${filename}`;
+
+            // 버튼 활성화 상태 변경
+            document.querySelectorAll('[id^="btn-"]').forEach(btn => {
+                btn.style.opacity = '0.6';
+                btn.style.fontWeight = 'normal';
+            });
+
+            const activeBtn = document.getElementById(`btn-${type}`);
+            if (activeBtn) {
+                activeBtn.style.opacity = '1';
+                activeBtn.style.fontWeight = 'bold';
+            }
+
+            console.log(`✅ ${type} 히트맵 로드 완료: ${filename}`);
+        }
+
+        // iframe 전체화면 토글 함수
+        function toggleFullscreen() {
+            const container = document.getElementById('map-container');
+            const iframe = document.getElementById('heatmap-frame');
+            const btn = document.getElementById('btn-fullscreen');
+
+            if (!document.fullscreenElement) {
+                // 전체화면 진입
+                if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                } else if (container.webkitRequestFullscreen) { // Safari
+                    container.webkitRequestFullscreen();
+                } else if (container.msRequestFullscreen) { // IE11
+                    container.msRequestFullscreen();
+                }
+
+                // 전체화면 시 iframe 높이 100%
+                iframe.style.height = '100vh';
+                iframe.style.borderRadius = '0';
+                btn.textContent = '🖥️ 전체화면 종료';
+            } else {
+                // 전체화면 종료
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) { // Safari
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) { // IE11
+                    document.msExitFullscreen();
+                }
+
+                // 전체화면 종료 시 원래 높이 복원
+                iframe.style.height = '600px';
+                iframe.style.borderRadius = '8px';
+                btn.textContent = '🖥️ 전체화면';
+            }
+        }
+
+        // 전체화면 종료 이벤트 처리
+        document.addEventListener('fullscreenchange', () => {
+            const iframe = document.getElementById('heatmap-frame');
+            const btn = document.getElementById('btn-fullscreen');
+
+            if (!document.fullscreenElement) {
+                iframe.style.height = '600px';
+                iframe.style.borderRadius = '8px';
+                btn.textContent = '🖥️ 전체화면';
+            }
+        });
+
+        function getChartTitle(filename) {
+            const titles = {
+                'correlation_matrix.png': '상관관계 매트릭스',
+                'quality_distribution.png': '품질 분포',
+                'altitude_quality.png': '고도별 품질',
+                'quality_over_time.png': '시간별 품질 변화',
+                'correlation_heatmap.png': '상관관계 히트맵',
+                'statistics_summary.png': '통계 요약'
+            };
+            return titles[filename] || filename;
+        }
+
+        function getStatusText(status) {
+            const statusMap = {
+                'pending': '대기 중',
+                'uploaded': '업로드 완료',
+                'processing': '분석 중',
+                'completed': '완료',
+                'failed': '실패'
+            };
+            return statusMap[status] || status;
+        }
+
+        // 페이지 로드 시 실행
+        loadResults();
+
+        // 5초마다 상태 확인 (분석 중인 경우)
+        setInterval(async () => {
+            const statusResponse = await fetch(`/api/session/${sessionId}/status`);
+            const statusData = await statusResponse.json();
+
+            if (statusData.status === 'completed' && document.getElementById('results-content').style.display === 'none') {
+                location.reload();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>
