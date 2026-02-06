@@ -179,16 +179,16 @@ class LTEModule:
 
                 # +CEREG: 2,1 (등록됨, 홈 네트워크) 또는
                 # +CEREG: 2,5 (등록됨, 로밍) 확인
-                if "+CEREG: 2,1" in response or "+CEREG: 2,5" in response:
+                if response and ("+CEREG: 2,1" in response or "+CEREG: 2,5" in response):
                     print(f"[SUCCESS] LTE network registered after {int(time.time() - start)}s")
                     return True
 
                 # 등록 시도 중인지 확인
-                if "+CEREG: 2,2" in response:
+                if response and "+CEREG: 2,2" in response:
                     status = "searching"
-                elif "+CEREG: 2,0" in response:
+                elif response and "+CEREG: 2,0" in response:
                     status = "not registered"
-                elif "+CEREG: 2,3" in response:
+                elif response and "+CEREG: 2,3" in response:
                     status = "registration denied"
                 else:
                     status = "unknown"
