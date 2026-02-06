@@ -7,7 +7,7 @@
 
 import pandas as pd
 import folium
-from folium.plugins import HeatMap, MarkerCluster
+from folium.plugins import HeatMap, MarkerCluster, Fullscreen
 import numpy as np
 from pathlib import Path
 
@@ -26,12 +26,177 @@ class QualityHeatmapGenerator:
         print(f"📁 Loading merged data: {self.data_path.name}")
         self.df = pd.read_csv(self.data_path)
 
+        # 타임스탬프를 datetime으로 변환 (자동 형식 감지)
+        # Unix timestamp (숫자) 또는 ISO 문자열 (YYYY-MM-DD HH:MM:SS) 모두 처리
+        try:
+            # 먼저 ISO 문자열 형식으로 시도
+            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'])
+        except:
+            # 실패하면 Unix timestamp로 시도
+            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'], unit='s')
+
+        # flight_id로 정렬 후 타임스탬프로 정렬 (여러 비행 경로를 올바르게 그리기 위해 필수!)
+        if 'flight_id' in self.df.columns:
+            self.df = self.df.sort_values(['flight_id', 'timestamp']).reset_index(drop=True)
+            print(f"  🛫 Found {self.df['flight_id'].nunique()} separate flights")
+        else:
+            self.df = self.df.sort_values('timestamp').reset_index(drop=True)
+
         # 중심점 계산
         self.center_lat = self.df['latitude'].mean()
         self.center_lon = self.df['longitude'].mean()
 
         print(f"✓ Loaded {len(self.df)} data points")
         print(f"  Center: ({self.center_lat:.6f}, {self.center_lon:.6f})")
+
+    def _add_flight_paths(self, map_obj):
+        """비행 경로를 지도에 추가 (고도별 색상 그라데이션)"""
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+
+        # 고도 데이터가 있는지 확인
+        has_altitude = 'altitude' in self.df.columns and self.df['altitude'].notna().any()
+
+        if has_altitude:
+            # 고도 범위 계산
+            min_alt = self.df['altitude'].min()
+            max_alt = self.df['altitude'].max()
+
+            # 컬러맵 생성 (terrain - 지형적 색상)
+            cmap = plt.cm.get_cmap('terrain')
+            norm = mcolors.Normalize(vmin=min_alt, vmax=max_alt)
+
+        # flight_id 컬럼이 있는지 확인
+        if 'flight_id' in self.df.columns:
+            # 여러 비행이 있는 경우 - 각 비행마다 별도의 경로 그리기
+            flight_ids = sorted(self.df['flight_id'].unique())
+
+            for idx, flight_id in enumerate(flight_ids):
+                flight_df = self.df[self.df['flight_id'] == flight_id].copy()
+
+                # 비행 이름 가져오기
+                flight_name = flight_df['flight_name'].iloc[0] if 'flight_name' in flight_df.columns else f"Flight {flight_id + 1}"
+
+                if has_altitude:
+                    # 고도별 색상 선분으로 그리기
+                    for i in range(len(flight_df) - 1):
+                        start = [flight_df.iloc[i]['latitude'], flight_df.iloc[i]['longitude']]
+                        end = [flight_df.iloc[i+1]['latitude'], flight_df.iloc[i+1]['longitude']]
+
+                        # 평균 고도로 색상 결정
+                        avg_altitude = (flight_df.iloc[i]['altitude'] + flight_df.iloc[i+1]['altitude']) / 2
+                        color_value = norm(avg_altitude)
+                        rgb = cmap(color_value)
+                        hex_color = mcolors.rgb2hex(rgb)
+
+                        # 선분 그리기
+                        folium.PolyLine(
+                            [start, end],
+                            color=hex_color,
+                            weight=4,
+                            opacity=0.8,
+                            popup=f"{flight_name}<br>고도: {avg_altitude:.1f}m"
+                        ).add_to(map_obj)
+                else:
+                    # 고도 데이터가 없으면 단색으로 그리기
+                    colors = ['blue', 'red', 'green', 'purple', 'orange', 'darkblue', 'darkred', 'darkgreen']
+                    color = colors[idx % len(colors)]
+
+                    flight_path = [
+                        [row['latitude'], row['longitude']]
+                        for _, row in flight_df.iterrows()
+                    ]
+
+                    folium.PolyLine(
+                        flight_path,
+                        color=color,
+                        weight=3,
+                        opacity=0.7,
+                        name=f'📍 {flight_name}'
+                    ).add_to(map_obj)
+
+                # 시작점과 종료점 마커 추가
+                start_lat = flight_df.iloc[0]['latitude']
+                start_lon = flight_df.iloc[0]['longitude']
+                end_lat = flight_df.iloc[-1]['latitude']
+                end_lon = flight_df.iloc[-1]['longitude']
+
+                start_alt = flight_df.iloc[0]['altitude'] if has_altitude else 0
+                end_alt = flight_df.iloc[-1]['altitude'] if has_altitude else 0
+
+                folium.Marker(
+                    [start_lat, start_lon],
+                    popup=f"🛫 {flight_name} - Start<br>{flight_df['timestamp'].iloc[0]}<br>고도: {start_alt:.1f}m",
+                    icon=folium.Icon(color='green', icon='play', prefix='fa')
+                ).add_to(map_obj)
+
+                folium.Marker(
+                    [end_lat, end_lon],
+                    popup=f"🛬 {flight_name} - End<br>{flight_df['timestamp'].iloc[-1]}<br>고도: {end_alt:.1f}m",
+                    icon=folium.Icon(color='red', icon='stop', prefix='fa')
+                ).add_to(map_obj)
+
+            print(f"  ✓ Drew {len(flight_ids)} flight paths" + (" with altitude colors" if has_altitude else ""))
+        else:
+            # 단일 비행인 경우
+            if has_altitude:
+                # 고도별 색상 선분으로 그리기
+                for i in range(len(self.df) - 1):
+                    start = [self.df.iloc[i]['latitude'], self.df.iloc[i]['longitude']]
+                    end = [self.df.iloc[i+1]['latitude'], self.df.iloc[i+1]['longitude']]
+
+                    avg_altitude = (self.df.iloc[i]['altitude'] + self.df.iloc[i+1]['altitude']) / 2
+                    color_value = norm(avg_altitude)
+                    rgb = cmap(color_value)
+                    hex_color = mcolors.rgb2hex(rgb)
+
+                    folium.PolyLine(
+                        [start, end],
+                        color=hex_color,
+                        weight=4,
+                        opacity=0.8,
+                        popup=f"고도: {avg_altitude:.1f}m"
+                    ).add_to(map_obj)
+
+                print(f"  ✓ Drew single flight path with altitude colors")
+            else:
+                # 고도 데이터가 없으면 단색으로 그리기
+                flight_path = [
+                    [row['latitude'], row['longitude']]
+                    for _, row in self.df.iterrows()
+                ]
+                folium.PolyLine(
+                    flight_path,
+                    color='blue',
+                    weight=2,
+                    opacity=0.5,
+                    name='Flight Path'
+                ).add_to(map_obj)
+                print(f"  ✓ Drew single flight path")
+
+        # 고도 범례 추가
+        if has_altitude:
+            legend_html = f'''
+            <div style="position: fixed;
+                        bottom: 50px; right: 50px; width: 180px; height: 160px;
+                        background-color: white; border:2px solid grey; z-index:9999;
+                        font-size:12px; padding: 10px; border-radius: 5px; box-shadow: 2px 2px 6px rgba(0,0,0,0.3);">
+            <b>고도 범례 (Altitude)</b><br>
+            <div style="background: linear-gradient(to bottom,
+                        {mcolors.rgb2hex(cmap(1.0))},
+                        {mcolors.rgb2hex(cmap(0.75))},
+                        {mcolors.rgb2hex(cmap(0.5))},
+                        {mcolors.rgb2hex(cmap(0.25))},
+                        {mcolors.rgb2hex(cmap(0.0))});
+                        height: 90px; margin: 5px 0; border: 1px solid #ccc;"></div>
+            <div style="display: flex; justify-content: space-between;">
+                <span><b>{max_alt:.0f}m</b></span>
+                <span>↕</span>
+                <span><b>{min_alt:.0f}m</b></span>
+            </div>
+            </div>
+            '''
+            map_obj.get_root().html.add_child(folium.Element(legend_html))
 
     def create_lte_heatmap(self, output_path: str = "lte_quality_heatmap.html"):
         """LTE 통신 품질 히트맵 생성"""
@@ -110,8 +275,22 @@ class QualityHeatmapGenerator:
         '''
         m.get_root().html.add_child(folium.Element(legend_html))
 
+        # 비행 경로 그리기 (여러 비행 로그 지원)
+        self._add_flight_paths(m)
+
+        # 레이어 컨트롤
+        folium.LayerControl().add_to(m)
+
+        # 전체화면 버튼 추가
+        Fullscreen(
+            position='topright',
+            title='전체화면',
+            title_cancel='전체화면 종료',
+            force_separate_button=True
+        ).add_to(m)
+
         # 지도 저장
-        output_file = Path(self.data_path).parent / output_path
+        output_file = Path(output_path)
         m.save(str(output_file))
         print(f"✓ Saved LTE heatmap: {output_file}")
 
@@ -191,8 +370,22 @@ class QualityHeatmapGenerator:
         '''
         m.get_root().html.add_child(folium.Element(legend_html))
 
+        # 비행 경로 그리기 (여러 비행 로그 지원)
+        self._add_flight_paths(m)
+
+        # 레이어 컨트롤
+        folium.LayerControl().add_to(m)
+
+        # 전체화면 버튼 추가
+        Fullscreen(
+            position='topright',
+            title='전체화면',
+            title_cancel='전체화면 종료',
+            force_separate_button=True
+        ).add_to(m)
+
         # 저장
-        output_file = Path(self.data_path).parent / output_path
+        output_file = Path(output_path)
         m.save(str(output_file))
         print(f"✓ Saved Starlink heatmap: {output_file}")
 
@@ -216,32 +409,88 @@ class QualityHeatmapGenerator:
             if idx % 10 != 0:
                 continue
 
+            # 자세값 표시 (있는 경우만)
+            attitude_html = ""
+            if pd.notna(row.get('roll')) and pd.notna(row.get('pitch')) and pd.notna(row.get('yaw')):
+                attitude_html = f"""
+                <b>자세:</b><br>
+                &nbsp;&nbsp;Roll: {row['roll']:.1f}°<br>
+                &nbsp;&nbsp;Pitch: {row['pitch']:.1f}°<br>
+                &nbsp;&nbsp;Yaw: {row['yaw']:.1f}°<br>
+                """
+
             popup_html = f"""
-            <b>Time:</b> {pd.to_datetime(row['timestamp'], unit='s').strftime('%H:%M:%S')}<br>
-            <b>Altitude:</b> {row['altitude']:.1f} m<br>
-            <hr>
+            <div style="font-size: 11px; min-width: 280px;">
+            <b style="font-size: 13px;">📍 비행 정보</b><br>
+            <b>Time:</b> {pd.to_datetime(row['timestamp']).strftime('%H:%M:%S')}<br>
+            <b>위치:</b> {row['latitude']:.6f}, {row['longitude']:.6f}<br>
+            <b>고도:</b> {row['altitude']:.1f} m<br>
+            <b>속도:</b> {row['speed_mps']:.2f} m/s ({row['speed_mps']*3.6:.1f} km/h)<br>
+            <b>원점 거리:</b> {row['distance_from_origin']:.1f} m<br>
+            <b>비행 시간:</b> {row['flight_time_elapsed']:.1f} s<br>
+            {attitude_html}
+            <hr style="margin: 8px 0;">
             """
 
             if row['lte_available']:
-                popup_html += f"""
-                <b>LTE Quality:</b><br>
-                RSSI: {row['lte_rssi']:.0f} dBm<br>
-                RSRP: {row['lte_rsrp']:.0f} dBm<br>
-                SINR: {row['lte_sinr']:.1f} dB<br>
-                <hr>
+                lte_info = f"""
+                <b style="font-size: 13px;">📶 LTE 품질</b><br>
+                <b>RSSI:</b> {row['lte_rssi']:.0f} dBm<br>
+                <b>RSRP:</b> {row['lte_rsrp']:.0f} dBm<br>
+                <b>RSRQ:</b> {row['lte_rsrq']:.1f} dB<br>
+                <b>SINR:</b> {row['lte_sinr']:.1f} dB<br>
                 """
+                # 선택적 필드 추가
+                if pd.notna(row.get('lte_network_type')):
+                    lte_info += f"<b>네트워크:</b> {row['lte_network_type']}"
+                    if pd.notna(row.get('lte_network_operator')):
+                        lte_info += f" ({row['lte_network_operator']})"
+                    lte_info += "<br>"
+                if pd.notna(row.get('lte_network_band')):
+                    lte_info += f"<b>Band:</b> {row['lte_network_band']}<br>"
+                lte_info += "<hr style='margin: 8px 0;'>"
+                popup_html += lte_info
             else:
-                popup_html += "<b>LTE:</b> No data<br><hr>"
+                popup_html += "<b>📶 LTE:</b> No data<br><hr style='margin: 8px 0;'>"
 
             if row['starlink_available']:
-                popup_html += f"""
-                <b>Starlink Quality:</b><br>
-                Latency: {row['starlink_latency']:.1f} ms<br>
-                Download: {row['starlink_download']:.1f} Mbps<br>
-                Upload: {row['starlink_upload']:.1f} Mbps
-                """
+                starlink_info = f"""<b style="font-size: 13px;">🛰️ Starlink 품질</b><br>"""
+
+                # 상태 정보 (선택적)
+                if pd.notna(row.get('starlink_state')):
+                    starlink_info += f"<b>상태:</b> {row['starlink_state']}<br>"
+                if pd.notna(row.get('starlink_uptime')):
+                    starlink_info += f"<b>Uptime:</b> {row['starlink_uptime']:.0f} s<br>"
+
+                # 처리량
+                if pd.notna(row.get('starlink_download')):
+                    starlink_info += f"""<br><b style="color: #2ebd85;">처리량:</b><br>"""
+                    starlink_info += f"<b>Download:</b> {row['starlink_download']:.2f} Mbps<br>"
+                    if pd.notna(row.get('starlink_upload')):
+                        starlink_info += f"<b>Upload:</b> {row['starlink_upload']:.2f} Mbps<br>"
+
+                # 신호 품질
+                starlink_info += f"""<br><b style="color: #667eea;">신호 품질:</b><br>"""
+                if pd.notna(row.get('starlink_latency')):
+                    starlink_info += f"<b>Latency:</b> {row['starlink_latency']:.1f} ms<br>"
+                if pd.notna(row.get('starlink_ping_drop_rate')):
+                    starlink_info += f"<b>Ping Drop:</b> {row['starlink_ping_drop_rate']:.2f}%<br>"
+                if pd.notna(row.get('starlink_snr')):
+                    starlink_info += f"<b>SNR:</b> {row['starlink_snr']:.1f} dB<br>"
+
+                # 위성 각도
+                if pd.notna(row.get('starlink_azimuth')) and pd.notna(row.get('starlink_elevation')):
+                    starlink_info += f"""<br><b style="color: #f5576c;">위성 각도:</b><br>"""
+                    starlink_info += f"<b>Azimuth:</b> {row['starlink_azimuth']:.1f}°<br>"
+                    starlink_info += f"<b>Elevation:</b> {row['starlink_elevation']:.1f}°<br>"
+
+                # GPS 정보 제거됨 (사용자 요청)
+
+                popup_html += starlink_info
             else:
-                popup_html += "<b>Starlink:</b> No data"
+                popup_html += "<b>🛰️ Starlink:</b> No data"
+
+            popup_html += "</div>"
 
             # 마커 색상 결정 (LTE 기준)
             if row['lte_available']:
@@ -256,28 +505,26 @@ class QualityHeatmapGenerator:
 
             folium.Marker(
                 location=[row['latitude'], row['longitude']],
-                popup=folium.Popup(popup_html, max_width=300),
+                popup=folium.Popup(popup_html, max_width=350),
                 icon=folium.Icon(color=color, icon='info-sign')
             ).add_to(marker_cluster)
 
-        # 비행 경로 그리기
-        flight_path = [
-            [row['latitude'], row['longitude']]
-            for _, row in self.df.iterrows()
-        ]
-        folium.PolyLine(
-            flight_path,
-            color='blue',
-            weight=2,
-            opacity=0.7,
-            name='Flight Path'
-        ).add_to(m)
+        # 비행 경로 그리기 (여러 비행 로그 지원)
+        self._add_flight_paths(m)
 
         # 레이어 컨트롤
         folium.LayerControl().add_to(m)
 
+        # 전체화면 버튼 추가
+        Fullscreen(
+            position='topright',
+            title='전체화면',
+            title_cancel='전체화면 종료',
+            force_separate_button=True
+        ).add_to(m)
+
         # 저장
-        output_file = Path(self.data_path).parent / output_path
+        output_file = Path(output_path)
         m.save(str(output_file))
         print(f"✓ Saved combined map: {output_file}")
 
