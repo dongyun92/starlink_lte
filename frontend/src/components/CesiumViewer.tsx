@@ -1,10 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getCZMLData } from '@/services/api';
 
 interface CesiumViewerProps {
   className?: string;
   selectedSessionId: string | null;
 }
+
+type CameraMode = 'free' | 'track';
 
 /**
  * CesiumViewer 컴포넌트
@@ -14,6 +16,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const viewerRef = useRef<HTMLDivElement>(null);
   const cesiumViewerRef = useRef<any>(null);
   const czmlDataSourceRef = useRef<any>(null);
+  const aircraftEntityRef = useRef<any>(null);
+
+  const [cameraMode, setCameraMode] = useState<CameraMode>('free');
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -122,11 +127,16 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         // czmlData[0]: document header
         // czmlData[1]: flight_path (polyline)
         // czmlData[2]: aircraft (position with animation)
-        const aircraftEntity = czmlData[2];
-        const firstPosition = aircraftEntity.position.cartographicDegrees;
+        const aircraftEntityId = czmlData[2].id;
+        const firstPosition = czmlData[2].position.cartographicDegrees;
         const lon = firstPosition[1];
         const lat = firstPosition[2];
         const alt = firstPosition[3];
+
+        // Aircraft entity를 ref에 저장 (추적 모드에서 사용)
+        const entities = dataSource.entities.values;
+        const aircraft = entities.find((e: any) => e.id === aircraftEntityId);
+        aircraftEntityRef.current = aircraft;
 
         console.log(`📍 First position: lon=${lon}, lat=${lat}, alt=${alt}`);
 
@@ -141,7 +151,11 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           duration: 2,
         });
 
+        // 타임라인 정지 상태로 활성화 (사용자가 수동으로 재생)
+        cesiumViewerRef.current.clock.shouldAnimate = false;
+
         console.log('✅ Flight path visualization complete');
+        console.log('⏸️ Timeline ready (paused)');
       } catch (error) {
         console.error('❌ Failed to load flight data:', error);
       }
@@ -150,8 +164,43 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadFlightData();
   }, [selectedSessionId]);
 
+  // 카메라 모드 전환 효과
+  useEffect(() => {
+    if (!cesiumViewerRef.current || !aircraftEntityRef.current) {
+      return;
+    }
+
+    if (cameraMode === 'track') {
+      // 추적 모드: 비행기를 따라다니기
+      cesiumViewerRef.current.trackedEntity = aircraftEntityRef.current;
+      console.log('📹 Camera mode: Track (following aircraft)');
+    } else {
+      // 자유 시점: 추적 해제
+      cesiumViewerRef.current.trackedEntity = undefined;
+      console.log('📹 Camera mode: Free view');
+    }
+  }, [cameraMode]);
+
+  const toggleCameraMode = () => {
+    setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
+  };
+
   return (
     <div className={className}>
+      {/* 카메라 모드 전환 버튼 */}
+      <div className="absolute top-20 right-4 z-10">
+        <button
+          onClick={toggleCameraMode}
+          className={`px-4 py-2 rounded-lg shadow-lg font-medium transition-all ${
+            cameraMode === 'track'
+              ? 'bg-blue-600 hover:bg-blue-700 text-white'
+              : 'bg-gray-800 hover:bg-gray-700 text-white'
+          }`}
+        >
+          {cameraMode === 'track' ? '📹 추적 모드' : '🎮 자유 시점'}
+        </button>
+      </div>
+
       <div ref={viewerRef} className="w-full h-full" />
     </div>
   );
