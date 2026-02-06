@@ -18,8 +18,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const cesiumViewerRef = useRef<any>(null);
   const czmlDataSourceRef = useRef<any>(null);
   const aircraftEntityRef = useRef<any>(null);
-  const lteEntityRef = useRef<any>(null);
-  const starlinkEntityRef = useRef<any>(null);
+  const lteEntitiesRef = useRef<any[]>([]);
+  const starlinkEntitiesRef = useRef<any[]>([]);
 
   const [cameraMode, setCameraMode] = useState<CameraMode>('free');
   const [lteLayers, setLteLayers] = useState<boolean>(true);
@@ -129,49 +129,40 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         await cesiumViewerRef.current.dataSources.add(dataSource);
 
         // CZML 데이터에서 엔티티 정보 추출
-        // Dual mode (4 entities): [header, lte_path, starlink_path, aircraft]
-        // Single mode (3 entities): [header, flight_path, aircraft]
-        const isDualMode = czmlData.length === 4;
+        // Dual mode (gradient): Multiple segments + aircraft
+        // Single mode (fallback): Single path + aircraft
+        const entities = dataSource.entities.values;
 
-        let lon, lat, alt, aircraft;
+        // Find aircraft entity (always has 'aircraft_' prefix)
+        const aircraft = entities.find((e: any) => e.id.includes('aircraft_'));
+        aircraftEntityRef.current = aircraft;
+
+        // Find LTE segments (gradient mode: multiple segments with 'lte_path_*_seg*')
+        const lteSegments = entities.filter((e: any) => e.id.includes('lte_path_'));
+        lteEntitiesRef.current = lteSegments;
+
+        // Find Starlink segments (gradient mode: multiple segments with 'starlink_path_*_seg*')
+        const starlinkSegments = entities.filter((e: any) => e.id.includes('starlink_path_'));
+        starlinkEntitiesRef.current = starlinkSegments;
+
+        // Determine mode based on entity count
+        const isDualMode = lteSegments.length > 0 || starlinkSegments.length > 0;
+
+        // Get first position from aircraft
+        let lon, lat, alt;
+        if (aircraft && aircraft.position) {
+          const aircraftData = czmlData.find((item: any) => item.id?.includes('aircraft_'));
+          if (aircraftData && aircraftData.position) {
+            const firstPosition = aircraftData.position.cartographicDegrees;
+            lon = firstPosition[1];
+            lat = firstPosition[2];
+            alt = firstPosition[3];
+          }
+        }
 
         if (isDualMode) {
-          // Dual path mode
-          const lteEntityId = czmlData[1].id;
-          const starlinkEntityId = czmlData[2].id;
-          const aircraftEntityId = czmlData[3].id;
-          const firstPosition = czmlData[3].position.cartographicDegrees;
-          lon = firstPosition[1];
-          lat = firstPosition[2];
-          alt = firstPosition[3];
-
-          // Entity 참조 저장
-          const entities = dataSource.entities.values;
-          const lteEntity = entities.find((e: any) => e.id === lteEntityId);
-          const starlinkEntity = entities.find((e: any) => e.id === starlinkEntityId);
-          aircraft = entities.find((e: any) => e.id === aircraftEntityId);
-
-          lteEntityRef.current = lteEntity;
-          starlinkEntityRef.current = starlinkEntity;
-          aircraftEntityRef.current = aircraft;
-
-          console.log('📊 Dual path mode active (LTE + Starlink)');
+          console.log(`📊 Dual path mode: LTE segments=${lteSegments.length}, Starlink segments=${starlinkSegments.length}`);
         } else {
-          // Single path mode (fallback)
-          const aircraftEntityId = czmlData[2].id;
-          const firstPosition = czmlData[2].position.cartographicDegrees;
-          lon = firstPosition[1];
-          lat = firstPosition[2];
-          alt = firstPosition[3];
-
-          // Entity 참조 저장
-          const entities = dataSource.entities.values;
-          aircraft = entities.find((e: any) => e.id === aircraftEntityId);
-
-          lteEntityRef.current = null;
-          starlinkEntityRef.current = null;
-          aircraftEntityRef.current = aircraft;
-
           console.log('⚠️ Single path mode (no LTE/Starlink data)');
         }
 
@@ -218,24 +209,28 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     }
   }, [cameraMode]);
 
-  // LTE 레이어 토글 효과
+  // LTE 레이어 토글 효과 (모든 segment에 적용)
   useEffect(() => {
-    if (!lteEntityRef.current) return;
+    if (!lteEntitiesRef.current || lteEntitiesRef.current.length === 0) return;
 
-    if (lteEntityRef.current.polyline) {
-      lteEntityRef.current.polyline.show = lteLayers;
-      console.log(`🔴 LTE layer: ${lteLayers ? 'visible' : 'hidden'}`);
-    }
+    lteEntitiesRef.current.forEach((entity: any) => {
+      if (entity.polyline) {
+        entity.polyline.show = lteLayers;
+      }
+    });
+    console.log(`🔴 LTE layer (${lteEntitiesRef.current.length} segments): ${lteLayers ? 'visible' : 'hidden'}`);
   }, [lteLayers]);
 
-  // Starlink 레이어 토글 효과
+  // Starlink 레이어 토글 효과 (모든 segment에 적용)
   useEffect(() => {
-    if (!starlinkEntityRef.current) return;
+    if (!starlinkEntitiesRef.current || starlinkEntitiesRef.current.length === 0) return;
 
-    if (starlinkEntityRef.current.polyline) {
-      starlinkEntityRef.current.polyline.show = starlinkLayers;
-      console.log(`🔵 Starlink layer: ${starlinkLayers ? 'visible' : 'hidden'}`);
-    }
+    starlinkEntitiesRef.current.forEach((entity: any) => {
+      if (entity.polyline) {
+        entity.polyline.show = starlinkLayers;
+      }
+    });
+    console.log(`🔵 Starlink layer (${starlinkEntitiesRef.current.length} segments): ${starlinkLayers ? 'visible' : 'hidden'}`);
   }, [starlinkLayers]);
 
   const toggleCameraMode = () => {
