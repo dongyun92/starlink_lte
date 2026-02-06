@@ -19,64 +19,69 @@ CYAN = '\033[96m'
 RESET = '\033[0m'
 BOLD = '\033[1m'
 
-def test_port(port, baudrate=115200, timeout=1):
-    """Test if a port responds to AT commands"""
+def test_port(port, baudrate=115200, timeout=0.5):
+    """Test if a port responds to AT commands (fast timeout to prevent hanging)"""
+    ser = None
     try:
-        print(f"{YELLOW}Testing {port} at {baudrate} baud...{RESET}")
-        
+        print(f"{YELLOW}Testing {port} at {baudrate} baud...{RESET}", end=' ', flush=True)
+
+        # Short timeout to prevent hanging on non-responsive ports
         ser = serial.Serial(
             port=port,
             baudrate=baudrate,
-            timeout=timeout,
+            timeout=0.3,
+            write_timeout=0.3,  # Prevent write blocking
             rtscts=False,
             dsrdtr=False,
             xonxoff=False
         )
-        
-        # Clear any pending data
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-        time.sleep(0.2)
-        
-        # Test basic AT command
-        test_commands = [
-            ("AT", "Basic AT", 0.5),
-            ("ATE0", "Disable echo", 0.5),
-            ("AT+CGMI", "Manufacturer", 0.5),
-            ("AT+CGMM", "Model", 0.5),
-        ]
-        
-        responses = []
-        for cmd, desc, wait in test_commands:
-            ser.write(f"{cmd}\r\n".encode())
-            time.sleep(wait)
-            
-            response = ser.read(ser.in_waiting).decode('utf-8', errors='ignore').strip()
-            if response:
-                responses.append((cmd, desc, response))
-                
-                # If we get any OK response, this is likely the right port
-                if "OK" in response or "Quectel" in response.upper() or "EC25" in response.upper():
-                    print(f"{GREEN}✓ {port}: Got response to {cmd} ({desc}){RESET}")
-                    print(f"  Response: {response[:100]}...")
-                    ser.close()
-                    return True, responses
-        
-        ser.close()
-        
-        if responses:
-            print(f"{YELLOW}⚠ {port}: Got responses but no clear OK{RESET}")
-            return "partial", responses
-        else:
-            print(f"{RED}✗ {port}: No response{RESET}")
+
+        # Clear any pending data (with timeout protection)
+        try:
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+        except:
+            print(f"{RED}✗ (buffer error){RESET}")
             return False, []
-            
+
+        time.sleep(0.1)
+
+        # Test only single AT command for speed
+        try:
+            ser.write(b"AT\r\n")
+        except:
+            print(f"{RED}✗ (write timeout){RESET}")
+            return False, []
+
+        # Wait max 1 second for response
+        start = time.time()
+        buf = ""
+        while time.time() - start < 1.0:
+            try:
+                if ser.in_waiting:
+                    buf += ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
+                    if "OK" in buf:
+                        print(f"{GREEN}✓ (AT OK){RESET}")
+                        return True, [("AT", "Basic AT", buf)]
+            except:
+                break
+            time.sleep(0.05)
+
+        print(f"{RED}✗ (no response){RESET}")
+        return False, []
+
     except serial.SerialException as e:
-        print(f"{RED}✗ {port}: Serial error - {e}{RESET}")
+        print(f"{RED}✗ (serial error: {e}){RESET}")
         return False, []
     except Exception as e:
-        print(f"{RED}✗ {port}: Error - {e}{RESET}")
+        print(f"{RED}✗ (error: {e}){RESET}")
         return False, []
+    finally:
+        try:
+            if ser and ser.is_open:
+                ser.close()
+        except:
+            pass
 
 def find_usb_ports():
     """Find all available USB serial ports"""
