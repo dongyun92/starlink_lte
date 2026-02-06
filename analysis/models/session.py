@@ -54,7 +54,7 @@ class Session:
         conn.close()
 
         if row:
-            return Session(
+            session = Session(
                 id=row['id'],
                 name=row['name'],
                 status=row['status'],
@@ -63,6 +63,8 @@ class Session:
                 metadata=json.loads(row['metadata']) if row['metadata'] else {},
                 file_paths=json.loads(row['file_paths']) if row['file_paths'] else {}
             )
+            session.created_at = row['created_at']
+            return session
         return None
 
     @staticmethod

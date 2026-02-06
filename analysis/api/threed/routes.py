@@ -30,14 +30,17 @@ def list_flights():
         flights = []
         for session in sessions:
             if session.status == 'completed':
+                # created_at is already a string from database
+                created_at = session.created_at if isinstance(session.created_at, str) else session.created_at.isoformat()
+
                 flights.append({
                     'id': session.id,
                     'name': session.name or f"Flight {session.id}",
-                    'created_at': session.created_at.isoformat(),
+                    'created_at': created_at,
                     'file_count': {
-                        'flight_logs': session.flight_log_count,
-                        'lte_data': session.lte_data_count,
-                        'starlink_data': session.starlink_data_count
+                        'flight_logs': session.metadata.get('flight_log_count', 0),
+                        'lte_data': session.metadata.get('lte_data_count', 0),
+                        'starlink_data': session.metadata.get('starlink_data_count', 0)
                     }
                 })
 
@@ -67,15 +70,17 @@ def get_flight_metadata(session_id):
         if session.status != 'completed':
             return jsonify({'error': 'Session not completed'}), 400
 
+        created_at = session.created_at if isinstance(session.created_at, str) else session.created_at.isoformat()
+
         metadata = {
             'id': session.id,
             'name': session.name or f"Flight {session.id}",
-            'created_at': session.created_at.isoformat(),
+            'created_at': created_at,
             'status': session.status,
             'files': {
-                'flight_logs': session.flight_log_count,
-                'lte_data': session.lte_data_count,
-                'starlink_data': session.starlink_data_count
+                'flight_logs': session.metadata.get('flight_log_count', 0),
+                'lte_data': session.metadata.get('lte_data_count', 0),
+                'starlink_data': session.metadata.get('starlink_data_count', 0)
             }
         }
 

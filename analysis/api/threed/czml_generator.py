@@ -7,11 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import numpy as np
+import pandas as pd
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
-
-from flight_data_analyzer import FlightDataAnalyzer
 
 
 class CZMLGenerator:
@@ -38,12 +37,16 @@ class CZMLGenerator:
         Returns:
             CZML data as list of dictionaries
         """
-        # Load flight data
-        self.analyzer = FlightDataAnalyzer(self.session_id)
-        self.analyzer.step_1_load_data()
+        # Load merged data from results directory
+        results_dir = Path(__file__).parent.parent.parent / 'results' / self.session_id
+        merged_data_path = results_dir / 'merged_data.csv'
 
-        # Get merged data
-        df = self.analyzer.merged_data
+        if not merged_data_path.exists():
+            raise ValueError(f"No merged data found for session {self.session_id}")
+
+        # Read CSV with timestamp as index
+        df = pd.read_csv(merged_data_path, parse_dates=['timestamp'])
+        df.set_index('timestamp', inplace=True)
 
         if df.empty:
             raise ValueError("No flight data available")
@@ -59,8 +62,8 @@ class CZMLGenerator:
         # Document header
         czml.append(self._create_document_header(df))
 
-        # Flight path entity
-        czml.append(self._create_flight_path_entity(df, color_by))
+        # Flight path entities (polyline + aircraft)
+        czml.extend(self._create_flight_path_entity(df, color_by))
 
         return czml
 
@@ -94,7 +97,7 @@ class CZMLGenerator:
             }
         }
 
-    def _create_flight_path_entity(self, df, color_by: str) -> dict:
+    def _create_flight_path_entity(self, df, color_by: str) -> list:
         """
         Create flight path entity with position and path
 
@@ -114,32 +117,51 @@ class CZMLGenerator:
         # Build path material (gradient colors)
         path_material = self._build_path_material(colors)
 
-        entity = {
-            "id": f"flight_{self.session_id}",
+        # 전체 경로를 Cartesian3 좌표로 변환 (시간 오프셋 제거)
+        polyline_positions = []
+        for i in range(0, len(positions), 4):
+            lon = positions[i+1]
+            lat = positions[i+2]
+            alt = positions[i+3]
+            polyline_positions.extend([lon, lat, alt])
+
+        # Entity 1: 고정된 polyline (전체 경로)
+        polyline_entity = {
+            "id": f"flight_path_{self.session_id}",
             "name": f"Flight Path - Session {self.session_id}",
+            "polyline": {
+                "positions": {
+                    "cartographicDegrees": polyline_positions
+                },
+                "show": True,
+                "width": 8,
+                "material": path_material,
+                "clampToGround": False
+            }
+        }
+
+        # Entity 2: 움직이는 point (비행기)
+        aircraft_entity = {
+            "id": f"aircraft_{self.session_id}",
+            "name": f"Aircraft - Session {self.session_id}",
             "availability": f"{df.index.min().isoformat()}/{df.index.max().isoformat()}",
             "position": {
                 "epoch": df.index.min().isoformat(),
                 "cartographicDegrees": positions
             },
-            "path": {
-                "show": True,
-                "width": 3,
-                "material": path_material,
-                "resolution": 60,
-                "leadTime": 0,
-                "trailTime": float('inf')
-            },
-            "billboard": {
-                "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAALNSURBVFiF7ZdNaBNBGIafsUmb/GnSJv5UY0vFH6SNgohgD4Ig/giCBz0U9KAHPXgQD4IXD+rFg1dF8OAP6EkE0YP+QBURbEGlVW2tP1UrjdYkNm2SbprdzO7OTNx0N7tJuweVPiz7zXzzPjszu9/uqcQwDANpRLwFGRBkQJABQQYEGRBkQJABQQYE/T8DbEsxf+Nz9A9HIJarJCpbRbvDO1AonT1+LoMZMQd/lJgYHMDIwDDMpnKT8W3b0djYiKYqL7w+H7Ze/oL8nL+NdQbmRkfR3X4R86Pj4Ps4OwtaOzvQ2HEVkb4QWHEaZsVpyBlHwQ7E8b3lBEIDz0yjLDUQHRxB14VziA6OmIxbg+r5p6HqBqg1HsCXr2aQYYiJr+cR/RlD1KT0LdB78Hpke/soNMMAJPKQ//MjUFd+DM21btPGPgKansc0PQu2fS/krBrIBxdCrXXpOV/OMWZwlDGQ/9jnwSuv/PU+ugDaU4D8Pc7fBlLpHOB0gJWXN02JqOvVE/9YgPwLFIUVeVg5BdqfSJq8xkBkL+TSakiF5VoRzkyCri5cZfx/U6AH8hYb8JQWJe1rDKhuJ5SiAvC/Jic/FwNbWQytt8E07dsFqG4XZKYIvKzqgQIr4cuMzTGqFw4opVzKxBnQtSJS4QL4MqPRfEpvIKW3ByQsUzY0I2XL+FofwPUc5IJKJwFwdPwHmJIimNISU7nNTUH1HjQJWKGJATGDT/S1o2ck5WeCeB87bsIjz6K37zHG3rfj5VsJY32deNLRjmdP2vB+pBcvevvw+0cndpaVIDtLBUGpkCvL4KreCcyNQ60sgfMXQuS4BCfh0K8IpPJyiEeLIe4pAOFcr7hX/FsqJm+LbuDyjGgqPRXQ5D+xsK1VmE+lCMABIPoegXo18Hja/Q/WgCADggwIMiDIgCADggwIMiD4HwvMAb/g3BLyvwqYAAAAAElFTkSuQmCC",
-                "scale": 0.3,
-                "eyeOffset": {
-                    "cartesian": [0, 0, 0]
-                }
+            "point": {
+                "pixelSize": 10,
+                "color": {
+                    "rgba": [255, 0, 0, 255]
+                },
+                "outlineColor": {
+                    "rgba": [255, 255, 255, 255]
+                },
+                "outlineWidth": 2
             }
         }
 
-        return entity
+        return [polyline_entity, aircraft_entity]
 
     def _calculate_colors(self, df, color_by: str) -> np.ndarray:
         """
@@ -226,13 +248,19 @@ class CZMLGenerator:
         start_time = df.index.min()
 
         for timestamp, row in df.iterrows():
-            # Time offset in seconds
-            time_offset = (timestamp - start_time).total_seconds()
-
             # Position: longitude, latitude, altitude (in meters)
             lon = row['longitude']
             lat = row['latitude']
-            alt = row['altitude']  # Already in meters
+            alt = row['altitude']
+
+            # Skip invalid positions (NaN, Infinity)
+            if np.isnan(lon) or np.isnan(lat) or np.isnan(alt):
+                continue
+            if np.isinf(lon) or np.isinf(lat) or np.isinf(alt):
+                continue
+
+            # Time offset in seconds
+            time_offset = (timestamp - start_time).total_seconds()
 
             positions.extend([time_offset, lon, lat, alt])
 
