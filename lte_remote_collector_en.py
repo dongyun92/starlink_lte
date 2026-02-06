@@ -88,47 +88,62 @@ class LTEModule:
         self.connected = False
 
     def _detect_port(self):
+        """자동으로 EC25 AT 포트 감지 (ttyUSB0, ttyUSB1, ttyUSB2, ttyUSB3 순서로 시도)"""
         ports = [p.device for p in list_ports.comports()]
         if not ports:
             return None
 
+        # ttyUSB 포트를 숫자 순서대로 정렬
         def rank_port(name):
-            if name.endswith("ttyUSB2"):
-                return 0
-            if name.endswith("ttyUSB1"):
-                return 1
-            if name.endswith("ttyUSB0"):
-                return 2
-            return 10
+            import re
+            m = re.search(r'ttyUSB(\d+)', name)
+            if m:
+                return int(m.group(1))  # 숫자 추출해서 정렬
+            return 999  # ttyUSB가 아닌 포트는 마지막
 
         for port in sorted(ports, key=rank_port):
+            print(f"[INFO] Probing {port} for AT commands...")
             if self._probe_port(port):
+                print(f"[SUCCESS] Found EC25 AT port: {port}")
                 return port
         return None
 
     def _probe_port(self, port):
+        """EC25 모듈 감지 (find_ec25_port.py 로직 기반)"""
         ser = None
         try:
             ser = serial.Serial(
                 port=port,
                 baudrate=self.baudrate,
-                timeout=0.2,
+                timeout=1,
                 rtscts=False,
                 dsrdtr=False,
                 xonxoff=False
             )
             ser.reset_input_buffer()
-            ser.write(b"AT\r\n")
-            end = time.time() + 1.0
-            buf = ""
-            while time.time() < end:
-                if ser.in_waiting:
-                    buf += ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
-                    if "OK" in buf:
-                        return True
-                time.sleep(0.05)
-            return "OK" in buf
-        except Exception:
+            ser.reset_output_buffer()
+            time.sleep(0.2)
+
+            # 여러 AT 명령어로 EC25 모듈 확인
+            test_commands = [
+                ("AT", 0.5),
+                ("ATE0", 0.5),
+                ("AT+CGMI", 0.5),  # Manufacturer (Quectel 응답 기대)
+                ("AT+CGMM", 0.5),  # Model (EC25 응답 기대)
+            ]
+
+            for cmd, wait in test_commands:
+                ser.write(f"{cmd}\r\n".encode())
+                time.sleep(wait)
+
+                response = ser.read(ser.in_waiting).decode('utf-8', errors='ignore').strip()
+
+                # OK, Quectel, EC25 키워드 확인
+                if response and ("OK" in response or "Quectel" in response.upper() or "EC25" in response.upper()):
+                    return True
+
+            return False
+        except Exception as e:
             return False
         finally:
             if ser:
