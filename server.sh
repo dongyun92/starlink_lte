@@ -221,6 +221,21 @@ case "$1" in
         echo ""
         ;;
 
+    logs-follow)
+        echo ""
+        echo "=== Following Backend Logs (Press Ctrl+C to stop) ==="
+        echo ""
+        tail -f /tmp/flask_3d.log
+        ;;
+
+    logs-backend)
+        tail -f /tmp/flask_3d.log
+        ;;
+
+    logs-frontend)
+        tail -f /tmp/vite_3d.log
+        ;;
+
     *)
         echo ""
         echo "3D Visualization Server Management"

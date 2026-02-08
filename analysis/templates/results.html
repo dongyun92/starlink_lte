@@ -173,6 +173,63 @@
         .back-button:hover {
             background: #34495e;
         }
+
+        .time-ranges {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .time-range-item {
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .time-range-label {
+            font-weight: 600;
+            min-width: 120px;
+            color: #2c3e50;
+        }
+
+        .time-range-value {
+            font-family: 'Courier New', monospace;
+            color: #667eea;
+            background: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-left: 4px solid #ff9800;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .warning-box h3 {
+            margin: 0 0 10px 0;
+            color: #856404;
+            font-size: 1.1em;
+        }
+
+        .warning-item {
+            margin: 5px 0;
+            color: #856404;
+            display: flex;
+            align-items: start;
+            gap: 8px;
+        }
+
+        .warning-icon {
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body>
@@ -191,6 +248,17 @@
         </div>
 
         <div id="results-content" style="display: none;">
+            <!-- 시간 범위 정보 -->
+            <div class="result-section" id="time-ranges-section" style="display: none;">
+                <h2>📅 데이터 시간 범위</h2>
+                <div class="time-ranges" id="time-ranges-container">
+                    <!-- JavaScript로 동적 생성 -->
+                </div>
+                <div id="time-warnings-container">
+                    <!-- JavaScript로 동적 생성 -->
+                </div>
+            </div>
+
             <!-- 다운로드 버튼 -->
             <div class="result-section">
                 <h2>📥 다운로드</h2>
@@ -288,6 +356,9 @@
                 document.getElementById('download-report').href = `/api/session/${sessionId}/download/report`;
                 document.getElementById('download-charts').href = `/api/session/${sessionId}/download/charts`;
 
+                // 시간 범위 표시
+                displayTimeRanges(resultsData.analysis_results);
+
                 // 통계 표시
                 displayStatistics(resultsData.analysis_results);
 
@@ -310,6 +381,86 @@
                     </div>
                 `;
             }
+        }
+
+        function displayTimeRanges(analysisResults) {
+            if (!analysisResults || !analysisResults.time_ranges) {
+                return; // 시간 범위 정보가 없으면 표시하지 않음
+            }
+
+            const timeRanges = analysisResults.time_ranges;
+            const timeWarnings = analysisResults.time_warnings || [];
+
+            const section = document.getElementById('time-ranges-section');
+            const container = document.getElementById('time-ranges-container');
+            const warningsContainer = document.getElementById('time-warnings-container');
+
+            // 시간 범위 표시
+            let rangesHTML = '';
+
+            const dataLabels = {
+                'flight': '🛩️ 비행 데이터',
+                'lte': '📡 LTE 데이터',
+                'starlink': '🛰️ Starlink 데이터'
+            };
+
+            for (const [dataType, label] of Object.entries(dataLabels)) {
+                if (timeRanges[dataType]) {
+                    const range = timeRanges[dataType];
+                    const startDate = new Date(range.start);
+                    const endDate = new Date(range.end);
+
+                    const startStr = startDate.toLocaleString('ko-KR', {
+                        month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', second: '2-digit'
+                    });
+                    const endStr = endDate.toLocaleString('ko-KR', {
+                        month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', second: '2-digit'
+                    });
+
+                    const durationMinutes = ((range.end_unix - range.start_unix) / 60).toFixed(1);
+
+                    rangesHTML += `
+                        <div class="time-range-item">
+                            <span class="time-range-label">${label}</span>
+                            <span class="time-range-value">${startStr} ~ ${endStr}</span>
+                            <span style="color: #888; font-size: 0.9em;">(${durationMinutes}분, ${range.count}개 포인트)</span>
+                        </div>
+                    `;
+                } else {
+                    rangesHTML += `
+                        <div class="time-range-item">
+                            <span class="time-range-label">${label}</span>
+                            <span style="color: #999;">데이터 없음</span>
+                        </div>
+                    `;
+                }
+            }
+
+            container.innerHTML = rangesHTML;
+
+            // 경고 메시지 표시
+            if (timeWarnings.length > 0) {
+                let warningsHTML = '<div class="warning-box"><h3>⚠️ 시간 불일치 경고</h3>';
+
+                for (const warning of timeWarnings) {
+                    warningsHTML += `
+                        <div class="warning-item">
+                            <span class="warning-icon">•</span>
+                            <span>${warning}</span>
+                        </div>
+                    `;
+                }
+
+                warningsHTML += '<p style="margin-top: 10px; font-size: 0.9em; color: #856404;">💡 시간이 맞지 않는 데이터는 히트맵 생성에서 제외됩니다.</p>';
+                warningsHTML += '</div>';
+
+                warningsContainer.innerHTML = warningsHTML;
+            }
+
+            // 섹션 표시
+            section.style.display = 'block';
         }
 
         function displayStatistics(analysisResults) {

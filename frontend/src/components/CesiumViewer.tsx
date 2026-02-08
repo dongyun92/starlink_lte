@@ -168,6 +168,62 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
         console.log(`📍 First position: lon=${lon}, lat=${lat}, alt=${alt}`);
 
+        // 타임라인 시간 범위 설정 (CZML에서 clock 정보 추출)
+        const documentPacket = czmlData[0];
+        console.log('📋 Document packet:', documentPacket);
+
+        if (documentPacket.clock) {
+          const interval = documentPacket.clock.interval;
+          const [startTimeStr, endTimeStr] = interval.split('/');
+
+          console.log('⏰ Parsing time interval:', { interval, startTimeStr, endTimeStr });
+
+          const startTime = Cesium.JulianDate.fromIso8601(startTimeStr);
+          const endTime = Cesium.JulianDate.fromIso8601(endTimeStr);
+
+          console.log('📅 Parsed JulianDates:', {
+            start: Cesium.JulianDate.toIso8601(startTime),
+            end: Cesium.JulianDate.toIso8601(endTime)
+          });
+
+          // Clock 설정
+          const clock = cesiumViewerRef.current.clock;
+
+          console.log('🕐 Clock BEFORE config:', {
+            startTime: clock.startTime ? Cesium.JulianDate.toIso8601(clock.startTime) : 'null',
+            stopTime: clock.stopTime ? Cesium.JulianDate.toIso8601(clock.stopTime) : 'null',
+            currentTime: clock.currentTime ? Cesium.JulianDate.toIso8601(clock.currentTime) : 'null',
+            multiplier: clock.multiplier,
+            shouldAnimate: clock.shouldAnimate,
+            clockRange: clock.clockRange
+          });
+
+          clock.startTime = startTime.clone();
+          clock.stopTime = endTime.clone();
+          clock.currentTime = startTime.clone();
+          clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+          clock.multiplier = 10;
+          clock.shouldAnimate = true;
+
+          console.log('🕐 Clock AFTER config:', {
+            startTime: Cesium.JulianDate.toIso8601(clock.startTime),
+            stopTime: Cesium.JulianDate.toIso8601(clock.stopTime),
+            currentTime: Cesium.JulianDate.toIso8601(clock.currentTime),
+            multiplier: clock.multiplier,
+            shouldAnimate: clock.shouldAnimate,
+            clockRange: clock.clockRange
+          });
+
+          // 강제로 animation widget 업데이트
+          if (cesiumViewerRef.current.animation) {
+            console.log('🎬 Updating animation widget...');
+            cesiumViewerRef.current.animation.viewModel.dateFormatter = Cesium.JulianDate.toIso8601;
+          }
+
+        } else {
+          console.error('❌ No clock info in CZML document packet!');
+        }
+
         // 카메라를 비행 경로 위치로 직접 이동 (고도 + 500m 상공에서 관찰)
         cesiumViewerRef.current.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(lon, lat, alt + 500),
@@ -179,11 +235,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           duration: 2,
         });
 
-        // 타임라인 정지 상태로 활성화 (사용자가 수동으로 재생)
-        cesiumViewerRef.current.clock.shouldAnimate = false;
-
         console.log('✅ Flight path visualization complete');
-        console.log('⏸️ Timeline ready (paused)');
+        console.log('▶️ Timeline playing automatically');
       } catch (error) {
         console.error('❌ Failed to load flight data:', error);
       }

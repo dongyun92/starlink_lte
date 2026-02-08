@@ -92,14 +92,32 @@ class CZMLGenerator:
         Returns:
             CZML document header dictionary
         """
+        import sys
+        import pandas as pd
+
         start_time = df.index.min()
         end_time = df.index.max()
 
-        # Convert to ISO 8601 format
-        start_iso = start_time.isoformat()
-        end_iso = end_time.isoformat()
+        # Convert to datetime if string
+        if isinstance(start_time, str):
+            start_time = pd.to_datetime(start_time, utc=True)
+        if isinstance(end_time, str):
+            end_time = pd.to_datetime(end_time, utc=True)
 
-        return {
+        # Convert to ISO 8601 format (Cesium compatible: YYYY-MM-DDTHH:MM:SS.sssZ)
+        start_iso = start_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        end_iso = end_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+        print(f"\n{'='*60}", flush=True)
+        print(f"🕐 CZML CLOCK CONFIGURATION", flush=True)
+        print(f"{'='*60}", flush=True)
+        print(f"   Start time: {start_iso}", flush=True)
+        print(f"   End time: {end_iso}", flush=True)
+        print(f"   DataFrame index type: {type(df.index[0])}", flush=True)
+        print(f"   DataFrame length: {len(df)}", flush=True)
+        sys.stdout.flush()
+
+        header = {
             "id": "document",
             "version": "1.0",
             "name": f"Flight Visualization - Session {self.session_id}",
@@ -111,6 +129,8 @@ class CZMLGenerator:
                 "step": "SYSTEM_CLOCK_MULTIPLIER"
             }
         }
+
+        return header
 
     def _create_flight_path_entity(self, df, color_by: str) -> list:
         """
@@ -156,12 +176,26 @@ class CZMLGenerator:
         }
 
         # Entity 2: 움직이는 point (비행기)
+        import pandas as pd
+        start_time = df.index.min()
+        end_time = df.index.max()
+
+        # Convert to datetime if string
+        if isinstance(start_time, str):
+            start_time = pd.to_datetime(start_time, utc=True)
+        if isinstance(end_time, str):
+            end_time = pd.to_datetime(end_time, utc=True)
+
+        # Convert to ISO 8601 format (Cesium compatible)
+        start_iso = start_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        end_iso = end_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
         aircraft_entity = {
             "id": f"aircraft_{self.session_id}",
             "name": f"Aircraft - Session {self.session_id}",
-            "availability": f"{df.index.min().isoformat()}/{df.index.max().isoformat()}",
+            "availability": f"{start_iso}/{end_iso}",
             "position": {
-                "epoch": df.index.min().isoformat(),
+                "epoch": start_iso,
                 "cartographicDegrees": positions
             },
             "point": {
@@ -197,25 +231,56 @@ class CZMLGenerator:
         # Create entities list
         entities = []
 
+        # Auto-detect available LTE column (prefer lte_rsrp, fallback to lte_rssi)
+        lte_column = None
+        if 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all():
+            lte_column = 'lte_rsrp'
+        elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
+            lte_column = 'lte_rssi'
+
+        # Auto-detect available Starlink column (prefer starlink_snr, fallback to starlink_latency)
+        starlink_column = None
+        if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
+            starlink_column = 'starlink_snr'
+        elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
+            starlink_column = 'starlink_latency'
+
+        print(f"📊 Auto-detected data columns: LTE={lte_column}, Starlink={starlink_column}", flush=True)
+
         # Create LTE gradient path segments (left side)
         lte_segments = self._create_gradient_path_segments(
-            df, aircraft_positions, -LON_OFFSET, 'lte', 'lte_rsrp'
+            df, aircraft_positions, -LON_OFFSET, 'lte', lte_column
         )
         entities.extend(lte_segments)
 
         # Create Starlink gradient path segments (right side)
         starlink_segments = self._create_gradient_path_segments(
-            df, aircraft_positions, LON_OFFSET, 'starlink', 'starlink_snr'
+            df, aircraft_positions, LON_OFFSET, 'starlink', starlink_column
         )
         entities.extend(starlink_segments)
 
         # Entity: Aircraft (center, animated)
+        # Handle both datetime and string timestamps
+        import pandas as pd
+        start_time = df.index.min()
+        end_time = df.index.max()
+
+        # Convert to datetime if string
+        if isinstance(start_time, str):
+            start_time = pd.to_datetime(start_time, utc=True)
+        if isinstance(end_time, str):
+            end_time = pd.to_datetime(end_time, utc=True)
+
+        # Convert to ISO 8601 format (Cesium compatible)
+        start_iso = start_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        end_iso = end_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
         aircraft_entity = {
             "id": f"aircraft_{self.session_id}",
             "name": f"Aircraft - Session {self.session_id}",
-            "availability": f"{df.index.min().isoformat()}/{df.index.max().isoformat()}",
+            "availability": f"{start_iso}/{end_iso}",
             "position": {
-                "epoch": df.index.min().isoformat(),
+                "epoch": start_iso,
                 "cartographicDegrees": aircraft_positions
             },
             "point": {
@@ -242,7 +307,7 @@ class CZMLGenerator:
             aircraft_positions: List of time-tagged positions
             lon_offset: Longitude offset for parallel paths
             data_type: 'lte' or 'starlink'
-            value_column: Column name for signal values ('lte_rsrp' or 'starlink_snr')
+            value_column: Column name for signal values ('lte_rsrp', 'lte_rssi', 'starlink_snr', or 'starlink_latency')
 
         Returns:
             List of polyline entities with gradient colors
@@ -250,7 +315,7 @@ class CZMLGenerator:
         entities = []
 
         # Get signal values
-        if value_column not in df.columns:
+        if value_column is None or value_column not in df.columns:
             # No data, return single gray path
             positions = []
             for i in range(0, len(aircraft_positions), 4):
@@ -306,11 +371,11 @@ class CZMLGenerator:
             # Get signal value from DataFrame (same index, df is already sampled)
             signal_val = df.iloc[idx][value_column]
 
-            # Determine color category based on signal value
+            # Determine color category based on signal value and column type
             if data_type == 'lte':
-                color = self._get_lte_color_category(signal_val)
+                color = self._get_lte_color_category(signal_val, value_column)
             else:  # starlink
-                color = self._get_starlink_color_category(signal_val)
+                color = self._get_starlink_color_category(signal_val, value_column)
 
             # If color changed, save current segment and start new one
             if current_color is None:
@@ -375,35 +440,93 @@ class CZMLGenerator:
 
         return entities
 
-    def _get_lte_color_category(self, rsrp):
-        """Get LTE color category based on RSRP value"""
-        if np.isnan(rsrp):
-            return [128, 128, 128, 255]  # Gray
-        elif rsrp < -110:
-            return [255, 0, 0, 255]  # Red
-        elif rsrp < -100:
-            return [255, 165, 0, 255]  # Orange
-        elif rsrp < -90:
-            return [255, 255, 0, 255]  # Yellow
-        elif rsrp < -80:
-            return [144, 238, 144, 255]  # Light Green
-        else:
-            return [0, 255, 0, 255]  # Green
+    def _get_lte_color_category(self, value, column_name):
+        """
+        Get LTE color category based on signal value
 
-    def _get_starlink_color_category(self, snr):
-        """Get Starlink color category based on SNR value"""
-        if np.isnan(snr):
+        Args:
+            value: Signal value
+            column_name: 'lte_rsrp' or 'lte_rssi'
+
+        Returns:
+            RGBA color [R, G, B, A]
+        """
+        if np.isnan(value):
             return [128, 128, 128, 255]  # Gray
-        elif snr < 3:
-            return [0, 0, 139, 255]  # Dark Blue
-        elif snr < 5:
-            return [0, 0, 255, 255]  # Blue
-        elif snr < 8:
-            return [135, 206, 235, 255]  # Sky Blue
-        elif snr < 12:
-            return [0, 255, 255, 255]  # Cyan
+
+        if column_name == 'lte_rsrp':
+            # RSRP: -120 ~ -44 dBm (lower is worse)
+            if value < -110:
+                return [255, 0, 0, 255]  # Red - Very poor
+            elif value < -100:
+                return [255, 165, 0, 255]  # Orange - Poor
+            elif value < -90:
+                return [255, 255, 0, 255]  # Yellow - Fair
+            elif value < -80:
+                return [144, 238, 144, 255]  # Light Green - Good
+            else:
+                return [0, 255, 0, 255]  # Green - Excellent
+
+        elif column_name == 'lte_rssi':
+            # RSSI: -113 ~ -51 dBm (lower is worse)
+            if value < -100:
+                return [255, 0, 0, 255]  # Red - Very poor
+            elif value < -90:
+                return [255, 165, 0, 255]  # Orange - Poor
+            elif value < -80:
+                return [255, 255, 0, 255]  # Yellow - Fair
+            elif value < -70:
+                return [144, 238, 144, 255]  # Light Green - Good
+            else:
+                return [0, 255, 0, 255]  # Green - Excellent
+
         else:
-            return [255, 255, 255, 255]  # White
+            # Unknown column, use gray
+            return [128, 128, 128, 255]
+
+    def _get_starlink_color_category(self, value, column_name):
+        """
+        Get Starlink color category based on signal value
+
+        Args:
+            value: Signal value
+            column_name: 'starlink_snr' or 'starlink_latency'
+
+        Returns:
+            RGBA color [R, G, B, A]
+        """
+        if np.isnan(value):
+            return [128, 128, 128, 255]  # Gray
+
+        if column_name == 'starlink_snr':
+            # SNR: 0 ~ 15+ dB (higher is better)
+            if value < 3:
+                return [0, 0, 139, 255]  # Dark Blue - Very poor
+            elif value < 5:
+                return [0, 0, 255, 255]  # Blue - Poor
+            elif value < 8:
+                return [135, 206, 235, 255]  # Sky Blue - Fair
+            elif value < 12:
+                return [0, 255, 255, 255]  # Cyan - Good
+            else:
+                return [255, 255, 255, 255]  # White - Excellent
+
+        elif column_name == 'starlink_latency':
+            # Latency: 0 ~ 200+ ms (lower is better)
+            if value > 150:
+                return [255, 0, 0, 255]  # Red - Very poor
+            elif value > 100:
+                return [255, 165, 0, 255]  # Orange - Poor
+            elif value > 60:
+                return [255, 255, 0, 255]  # Yellow - Fair
+            elif value > 30:
+                return [135, 206, 235, 255]  # Sky Blue - Good
+            else:
+                return [0, 255, 255, 255]  # Cyan - Excellent
+
+        else:
+            # Unknown column, use gray
+            return [128, 128, 128, 255]
 
     def _calculate_colors(self, df, color_by: str) -> np.ndarray:
         """
@@ -582,10 +705,20 @@ class CZMLGenerator:
         Returns:
             List of [time_offset, lon, lat, alt, ...]
         """
+        import pandas as pd
+
         positions = []
         start_time = df.index.min()
 
+        # Convert to datetime if string
+        if isinstance(start_time, str):
+            start_time = pd.to_datetime(start_time)
+
         for timestamp, row in df.iterrows():
+            # Convert timestamp to datetime if string
+            if isinstance(timestamp, str):
+                timestamp = pd.to_datetime(timestamp)
+
             # Position: longitude, latitude, altitude (in meters)
             lon = row['longitude']
             lat = row['latitude']

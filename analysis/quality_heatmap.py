@@ -28,12 +28,15 @@ class QualityHeatmapGenerator:
 
         # 타임스탬프를 datetime으로 변환 (자동 형식 감지)
         # Unix timestamp (숫자) 또는 ISO 문자열 (YYYY-MM-DD HH:MM:SS) 모두 처리
-        try:
-            # 먼저 ISO 문자열 형식으로 시도
-            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'])
-        except:
-            # 실패하면 Unix timestamp로 시도
-            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'], unit='s')
+        if pd.api.types.is_datetime64_any_dtype(self.df['timestamp']):
+            # Already datetime, no conversion needed
+            pass
+        elif pd.api.types.is_numeric_dtype(self.df['timestamp']):
+            # Unix timestamp (numeric)
+            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'], unit='s', utc=True)
+        else:
+            # ISO string format
+            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'], utc=True, errors='coerce')
 
         # flight_id로 정렬 후 타임스탬프로 정렬 (여러 비행 경로를 올바르게 그리기 위해 필수!)
         if 'flight_id' in self.df.columns:
@@ -205,75 +208,86 @@ class QualityHeatmapGenerator:
         # LTE 데이터가 있는 포인트만 필터링
         lte_data = self.df[self.df['lte_available'] == True].copy()
 
-        if len(lte_data) == 0:
-            print("⚠️  No LTE data available")
-            return
-
-        # 지도 생성
+        # 지도 생성 (데이터 여부와 상관없이 항상 생성)
         m = folium.Map(
             location=[self.center_lat, self.center_lon],
             zoom_start=14,
             tiles='OpenStreetMap'
         )
 
-        # RSSI 기반 히트맵 데이터 준비
-        # RSSI: -113 ~ -51 dBm, 높을수록 좋음
-        # 히트맵 강도: 0 ~ 1로 정규화
-        lte_data['rssi_normalized'] = (lte_data['lte_rssi'] + 113) / (51 - (-113))
-        lte_data['rssi_normalized'] = lte_data['rssi_normalized'].clip(0, 1)
+        if len(lte_data) == 0:
+            print("⚠️  No LTE data available - generating empty map with flight path")
 
-        # 히트맵 데이터: [lat, lon, intensity]
-        heat_data = [
-            [row['latitude'], row['longitude'], row['rssi_normalized']]
-            for _, row in lte_data.iterrows()
-        ]
+            # 데이터 없음 메시지
+            no_data_html = """
+            <div style="position: fixed;
+                        top: 10px; left: 50px; width: 300px; height: auto;
+                        background-color: #fff3cd; border:2px solid #ffc107; z-index:9999;
+                        font-size:14px; padding: 15px; border-radius: 5px;">
+            <b style="color: #856404;">⚠️ LTE Data Not Available</b><br>
+            <span style="color: #856404;">No LTE communication data was found for this flight session.</span>
+            </div>
+            """
+            m.get_root().html.add_child(folium.Element(no_data_html))
+        else:
+            # RSSI 기반 히트맵 데이터 준비
+            # RSSI: -113 ~ -51 dBm, 높을수록 좋음
+            # 히트맵 강도: 0 ~ 1로 정규화
+            lte_data['rssi_normalized'] = (lte_data['lte_rssi'] + 113) / (51 - (-113))
+            lte_data['rssi_normalized'] = lte_data['rssi_normalized'].clip(0, 1)
 
-        # 히트맵 레이어 추가
-        HeatMap(
-            heat_data,
-            name='LTE Signal Strength (RSSI)',
-            min_opacity=0.3,
-            max_opacity=0.8,
-            radius=15,
-            blur=20,
-            gradient={
-                0.0: 'red',
-                0.4: 'orange',
-                0.6: 'yellow',
-                0.8: 'lightgreen',
-                1.0: 'green'
-            }
-        ).add_to(m)
+            # 히트맵 데이터: [lat, lon, intensity]
+            heat_data = [
+                [row['latitude'], row['longitude'], row['rssi_normalized']]
+                for _, row in lte_data.iterrows()
+            ]
 
-        # 통계 정보 추가
-        stats_html = f"""
-        <div style="position: fixed;
-                    top: 10px; left: 50px; width: 250px; height: auto;
-                    background-color: white; border:2px solid grey; z-index:9999;
-                    font-size:14px; padding: 10px">
-        <b>LTE Quality Statistics</b><br>
-        Points: {len(lte_data)}<br>
-        RSSI: {lte_data['lte_rssi'].mean():.1f} dBm<br>
-        RSRP: {lte_data['lte_rsrp'].mean():.1f} dBm<br>
-        SINR: {lte_data['lte_sinr'].mean():.1f} dB<br>
-        Coverage: {len(lte_data)/len(self.df)*100:.1f}%
-        </div>
-        """
-        m.get_root().html.add_child(folium.Element(stats_html))
+            # 히트맵 레이어 추가
+            HeatMap(
+                heat_data,
+                name='LTE Signal Strength (RSSI)',
+                min_opacity=0.3,
+                max_opacity=0.8,
+                radius=15,
+                blur=20,
+                gradient={
+                    0.0: 'red',
+                    0.4: 'orange',
+                    0.6: 'yellow',
+                    0.8: 'lightgreen',
+                    1.0: 'green'
+                }
+            ).add_to(m)
 
-        # 범례 추가
-        legend_html = '''
-        <div style="position: fixed;
-                    bottom: 50px; left: 50px; width: 150px; height: 120px;
-                    background-color: white; border:2px solid grey; z-index:9999;
-                    font-size:12px; padding: 10px">
-        <b>Signal Quality</b><br>
-        <div style="background: linear-gradient(to right, red, orange, yellow, lightgreen, green);
-                    height: 20px; margin: 5px 0;"></div>
-        <b>Poor</b> → <b>Excellent</b>
-        </div>
-        '''
-        m.get_root().html.add_child(folium.Element(legend_html))
+            # 통계 정보 추가
+            stats_html = f"""
+            <div style="position: fixed;
+                        top: 10px; left: 50px; width: 250px; height: auto;
+                        background-color: white; border:2px solid grey; z-index:9999;
+                        font-size:14px; padding: 10px">
+            <b>LTE Quality Statistics</b><br>
+            Points: {len(lte_data)}<br>
+            RSSI: {lte_data['lte_rssi'].mean():.1f} dBm<br>
+            RSRP: {lte_data['lte_rsrp'].mean():.1f} dBm<br>
+            SINR: {lte_data['lte_sinr'].mean():.1f} dB<br>
+            Coverage: {len(lte_data)/len(self.df)*100:.1f}%
+            </div>
+            """
+            m.get_root().html.add_child(folium.Element(stats_html))
+
+            # 범례 추가
+            legend_html = '''
+            <div style="position: fixed;
+                        bottom: 50px; left: 50px; width: 150px; height: 120px;
+                        background-color: white; border:2px solid grey; z-index:9999;
+                        font-size:12px; padding: 10px">
+            <b>Signal Quality</b><br>
+            <div style="background: linear-gradient(to right, red, orange, yellow, lightgreen, green);
+                        height: 20px; margin: 5px 0;"></div>
+            <b>Poor</b> → <b>Excellent</b>
+            </div>
+            '''
+            m.get_root().html.add_child(folium.Element(legend_html))
 
         # 비행 경로 그리기 (여러 비행 로그 지원)
         self._add_flight_paths(m)
@@ -301,74 +315,85 @@ class QualityHeatmapGenerator:
         # Starlink 데이터가 있는 포인트만 필터링
         sl_data = self.df[self.df['starlink_available'] == True].copy()
 
-        if len(sl_data) == 0:
-            print("⚠️  No Starlink data available")
-            return
-
-        # 지도 생성
+        # 지도 생성 (데이터 여부와 상관없이 항상 생성)
         m = folium.Map(
             location=[self.center_lat, self.center_lon],
             zoom_start=14,
             tiles='OpenStreetMap'
         )
 
-        # 레이턴시 기반 히트맵 (낮을수록 좋음)
-        # Latency: 0 ~ 200 ms 정도, 낮을수록 좋음
-        # 히트맵 강도: 0 (나쁨) ~ 1 (좋음)로 변환
-        sl_data['latency_normalized'] = 1 - (sl_data['starlink_latency'].clip(0, 200) / 200)
+        if len(sl_data) == 0:
+            print("⚠️  No Starlink data available - generating empty map with flight path")
 
-        # 히트맵 데이터
-        heat_data = [
-            [row['latitude'], row['longitude'], row['latency_normalized']]
-            for _, row in sl_data.iterrows()
-        ]
+            # 데이터 없음 메시지
+            no_data_html = """
+            <div style="position: fixed;
+                        top: 10px; left: 50px; width: 300px; height: auto;
+                        background-color: #fff3cd; border:2px solid #ffc107; z-index:9999;
+                        font-size:14px; padding: 15px; border-radius: 5px;">
+            <b style="color: #856404;">⚠️ Starlink Data Not Available</b><br>
+            <span style="color: #856404;">No Starlink communication data was found for this flight session.</span>
+            </div>
+            """
+            m.get_root().html.add_child(folium.Element(no_data_html))
+        else:
+            # 레이턴시 기반 히트맵 (낮을수록 좋음)
+            # Latency: 0 ~ 200 ms 정도, 낮을수록 좋음
+            # 히트맵 강도: 0 (나쁨) ~ 1 (좋음)로 변환
+            sl_data['latency_normalized'] = 1 - (sl_data['starlink_latency'].clip(0, 200) / 200)
 
-        # 히트맵 레이어
-        HeatMap(
-            heat_data,
-            name='Starlink Latency Quality',
-            min_opacity=0.3,
-            max_opacity=0.8,
-            radius=15,
-            blur=20,
-            gradient={
-                0.0: 'red',
-                0.4: 'orange',
-                0.6: 'yellow',
-                0.8: 'lightgreen',
-                1.0: 'green'
-            }
-        ).add_to(m)
+            # 히트맵 데이터
+            heat_data = [
+                [row['latitude'], row['longitude'], row['latency_normalized']]
+                for _, row in sl_data.iterrows()
+            ]
 
-        # 통계 정보
-        stats_html = f"""
-        <div style="position: fixed;
-                    top: 10px; left: 50px; width: 280px; height: auto;
-                    background-color: white; border:2px solid grey; z-index:9999;
-                    font-size:14px; padding: 10px">
-        <b>Starlink Quality Statistics</b><br>
-        Points: {len(sl_data)}<br>
-        Latency: {sl_data['starlink_latency'].mean():.1f} ms<br>
-        Download: {sl_data['starlink_download'].mean():.1f} Mbps<br>
-        Upload: {sl_data['starlink_upload'].mean():.1f} Mbps<br>
-        Coverage: {len(sl_data)/len(self.df)*100:.1f}%
-        </div>
-        """
-        m.get_root().html.add_child(folium.Element(stats_html))
+            # 히트맵 레이어
+            HeatMap(
+                heat_data,
+                name='Starlink Latency Quality',
+                min_opacity=0.3,
+                max_opacity=0.8,
+                radius=15,
+                blur=20,
+                gradient={
+                    0.0: 'red',
+                    0.4: 'orange',
+                    0.6: 'yellow',
+                    0.8: 'lightgreen',
+                    1.0: 'green'
+                }
+            ).add_to(m)
 
-        # 범례
-        legend_html = '''
-        <div style="position: fixed;
-                    bottom: 50px; left: 50px; width: 150px; height: 120px;
-                    background-color: white; border:2px solid grey; z-index:9999;
-                    font-size:12px; padding: 10px">
-        <b>Latency Quality</b><br>
-        <div style="background: linear-gradient(to right, red, orange, yellow, lightgreen, green);
-                    height: 20px; margin: 5px 0;"></div>
-        <b>High</b> → <b>Low</b>
-        </div>
-        '''
-        m.get_root().html.add_child(folium.Element(legend_html))
+            # 통계 정보
+            stats_html = f"""
+            <div style="position: fixed;
+                        top: 10px; left: 50px; width: 280px; height: auto;
+                        background-color: white; border:2px solid grey; z-index:9999;
+                        font-size:14px; padding: 10px">
+            <b>Starlink Quality Statistics</b><br>
+            Points: {len(sl_data)}<br>
+            Latency: {sl_data['starlink_latency'].mean():.1f} ms<br>
+            Download: {sl_data['starlink_download'].mean():.1f} Mbps<br>
+            Upload: {sl_data['starlink_upload'].mean():.1f} Mbps<br>
+            Coverage: {len(sl_data)/len(self.df)*100:.1f}%
+            </div>
+            """
+            m.get_root().html.add_child(folium.Element(stats_html))
+
+            # 범례
+            legend_html = '''
+            <div style="position: fixed;
+                        bottom: 50px; left: 50px; width: 150px; height: 120px;
+                        background-color: white; border:2px solid grey; z-index:9999;
+                        font-size:12px; padding: 10px">
+            <b>Latency Quality</b><br>
+            <div style="background: linear-gradient(to right, red, orange, yellow, lightgreen, green);
+                        height: 20px; margin: 5px 0;"></div>
+            <b>High</b> → <b>Low</b>
+            </div>
+            '''
+            m.get_root().html.add_child(folium.Element(legend_html))
 
         # 비행 경로 그리기 (여러 비행 로그 지원)
         self._add_flight_paths(m)
@@ -419,10 +444,18 @@ class QualityHeatmapGenerator:
                 &nbsp;&nbsp;Yaw: {row['yaw']:.1f}°<br>
                 """
 
+            # Format timestamp safely
+            timestamp_str = 'N/A'
+            if pd.notna(row['timestamp']):
+                try:
+                    timestamp_str = pd.to_datetime(row['timestamp']).strftime('%H:%M:%S')
+                except:
+                    timestamp_str = str(row['timestamp'])
+
             popup_html = f"""
             <div style="font-size: 11px; min-width: 280px;">
             <b style="font-size: 13px;">📍 비행 정보</b><br>
-            <b>Time:</b> {pd.to_datetime(row['timestamp']).strftime('%H:%M:%S')}<br>
+            <b>Time:</b> {timestamp_str}<br>
             <b>위치:</b> {row['latitude']:.6f}, {row['longitude']:.6f}<br>
             <b>고도:</b> {row['altitude']:.1f} m<br>
             <b>속도:</b> {row['speed_mps']:.2f} m/s ({row['speed_mps']*3.6:.1f} km/h)<br>

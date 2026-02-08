@@ -90,32 +90,63 @@ class AnalysisPipeline:
 
             ulog = ULog(str(ulg_path))
 
-            # vehicle_global_position 데이터셋 찾기
+            # vehicle_gps_position 데이터셋 찾기 (time_utc_usec 필드 있음)
             gps_dataset = None
             for data in ulog.data_list:
-                if data.name == 'vehicle_global_position':
+                if data.name == 'vehicle_gps_position':
                     gps_dataset = data
                     break
 
+            # Fallback: vehicle_global_position
             if gps_dataset is None:
-                print(f"  │  ⚠️  vehicle_global_position 데이터셋 없음")
+                for data in ulog.data_list:
+                    if data.name == 'vehicle_global_position':
+                        gps_dataset = data
+                        break
+
+            if gps_dataset is None:
+                print(f"  │  ⚠️  GPS 데이터셋 없음")
                 return None
 
             # 데이터 추출
             timestamps_us = gps_dataset.data['timestamp']  # microseconds (relative time)
-            latitudes = gps_dataset.data['lat']
-            longitudes = gps_dataset.data['lon']
-            altitudes = gps_dataset.data['alt']
+
+            # Check for latitude/longitude field names
+            if 'latitude_deg' in gps_dataset.data:
+                latitudes = gps_dataset.data['latitude_deg']
+                longitudes = gps_dataset.data['longitude_deg']
+                altitudes = gps_dataset.data['altitude_msl_m']
+            else:
+                latitudes = gps_dataset.data['lat']
+                longitudes = gps_dataset.data['lon']
+                altitudes = gps_dataset.data['alt']
 
             # ULG 타임스탬프를 절대 시간으로 변환
-            # 방법 1: CSV 시작 시간을 기준으로 사용
-            if csv_start_time is not None:
+            # 방법 1: time_utc_usec 필드 사용 (가장 정확)
+            if 'time_utc_usec' in gps_dataset.data:
+                utc_times_us = gps_dataset.data['time_utc_usec']
+                # Filter out zero/invalid values
+                valid_utc_times = [t for t in utc_times_us if t > 0]
+                if len(valid_utc_times) > 0:
+                    # Use time_utc_usec directly
+                    absolute_timestamps = pd.to_datetime(utc_times_us, unit='us', utc=True, errors='coerce')
+                    print(f"  │  ✓ Using time_utc_usec for accurate UTC timestamps")
+                else:
+                    # Fallback to method 2
+                    absolute_timestamps = None
+            else:
+                absolute_timestamps = None
+
+            # 방법 2: CSV 시작 시간을 기준으로 사용 (fallback)
+            if absolute_timestamps is None and csv_start_time is not None:
                 # CSV 시작 시간에서 ULG 시작 오프셋을 빼서 boot 시간 추정
                 ulog_start_us = timestamps_us[0]
                 boot_time = csv_start_time - pd.Timedelta(microseconds=int(ulog_start_us))
                 absolute_timestamps = [boot_time + pd.Timedelta(microseconds=int(ts)) for ts in timestamps_us]
-            else:
-                # 방법 2: 파일명에서 시간 추출 (fallback)
+                print(f"  │  ⚠️  Using CSV start time for timestamp conversion")
+
+            # 방법 3: 파일명에서 시간 추출 (fallback)
+            if absolute_timestamps is None:
                 filename = ulg_path.name
                 match = re.search(r'(\d{8})_(\d{4})', filename)
                 if match:
@@ -125,9 +156,11 @@ class AnalysisPipeline:
                     kst_time = datetime.strptime(f'{date_str}_{time_str}', '%Y%m%d_%H%M')
                     boot_time = pd.Timestamp(kst_time - timedelta(hours=9), tz='UTC') - pd.Timedelta(microseconds=int(timestamps_us[0]))
                     absolute_timestamps = [boot_time + pd.Timedelta(microseconds=int(ts)) for ts in timestamps_us]
+                    print(f"  │  ⚠️  Using filename for timestamp conversion")
                 else:
                     # 상대 시간을 그대로 사용 (epoch time)
                     absolute_timestamps = pd.to_datetime(timestamps_us, unit='us', utc=True)
+                    print(f"  │  ⚠️  Using relative timestamps (may be inaccurate)")
 
             # DataFrame 생성
             df = pd.DataFrame({
@@ -198,22 +231,44 @@ class AnalysisPipeline:
             # 여러 LTE CSV 파일 로드 및 병합
             lte_data_files = list(self.lte_data_dir.glob('*.csv'))
             lte_dfs = []
+            skipped_lte_files = []
             for file_path in lte_data_files:
-                df = pd.read_csv(file_path)
-                df['source_file'] = file_path.name
-                lte_dfs.append(df)
+                try:
+                    df = pd.read_csv(file_path)
+                    if len(df) > 0:
+                        df['source_file'] = file_path.name
+                        lte_dfs.append(df)
+                    else:
+                        skipped_lte_files.append(f"{file_path.name} (empty)")
+                except pd.errors.EmptyDataError:
+                    skipped_lte_files.append(f"{file_path.name} (no data)")
+                except Exception as e:
+                    skipped_lte_files.append(f"{file_path.name} (error: {str(e)[:30]})")
             self.lte_data = pd.concat(lte_dfs, ignore_index=True) if lte_dfs else pd.DataFrame()
-            print(f"  ✓ LTE 데이터 로드: {len(self.lte_data)} rows from {len(lte_data_files)} files")
+            if skipped_lte_files:
+                print(f"  ⚠️  LTE 파일 스킵: {len(skipped_lte_files)}개 ({', '.join(skipped_lte_files[:3])}{'...' if len(skipped_lte_files) > 3 else ''})")
+            print(f"  ✓ LTE 데이터 로드: {len(self.lte_data)} rows from {len(lte_dfs)}/{len(lte_data_files)} files")
 
             # 여러 Starlink CSV 파일 로드 및 병합
             starlink_data_files = list(self.starlink_data_dir.glob('*.csv'))
             starlink_dfs = []
+            skipped_starlink_files = []
             for file_path in starlink_data_files:
-                df = pd.read_csv(file_path)
-                df['source_file'] = file_path.name
-                starlink_dfs.append(df)
+                try:
+                    df = pd.read_csv(file_path)
+                    if len(df) > 0:
+                        df['source_file'] = file_path.name
+                        starlink_dfs.append(df)
+                    else:
+                        skipped_starlink_files.append(f"{file_path.name} (empty)")
+                except pd.errors.EmptyDataError:
+                    skipped_starlink_files.append(f"{file_path.name} (no data)")
+                except Exception as e:
+                    skipped_starlink_files.append(f"{file_path.name} (error: {str(e)[:30]})")
             self.starlink_data = pd.concat(starlink_dfs, ignore_index=True) if starlink_dfs else pd.DataFrame()
-            print(f"  ✓ Starlink 데이터 로드: {len(self.starlink_data)} rows from {len(starlink_data_files)} files")
+            if skipped_starlink_files:
+                print(f"  ⚠️  Starlink 파일 스킵: {len(skipped_starlink_files)}개 ({', '.join(skipped_starlink_files[:3])}{'...' if len(skipped_starlink_files) > 3 else ''})")
+            print(f"  ✓ Starlink 데이터 로드: {len(self.starlink_data)} rows from {len(starlink_dfs)}/{len(starlink_data_files)} files")
 
             # CSV 데이터에서 시작 시간 추출 (ULG 타임스탬프 변환 기준점으로 사용)
             csv_start_time = None
@@ -422,9 +477,34 @@ class AnalysisPipeline:
 
             print(f"    ✓ 가용성 칼럼 생성: lte_available ({self.merged_data['lte_available'].sum()} rows), starlink_available ({self.merged_data['starlink_available'].sum()} rows)")
 
+            # 시간 범위 추출
+            time_ranges = self._extract_time_ranges(flight_data, self.lte_data, self.starlink_data)
+
+            # 시간 범위 겹침 검사
+            overlap_warnings = self._check_time_overlap(time_ranges)
+
+            # 시간 범위 정보 출력
+            print(f"\n  📅 데이터 시간 범위:")
+            if 'flight' in time_ranges:
+                print(f"  ├─ 비행 데이터: {time_ranges['flight']['start']} ~ {time_ranges['flight']['end']}")
+            if 'lte' in time_ranges:
+                print(f"  ├─ LTE 데이터: {time_ranges['lte']['start']} ~ {time_ranges['lte']['end']}")
+            if 'starlink' in time_ranges:
+                print(f"  ├─ Starlink 데이터: {time_ranges['starlink']['start']} ~ {time_ranges['starlink']['end']}")
+
+            # 경고 메시지 출력
+            if overlap_warnings:
+                print(f"\n  ⚠️  시간 범위 불일치:")
+                for warning in overlap_warnings:
+                    print(f"  │  • {warning}")
+
             # 임시 병합 파일 저장
             merged_path = self.results_folder / 'merged_data.csv'
             self.merged_data.to_csv(merged_path, index=False)
+
+            # 시간 범위 정보를 analysis_results에 저장
+            self.analysis_results['time_ranges'] = time_ranges
+            self.analysis_results['time_warnings'] = overlap_warnings
 
             return {
                 'status': 'success',
@@ -435,7 +515,9 @@ class AnalysisPipeline:
                     'lte': len(lte_data_files),
                     'starlink': len(starlink_data_files),
                     'flight_logs': len(list(self.flight_logs_dir.glob('*.ulg')))
-                }
+                },
+                'time_ranges': time_ranges,
+                'time_warnings': overlap_warnings
             }
 
         except Exception as e:
@@ -1505,7 +1587,19 @@ class AnalysisPipeline:
                 generator.create_starlink_heatmap(str(starlink_heatmap))
                 generator.create_combined_map(str(combined_map))
 
-                print(f"  ✓ Folium 인터랙티브 히트맵 생성 완료 (3개)")
+                # 실제 생성된 파일 개수 확인
+                created_files = []
+                if lte_heatmap.exists():
+                    created_files.append('LTE')
+                if starlink_heatmap.exists():
+                    created_files.append('Starlink')
+                if combined_map.exists():
+                    created_files.append('Combined')
+
+                if created_files:
+                    print(f"  ✓ Folium 히트맵 생성: {', '.join(created_files)} ({len(created_files)}개)")
+                else:
+                    print(f"  ⚠️  히트맵 생성 실패: 데이터 부족")
 
             except Exception as e:
                 print(f"  ⚠️  Folium 히트맵 생성 실패: {str(e)}")
@@ -1648,14 +1742,149 @@ class AnalysisPipeline:
         results['end_time'] = datetime.now().isoformat()
         results['analysis_results'] = self.analysis_results
 
-        # 결과 JSON 저장
+        # 결과 JSON 저장 (numpy 타입 변환 포함)
         results_json_path = self.results_folder / 'analysis_results.json'
         with open(results_json_path, 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+            json.dump(results, f, ensure_ascii=False, indent=2, default=self._json_serializer)
 
         return results
 
     # ===== 헬퍼 메서드 =====
+
+    def _json_serializer(self, obj):
+        """
+        JSON 직렬화를 위한 numpy 타입 변환기
+
+        Args:
+            obj: 직렬화할 객체
+
+        Returns:
+            Python 기본 타입으로 변환된 객체
+        """
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        else:
+            return str(obj)
+
+    def _extract_time_ranges(self, flight_data: pd.DataFrame, lte_data: pd.DataFrame, starlink_data: pd.DataFrame) -> Dict:
+        """
+        각 데이터 소스의 시간 범위 추출
+
+        Args:
+            flight_data: GPS 비행 데이터
+            lte_data: LTE 통신 데이터
+            starlink_data: Starlink 통신 데이터
+
+        Returns:
+            Dict: 각 데이터 소스의 시작/종료 시간
+        """
+        time_ranges = {}
+
+        # 비행 데이터 시간 범위
+        if flight_data is not None and len(flight_data) > 0 and 'timestamp' in flight_data.columns:
+            time_ranges['flight'] = {
+                'start': flight_data['timestamp'].min().isoformat(),
+                'end': flight_data['timestamp'].max().isoformat(),
+                'start_unix': float(flight_data['timestamp'].min().timestamp()),
+                'end_unix': float(flight_data['timestamp'].max().timestamp()),
+                'count': len(flight_data)
+            }
+
+        # LTE 데이터 시간 범위
+        if lte_data is not None and len(lte_data) > 0 and 'timestamp' in lte_data.columns:
+            time_ranges['lte'] = {
+                'start': lte_data['timestamp'].min().isoformat(),
+                'end': lte_data['timestamp'].max().isoformat(),
+                'start_unix': float(lte_data['timestamp'].min().timestamp()),
+                'end_unix': float(lte_data['timestamp'].max().timestamp()),
+                'count': len(lte_data)
+            }
+
+        # Starlink 데이터 시간 범위
+        if starlink_data is not None and len(starlink_data) > 0 and 'timestamp' in starlink_data.columns:
+            time_ranges['starlink'] = {
+                'start': starlink_data['timestamp'].min().isoformat(),
+                'end': starlink_data['timestamp'].max().isoformat(),
+                'start_unix': float(starlink_data['timestamp'].min().timestamp()),
+                'end_unix': float(starlink_data['timestamp'].max().timestamp()),
+                'count': len(starlink_data)
+            }
+
+        return time_ranges
+
+    def _check_time_overlap(self, time_ranges: Dict) -> List[str]:
+        """
+        시간 범위 겹침 검사 및 경고 메시지 생성
+
+        Args:
+            time_ranges: 각 데이터 소스의 시간 범위
+
+        Returns:
+            List[str]: 경고 메시지 리스트
+        """
+        warnings = []
+
+        if 'flight' not in time_ranges:
+            return warnings
+
+        flight_start = time_ranges['flight']['start_unix']
+        flight_end = time_ranges['flight']['end_unix']
+
+        # LTE 데이터와 비행 데이터 겹침 검사
+        if 'lte' in time_ranges:
+            lte_start = time_ranges['lte']['start_unix']
+            lte_end = time_ranges['lte']['end_unix']
+
+            # 겹치는 영역이 없는 경우
+            if lte_end < flight_start:
+                gap_minutes = int((flight_start - lte_end) / 60)
+                warnings.append(f"LTE 데이터가 비행 데이터보다 {gap_minutes}분 앞섬 (시간 불일치)")
+            elif lte_start > flight_end:
+                gap_minutes = int((lte_start - flight_end) / 60)
+                warnings.append(f"LTE 데이터가 비행 데이터보다 {gap_minutes}분 뒤짐 (시간 불일치)")
+            else:
+                # 겹치는 영역 계산
+                overlap_start = max(flight_start, lte_start)
+                overlap_end = min(flight_end, lte_end)
+                overlap_seconds = overlap_end - overlap_start
+                flight_duration = flight_end - flight_start
+                overlap_percent = (overlap_seconds / flight_duration) * 100
+
+                if overlap_percent < 50:
+                    warnings.append(f"LTE 데이터와 비행 데이터 겹침: {overlap_percent:.1f}% (부분적)")
+
+        # Starlink 데이터와 비행 데이터 겹침 검사
+        if 'starlink' in time_ranges:
+            sl_start = time_ranges['starlink']['start_unix']
+            sl_end = time_ranges['starlink']['end_unix']
+
+            # 겹치는 영역이 없는 경우
+            if sl_end < flight_start:
+                gap_minutes = int((flight_start - sl_end) / 60)
+                warnings.append(f"Starlink 데이터가 비행 데이터보다 {gap_minutes}분 앞섬 (시간 불일치)")
+            elif sl_start > flight_end:
+                gap_minutes = int((sl_start - flight_end) / 60)
+                warnings.append(f"Starlink 데이터가 비행 데이터보다 {gap_minutes}분 뒤짐 (시간 불일치)")
+            else:
+                # 겹치는 영역 계산
+                overlap_start = max(flight_start, sl_start)
+                overlap_end = min(flight_end, sl_end)
+                overlap_seconds = overlap_end - overlap_start
+                flight_duration = flight_end - flight_start
+                overlap_percent = (overlap_seconds / flight_duration) * 100
+
+                if overlap_percent < 50:
+                    warnings.append(f"Starlink 데이터와 비행 데이터 겹침: {overlap_percent:.1f}% (부분적)")
+
+        return warnings
 
     def _calculate_lte_quality_stats(self) -> Dict:
         """LTE 품질 통계"""

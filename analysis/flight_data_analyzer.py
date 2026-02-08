@@ -210,6 +210,49 @@ class FlightDataAnalyzer:
 
         return offset
 
+    def get_time_ranges(self) -> Dict:
+        """
+        각 데이터 소스의 시간 범위 추출
+
+        Returns:
+            Dict: 각 데이터 소스의 시작/종료 시간
+        """
+        time_ranges = {}
+
+        # 비행 데이터 시간 범위
+        if self.flight_data is not None and len(self.flight_data) > 0:
+            time_offset = self.find_time_offset()
+            flight_timestamps = self.flight_data['time_sec'] + time_offset
+            time_ranges['flight'] = {
+                'start': datetime.fromtimestamp(flight_timestamps.min(), tz=timezone.utc).isoformat(),
+                'end': datetime.fromtimestamp(flight_timestamps.max(), tz=timezone.utc).isoformat(),
+                'start_unix': float(flight_timestamps.min()),
+                'end_unix': float(flight_timestamps.max()),
+                'count': len(self.flight_data)
+            }
+
+        # LTE 데이터 시간 범위
+        if self.lte_data is not None and len(self.lte_data) > 0:
+            time_ranges['lte'] = {
+                'start': datetime.fromtimestamp(self.lte_data['unix_timestamp'].min(), tz=timezone.utc).isoformat(),
+                'end': datetime.fromtimestamp(self.lte_data['unix_timestamp'].max(), tz=timezone.utc).isoformat(),
+                'start_unix': float(self.lte_data['unix_timestamp'].min()),
+                'end_unix': float(self.lte_data['unix_timestamp'].max()),
+                'count': len(self.lte_data)
+            }
+
+        # Starlink 데이터 시간 범위
+        if self.starlink_data is not None and len(self.starlink_data) > 0:
+            time_ranges['starlink'] = {
+                'start': datetime.fromtimestamp(self.starlink_data['unix_timestamp'].min(), tz=timezone.utc).isoformat(),
+                'end': datetime.fromtimestamp(self.starlink_data['unix_timestamp'].max(), tz=timezone.utc).isoformat(),
+                'start_unix': float(self.starlink_data['unix_timestamp'].min()),
+                'end_unix': float(self.starlink_data['unix_timestamp'].max()),
+                'count': len(self.starlink_data)
+            }
+
+        return time_ranges
+
     def merge_data(self, time_window: float = 0.5) -> pd.DataFrame:
         """
         GPS 좌표에 LTE 및 Starlink 통신 품질 데이터를 병합
