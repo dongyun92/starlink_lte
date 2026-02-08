@@ -63,6 +63,24 @@ export async function getCZMLData(
 }
 
 /**
+ * Get heatmap CZML data for data quality visualization
+ */
+export async function getHeatmapCZML(
+  sessionId: string,
+  mode: 'lte' | 'starlink' | 'combined'
+): Promise<CZMLDocument> {
+  const params = new URLSearchParams({ mode });
+  const url = `${API_BASE_URL}/api/3d/heatmap/${sessionId}?${params.toString()}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch heatmap CZML: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Health check for 3D API
  */
 export async function checkAPIHealth(): Promise<{ status: string; service: string; version: string }> {

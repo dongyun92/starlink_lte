@@ -3,15 +3,27 @@ import React from 'react';
 interface DataLayerControlProps {
   lteLayers: boolean;
   starlinkLayers: boolean;
+  lteHeatmap: boolean;
+  starlinkHeatmap: boolean;
+  combinedHeatmap: boolean;
   onLteToggle: (enabled: boolean) => void;
   onStarlinkToggle: (enabled: boolean) => void;
+  onLteHeatmapToggle: (enabled: boolean) => void;
+  onStarlinkHeatmapToggle: (enabled: boolean) => void;
+  onCombinedHeatmapToggle: (enabled: boolean) => void;
 }
 
 export const DataLayerControl: React.FC<DataLayerControlProps> = ({
   lteLayers,
   starlinkLayers,
+  lteHeatmap,
+  starlinkHeatmap,
+  combinedHeatmap,
   onLteToggle,
   onStarlinkToggle,
+  onLteHeatmapToggle,
+  onStarlinkHeatmapToggle,
+  onCombinedHeatmapToggle,
 }) => {
   return (
     <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-4 z-10">
@@ -56,7 +68,7 @@ export const DataLayerControl: React.FC<DataLayerControlProps> = ({
       </div>
 
       {/* Starlink Layer Control */}
-      <div>
+      <div className="mb-4">
         <label className="flex items-center space-x-2 cursor-pointer">
           <input
             type="checkbox"
@@ -92,6 +104,78 @@ export const DataLayerControl: React.FC<DataLayerControlProps> = ({
           </div>
         )}
       </div>
+
+      {/* Separator */}
+      <div className="border-t border-gray-300 my-4"></div>
+
+      {/* Quality Heatmaps Section */}
+      <h3 className="text-lg font-bold mb-3">Quality Heatmaps</h3>
+
+      {/* LTE Heatmap */}
+      <div className="mb-3">
+        <label className="flex items-center space-x-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={lteHeatmap}
+            onChange={(e) => onLteHeatmapToggle(e.target.checked)}
+            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+          />
+          <span className="font-medium">LTE Quality Heatmap</span>
+        </label>
+      </div>
+
+      {/* Starlink Heatmap */}
+      <div className="mb-3">
+        <label className="flex items-center space-x-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={starlinkHeatmap}
+            onChange={(e) => onStarlinkHeatmapToggle(e.target.checked)}
+            className="w-4 h-4 text-cyan-600 rounded focus:ring-cyan-500"
+          />
+          <span className="font-medium">Starlink Quality Heatmap</span>
+        </label>
+      </div>
+
+      {/* Combined Heatmap */}
+      <div className="mb-4">
+        <label className="flex items-center space-x-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={combinedHeatmap}
+            onChange={(e) => onCombinedHeatmapToggle(e.target.checked)}
+            className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+          />
+          <span className="font-medium">Combined Quality (Redundancy)</span>
+        </label>
+      </div>
+
+      {/* Unified Color Legend (shown if any heatmap is enabled) */}
+      {(lteHeatmap || starlinkHeatmap || combinedHeatmap) && (
+        <div className="mt-2 ml-6 space-y-1">
+          <p className="text-xs font-semibold text-gray-700 mb-1">Quality Score Legend:</p>
+          <div className="flex items-center space-x-2">
+            <div className="w-4 h-4 bg-red-500 rounded"></div>
+            <span className="text-sm text-gray-600">0-20 (Very Poor)</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-4 h-4 bg-orange-500 rounded"></div>
+            <span className="text-sm text-gray-600">20-40 (Poor)</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-4 h-4 bg-yellow-500 rounded"></div>
+            <span className="text-sm text-gray-600">40-60 (Fair)</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-4 h-4 bg-green-300 rounded"></div>
+            <span className="text-sm text-gray-600">60-80 (Good)</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-4 h-4 bg-green-500 rounded"></div>
+            <span className="text-sm text-gray-600">80-100 (Excellent)</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

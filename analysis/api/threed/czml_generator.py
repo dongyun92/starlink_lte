@@ -259,6 +259,27 @@ class CZMLGenerator:
         )
         entities.extend(starlink_segments)
 
+        # Entity: White center flight path (solid line showing complete trajectory)
+        center_path_entity = {
+            "id": f"center_path_{self.session_id}",
+            "name": f"Flight Path - Session {self.session_id}",
+            "polyline": {
+                "positions": {
+                    "cartographicDegrees": aircraft_positions
+                },
+                "material": {
+                    "solidColor": {
+                        "color": {
+                            "rgba": [255, 255, 255, 255]  # White solid color
+                        }
+                    }
+                },
+                "width": 3,
+                "clampToGround": False
+            }
+        }
+        entities.append(center_path_entity)
+
         # Entity: Aircraft (center, animated)
         # Handle both datetime and string timestamps
         import pandas as pd
@@ -757,3 +778,205 @@ class CZMLGenerator:
                 }
             }
         }
+
+    def create_heatmap_czml(self, mode: str = 'lte') -> list:
+        """
+        Generate point-based heatmap CZML for data quality visualization
+
+        Args:
+            mode: 'lte', 'starlink', or 'combined'
+
+        Returns:
+            CZML data as list of dictionaries
+        """
+        # Load merged data from results directory
+        results_dir = Path(__file__).parent.parent.parent / 'results' / self.session_id
+        merged_data_path = results_dir / 'merged_data.csv'
+
+        if not merged_data_path.exists():
+            raise ValueError(f"No merged data found for session {self.session_id}")
+
+        # Read CSV with timestamp as index
+        df = pd.read_csv(merged_data_path, parse_dates=['timestamp'])
+        df.set_index('timestamp', inplace=True)
+
+        if df.empty:
+            raise ValueError("No flight data available")
+
+        # Generate CZML document
+        czml = []
+
+        # Document header
+        czml.append(self._create_document_header(df))
+
+        # Generate heatmap point entities
+        point_entities = self._create_heatmap_point_entities(df, mode)
+        czml.extend(point_entities)
+
+        return czml
+
+    def _create_heatmap_point_entities(self, df, mode: str) -> list:
+        """
+        Create point entities for heatmap visualization
+
+        Args:
+            df: Flight data DataFrame
+            mode: 'lte', 'starlink', or 'combined'
+
+        Returns:
+            List of CZML point entities
+        """
+        entities = []
+
+        # Auto-detect available columns
+        lte_column = None
+        if 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all():
+            lte_column = 'lte_rsrp'
+        elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
+            lte_column = 'lte_rssi'
+
+        starlink_column = None
+        if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
+            starlink_column = 'starlink_snr'
+        elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
+            starlink_column = 'starlink_latency'
+
+        print(f"🗺️ Generating {mode.upper()} heatmap: LTE={lte_column}, Starlink={starlink_column}", flush=True)
+
+        # Create point entity for each GPS coordinate
+        point_count = 0
+        for idx, row in df.iterrows():
+            lon = row['longitude']
+            lat = row['latitude']
+            alt = row['altitude']
+
+            # Skip invalid positions
+            if np.isnan(lon) or np.isnan(lat) or np.isnan(alt):
+                continue
+
+            # Calculate quality score (0-100)
+            quality_score = None
+
+            if mode == 'lte' and lte_column:
+                quality_score = self._normalize_lte_quality(row[lte_column], lte_column)
+            elif mode == 'starlink' and starlink_column:
+                quality_score = self._normalize_starlink_quality(row[starlink_column], starlink_column)
+            elif mode == 'combined':
+                lte_score = self._normalize_lte_quality(row[lte_column], lte_column) if lte_column else 0
+                starlink_score = self._normalize_starlink_quality(row[starlink_column], starlink_column) if starlink_column else 0
+                # Combined uses max (best redundancy advantage)
+                quality_score = max(lte_score, starlink_score)
+
+            # Skip if no quality data
+            if quality_score is None or np.isnan(quality_score):
+                continue
+
+            # Get unified color based on quality score
+            color = self._get_unified_quality_color(quality_score)
+
+            # Create point entity
+            point_id = f"heatmap_{mode}_{self.session_id}_{point_count}"
+            entity = {
+                "id": point_id,
+                "position": {
+                    "cartographicDegrees": [lon, lat, alt]
+                },
+                "point": {
+                    "pixelSize": 15,
+                    "color": {
+                        "rgba": color
+                    },
+                    "outlineWidth": 0,
+                    "heightReference": "NONE"
+                }
+            }
+            entities.append(entity)
+            point_count += 1
+
+        print(f"✅ Created {len(entities)} heatmap points for {mode.upper()} mode", flush=True)
+        return entities
+
+    def _normalize_lte_quality(self, value, column_name: str) -> float:
+        """
+        Normalize LTE signal value to 0-100 quality score
+
+        Args:
+            value: Signal value
+            column_name: 'lte_rsrp' or 'lte_rssi'
+
+        Returns:
+            Quality score (0-100)
+        """
+        if np.isnan(value):
+            return np.nan
+
+        if column_name == 'lte_rsrp':
+            # RSRP: -120 ~ -44 dBm (lower is worse)
+            # Map to 0-100 scale
+            vmin, vmax = -120, -44
+            score = ((value - vmin) / (vmax - vmin)) * 100
+        elif column_name == 'lte_rssi':
+            # RSSI: -113 ~ -51 dBm (lower is worse)
+            vmin, vmax = -113, -51
+            score = ((value - vmin) / (vmax - vmin)) * 100
+        else:
+            return np.nan
+
+        # Clamp to 0-100
+        return max(0, min(100, score))
+
+    def _normalize_starlink_quality(self, value, column_name: str) -> float:
+        """
+        Normalize Starlink signal value to 0-100 quality score
+
+        Args:
+            value: Signal value
+            column_name: 'starlink_snr' or 'starlink_latency'
+
+        Returns:
+            Quality score (0-100)
+        """
+        if np.isnan(value):
+            return np.nan
+
+        if column_name == 'starlink_snr':
+            # SNR: 0 ~ 15+ dB (higher is better)
+            vmin, vmax = 0, 15
+            score = ((value - vmin) / (vmax - vmin)) * 100
+        elif column_name == 'starlink_latency':
+            # Latency: 0 ~ 200 ms (lower is better, invert)
+            vmin, vmax = 200, 0  # Inverted range
+            score = ((value - vmin) / (vmax - vmin)) * 100
+        else:
+            return np.nan
+
+        # Clamp to 0-100
+        return max(0, min(100, score))
+
+    def _get_unified_quality_color(self, quality_score: float) -> list:
+        """
+        Get unified color based on quality score (0-100)
+
+        Unified Color Scheme:
+        - Red (0-20): Very poor
+        - Orange (20-40): Poor
+        - Yellow (40-60): Fair
+        - Light Green (60-80): Good
+        - Green (80-100): Excellent
+
+        Args:
+            quality_score: Quality score (0-100)
+
+        Returns:
+            RGBA color [R, G, B, A]
+        """
+        if quality_score < 20:
+            return [255, 0, 0, 255]  # Red
+        elif quality_score < 40:
+            return [255, 165, 0, 255]  # Orange
+        elif quality_score < 60:
+            return [255, 255, 0, 255]  # Yellow
+        elif quality_score < 80:
+            return [144, 238, 144, 255]  # Light Green
+        else:
+            return [0, 255, 0, 255]  # Green

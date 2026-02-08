@@ -140,6 +140,49 @@ def get_czml_data(session_id):
         return jsonify({'error': str(e)}), 500
 
 
+@api_3d_bp.route('/heatmap/<session_id>', methods=['GET'])
+def get_heatmap_czml(session_id):
+    """
+    Generate and return heatmap CZML data for data quality visualization
+
+    Args:
+        session_id: Session identifier
+
+    Query Parameters:
+        - mode: Heatmap mode ('lte', 'starlink', or 'combined') (default: 'lte')
+
+    Returns:
+        CZML JSON data with point-based heatmap entities
+    """
+    try:
+        # Get query parameters
+        mode = request.args.get('mode', 'lte', type=str)
+
+        # Validate mode
+        if mode not in ['lte', 'starlink', 'combined']:
+            return jsonify({'error': 'Invalid mode. Must be lte, starlink, or combined'}), 400
+
+        # Validate session
+        session = Session.get_by_id(session_id)
+
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+
+        if session.status != 'completed':
+            return jsonify({'error': 'Session not completed'}), 400
+
+        # Generate heatmap CZML
+        generator = CZMLGenerator(session_id)
+        czml_data = generator.create_heatmap_czml(mode=mode)
+
+        return jsonify(czml_data), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @api_3d_bp.route('/health', methods=['GET'])
 def health_check():
     """

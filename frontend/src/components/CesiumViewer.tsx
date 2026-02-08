@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData } from '@/services/api';
+import { getCZMLData, getHeatmapCZML } from '@/services/api';
 import { DataLayerControl } from './DataLayerControl';
 
 interface CesiumViewerProps {
@@ -21,9 +21,19 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const lteEntitiesRef = useRef<any[]>([]);
   const starlinkEntitiesRef = useRef<any[]>([]);
 
+  // Heatmap data source refs
+  const lteHeatmapSourceRef = useRef<any>(null);
+  const starlinkHeatmapSourceRef = useRef<any>(null);
+  const combinedHeatmapSourceRef = useRef<any>(null);
+
   const [cameraMode, setCameraMode] = useState<CameraMode>('free');
   const [lteLayers, setLteLayers] = useState<boolean>(true);
   const [starlinkLayers, setStarlinkLayers] = useState<boolean>(true);
+
+  // Heatmap layer states
+  const [lteHeatmap, setLteHeatmap] = useState<boolean>(false);
+  const [starlinkHeatmap, setStarlinkHeatmap] = useState<boolean>(false);
+  const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -286,6 +296,126 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     console.log(`🔵 Starlink layer (${starlinkEntitiesRef.current.length} segments): ${starlinkLayers ? 'visible' : 'hidden'}`);
   }, [starlinkLayers]);
 
+  // LTE Heatmap 로드 및 토글
+  useEffect(() => {
+    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+
+    const loadLTEHeatmap = async () => {
+      try {
+        if (lteHeatmap) {
+          // Remove existing heatmap if present
+          if (lteHeatmapSourceRef.current) {
+            cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
+            lteHeatmapSourceRef.current = null;
+          }
+
+          console.log('🗺️ Loading LTE quality heatmap...');
+          const czmlData = await getHeatmapCZML(selectedSessionId, 'lte');
+
+          const Cesium = window.Cesium;
+          const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+          lteHeatmapSourceRef.current = dataSource;
+
+          await cesiumViewerRef.current.dataSources.add(dataSource);
+          console.log('✅ LTE heatmap loaded');
+        } else {
+          // Remove heatmap when disabled
+          if (lteHeatmapSourceRef.current) {
+            cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
+            lteHeatmapSourceRef.current = null;
+            console.log('🗺️ LTE heatmap removed');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to load LTE heatmap:', error);
+      }
+    };
+
+    loadLTEHeatmap();
+  }, [selectedSessionId, lteHeatmap]);
+
+  // Starlink Heatmap 로드 및 토글
+  useEffect(() => {
+    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+
+    const loadStarlinkHeatmap = async () => {
+      try {
+        if (starlinkHeatmap) {
+          // Remove existing heatmap if present
+          if (starlinkHeatmapSourceRef.current) {
+            cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
+            starlinkHeatmapSourceRef.current = null;
+          }
+
+          console.log('🗺️ Loading Starlink quality heatmap...');
+          const czmlData = await getHeatmapCZML(selectedSessionId, 'starlink');
+
+          const Cesium = window.Cesium;
+          const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+          starlinkHeatmapSourceRef.current = dataSource;
+
+          await cesiumViewerRef.current.dataSources.add(dataSource);
+          console.log('✅ Starlink heatmap loaded');
+        } else {
+          // Remove heatmap when disabled
+          if (starlinkHeatmapSourceRef.current) {
+            cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
+            starlinkHeatmapSourceRef.current = null;
+            console.log('🗺️ Starlink heatmap removed');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to load Starlink heatmap:', error);
+      }
+    };
+
+    loadStarlinkHeatmap();
+  }, [selectedSessionId, starlinkHeatmap]);
+
+  // Combined Heatmap 로드 및 토글
+  useEffect(() => {
+    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+
+    const loadCombinedHeatmap = async () => {
+      try {
+        if (combinedHeatmap) {
+          // Remove existing heatmap if present
+          if (combinedHeatmapSourceRef.current) {
+            cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
+            combinedHeatmapSourceRef.current = null;
+          }
+
+          console.log('🗺️ Loading Combined quality heatmap (redundancy)...');
+          const czmlData = await getHeatmapCZML(selectedSessionId, 'combined');
+
+          const Cesium = window.Cesium;
+          const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+          combinedHeatmapSourceRef.current = dataSource;
+
+          await cesiumViewerRef.current.dataSources.add(dataSource);
+          console.log('✅ Combined heatmap loaded');
+        } else {
+          // Remove heatmap when disabled
+          if (combinedHeatmapSourceRef.current) {
+            cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
+            combinedHeatmapSourceRef.current = null;
+            console.log('🗺️ Combined heatmap removed');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to load Combined heatmap:', error);
+      }
+    };
+
+    loadCombinedHeatmap();
+  }, [selectedSessionId, combinedHeatmap]);
+
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
   };
@@ -296,8 +426,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       <DataLayerControl
         lteLayers={lteLayers}
         starlinkLayers={starlinkLayers}
+        lteHeatmap={lteHeatmap}
+        starlinkHeatmap={starlinkHeatmap}
+        combinedHeatmap={combinedHeatmap}
         onLteToggle={setLteLayers}
         onStarlinkToggle={setStarlinkLayers}
+        onLteHeatmapToggle={setLteHeatmap}
+        onStarlinkHeatmapToggle={setStarlinkHeatmap}
+        onCombinedHeatmapToggle={setCombinedHeatmap}
       />
 
       {/* 카메라 모드 전환 버튼 */}
