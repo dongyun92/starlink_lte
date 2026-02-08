@@ -3,9 +3,13 @@
 Endpoints for CZML data and flight visualization
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, make_response
 from pathlib import Path
 import sys
+import redis
+import json
+import hashlib
+import gzip
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -14,6 +18,20 @@ from models.session import Session
 from .czml_generator import CZMLGenerator
 
 api_3d_bp = Blueprint('api_3d', __name__, url_prefix='/api/3d')
+
+# Redis client for caching
+try:
+    redis_client = redis.Redis(
+        host='localhost',
+        port=6379,
+        db=0,
+        decode_responses=False  # We'll handle JSON encoding/decoding ourselves
+    )
+    redis_client.ping()
+    print("✅ Redis connected for 3D API caching")
+except Exception as e:
+    print(f"⚠️ Redis connection failed: {e}")
+    redis_client = None
 
 
 @api_3d_bp.route('/flights', methods=['GET'])
@@ -197,6 +215,25 @@ def get_czml_data(session_id):
         color_by = request.args.get('color_by', 'altitude', type=str)
         flight_id = request.args.get('flight_id', None, type=int)
 
+        # Create cache key
+        cache_key = f"czml:{session_id}:{sample_rate}:{color_by}:{flight_id}"
+
+        # Try to get from cache
+        if redis_client:
+            try:
+                cached_data = redis_client.get(cache_key)
+                if cached_data:
+                    print(f"✅ Cache HIT: {cache_key}")
+                    # Decompress and return
+                    decompressed = gzip.decompress(cached_data)
+                    response = make_response(decompressed)
+                    response.headers['Content-Type'] = 'application/json'
+                    response.headers['Content-Encoding'] = 'gzip'
+                    response.headers['X-Cache'] = 'HIT'
+                    return response
+            except Exception as e:
+                print(f"⚠️ Cache read error: {e}")
+
         # Validate session
         session = Session.get_by_id(session_id)
 
@@ -214,7 +251,24 @@ def get_czml_data(session_id):
             flight_id=flight_id
         )
 
-        return jsonify(czml_data), 200
+        # Compress response
+        czml_json = json.dumps(czml_data)
+        compressed = gzip.compress(czml_json.encode('utf-8'))
+
+        # Cache the compressed data (5 minutes TTL)
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 300, compressed)
+                print(f"💾 Cache MISS: {cache_key} saved ({len(compressed)} bytes)")
+            except Exception as e:
+                print(f"⚠️ Cache write error: {e}")
+
+        # Return compressed response
+        response = make_response(compressed)
+        response.headers['Content-Type'] = 'application/json'
+        response.headers['Content-Encoding'] = 'gzip'
+        response.headers['X-Cache'] = 'MISS'
+        return response
 
     except Exception as e:
         import traceback
@@ -252,6 +306,25 @@ def get_heatmap_czml(session_id):
         if style not in ['point', 'voxel']:
             return jsonify({'error': 'Invalid style. Must be point or voxel'}), 400
 
+        # Create cache key
+        cache_key = f"heatmap:{session_id}:{mode}:{style}:{flight_id}"
+
+        # Try to get from cache
+        if redis_client:
+            try:
+                cached_data = redis_client.get(cache_key)
+                if cached_data:
+                    print(f"✅ Cache HIT: {cache_key}")
+                    # Decompress and return
+                    decompressed = gzip.decompress(cached_data)
+                    response = make_response(decompressed)
+                    response.headers['Content-Type'] = 'application/json'
+                    response.headers['Content-Encoding'] = 'gzip'
+                    response.headers['X-Cache'] = 'HIT'
+                    return response
+            except Exception as e:
+                print(f"⚠️ Cache read error: {e}")
+
         # Validate session
         session = Session.get_by_id(session_id)
 
@@ -265,7 +338,24 @@ def get_heatmap_czml(session_id):
         generator = CZMLGenerator(session_id)
         czml_data = generator.create_heatmap_czml(mode=mode, style=style, flight_id=flight_id)
 
-        return jsonify(czml_data), 200
+        # Compress response
+        czml_json = json.dumps(czml_data)
+        compressed = gzip.compress(czml_json.encode('utf-8'))
+
+        # Cache the compressed data (5 minutes TTL)
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 300, compressed)
+                print(f"💾 Cache MISS: {cache_key} saved ({len(compressed)} bytes)")
+            except Exception as e:
+                print(f"⚠️ Cache write error: {e}")
+
+        # Return compressed response
+        response = make_response(compressed)
+        response.headers['Content-Type'] = 'application/json'
+        response.headers['Content-Encoding'] = 'gzip'
+        response.headers['X-Cache'] = 'MISS'
+        return response
 
     except Exception as e:
         import traceback

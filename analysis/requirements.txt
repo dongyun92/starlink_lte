@@ -18,7 +18,9 @@ pyulog==1.0.1
 
 # Celery (백그라운드 작업 - Phase 2)
 # celery==5.3.4
-# redis==5.0.1
+
+# Redis (캐싱)
+redis==5.0.1
 
 # 유틸리티
 Werkzeug==3.0.1
