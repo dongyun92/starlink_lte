@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData, getHeatmapCZML } from '@/services/api';
+import { getCZMLData, getHeatmapCZML, getFlightScenarios } from '@/services/api';
+import type { FlightScenario } from '@/types/flight';
 import { DataLayerControl } from './DataLayerControl';
+import { FlightSelector } from './FlightSelector';
 
 interface CesiumViewerProps {
   className?: string;
@@ -35,6 +37,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [starlinkHeatmap, setStarlinkHeatmap] = useState<boolean>(false);
   const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
   const [heatmapStyle, setHeatmapStyle] = useState<'point' | 'voxel'>('point');
+
+  // Flight scenario filtering
+  const [flightScenarios, setFlightScenarios] = useState<FlightScenario[]>([]);
+  const [selectedFlightId, setSelectedFlightId] = useState<number | null>(null);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -108,6 +114,29 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
   }, []);
 
+  // Load available flight scenarios for the selected session
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setFlightScenarios([]);
+      setSelectedFlightId(null);
+      return;
+    }
+
+    const loadScenarios = async () => {
+      try {
+        const scenarios = await getFlightScenarios(selectedSessionId);
+        setFlightScenarios(scenarios);
+        // Reset flight selection when session changes
+        setSelectedFlightId(null);
+      } catch (error) {
+        console.error('Failed to load flight scenarios:', error);
+        setFlightScenarios([]);
+      }
+    };
+
+    loadScenarios();
+  }, [selectedSessionId]);
+
   // 선택된 세션의 CZML 데이터 로드
   useEffect(() => {
     if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
@@ -128,6 +157,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         const czmlData = await getCZMLData(selectedSessionId, {
           sample_rate: 1,
           color_by: 'dual',
+          flight_id: selectedFlightId !== null ? selectedFlightId : undefined,
         });
 
         console.log('📦 CZML data loaded:', czmlData);
@@ -254,7 +284,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadFlightData();
-  }, [selectedSessionId]);
+  }, [selectedSessionId, selectedFlightId]);
 
   // 카메라 모드 전환 효과
   useEffect(() => {
@@ -313,7 +343,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           }
 
           console.log(`🗺️ Loading LTE quality heatmap (${heatmapStyle})...`);
-          const czmlData = await getHeatmapCZML(selectedSessionId, 'lte', heatmapStyle);
+          const czmlData = await getHeatmapCZML(
+            selectedSessionId,
+            'lte',
+            heatmapStyle,
+            selectedFlightId !== null ? selectedFlightId : undefined
+          );
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -335,7 +370,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadLTEHeatmap();
-  }, [selectedSessionId, lteHeatmap, heatmapStyle]);
+  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId]);
 
   // Starlink Heatmap 로드 및 토글
   useEffect(() => {
@@ -353,7 +388,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           }
 
           console.log(`🗺️ Loading Starlink quality heatmap (${heatmapStyle})...`);
-          const czmlData = await getHeatmapCZML(selectedSessionId, 'starlink', heatmapStyle);
+          const czmlData = await getHeatmapCZML(
+            selectedSessionId,
+            'starlink',
+            heatmapStyle,
+            selectedFlightId !== null ? selectedFlightId : undefined
+          );
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -375,7 +415,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadStarlinkHeatmap();
-  }, [selectedSessionId, starlinkHeatmap, heatmapStyle]);
+  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId]);
 
   // Combined Heatmap 로드 및 토글
   useEffect(() => {
@@ -393,7 +433,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           }
 
           console.log(`🗺️ Loading Combined quality heatmap (${heatmapStyle})...`);
-          const czmlData = await getHeatmapCZML(selectedSessionId, 'combined', heatmapStyle);
+          const czmlData = await getHeatmapCZML(
+            selectedSessionId,
+            'combined',
+            heatmapStyle,
+            selectedFlightId !== null ? selectedFlightId : undefined
+          );
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -415,7 +460,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadCombinedHeatmap();
-  }, [selectedSessionId, combinedHeatmap, heatmapStyle]);
+  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId]);
 
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
@@ -437,6 +482,13 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onStarlinkHeatmapToggle={setStarlinkHeatmap}
         onCombinedHeatmapToggle={setCombinedHeatmap}
         onHeatmapStyleChange={setHeatmapStyle}
+      />
+
+      {/* Flight Scenario Selector */}
+      <FlightSelector
+        scenarios={flightScenarios}
+        selectedFlightId={selectedFlightId}
+        onFlightSelect={setSelectedFlightId}
       />
 
       {/* 카메라 모드 전환 버튼 */}

@@ -2,7 +2,7 @@
  * API service for 3D visualization backend
  */
 
-import type { FlightSession, FlightMetadata, CZMLDocument } from '@/types/flight';
+import type { FlightSession, FlightMetadata, FlightScenario, CZMLDocument } from '@/types/flight';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002';
 
@@ -33,6 +33,19 @@ export async function getFlightMetadata(sessionId: string): Promise<FlightMetada
 }
 
 /**
+ * Get list of flight scenarios for a specific session
+ */
+export async function getFlightScenarios(sessionId: string): Promise<FlightScenario[]> {
+  const response = await fetch(`${API_BASE_URL}/api/3d/flights/${sessionId}/scenarios`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch flight scenarios: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Get CZML data for a specific flight session
  */
 export async function getCZMLData(
@@ -40,6 +53,7 @@ export async function getCZMLData(
   options?: {
     sample_rate?: number;
     color_by?: 'altitude' | 'speed' | 'quality';
+    flight_id?: number;
   }
 ): Promise<CZMLDocument> {
   const params = new URLSearchParams();
@@ -50,6 +64,10 @@ export async function getCZMLData(
 
   if (options?.color_by) {
     params.append('color_by', options.color_by);
+  }
+
+  if (options?.flight_id !== undefined) {
+    params.append('flight_id', options.flight_id.toString());
   }
 
   const url = `${API_BASE_URL}/api/3d/czml/${sessionId}${params.toString() ? '?' + params.toString() : ''}`;
@@ -68,9 +86,13 @@ export async function getCZMLData(
 export async function getHeatmapCZML(
   sessionId: string,
   mode: 'lte' | 'starlink' | 'combined',
-  style: 'point' | 'voxel' = 'point'
+  style: 'point' | 'voxel' = 'point',
+  flight_id?: number
 ): Promise<CZMLDocument> {
   const params = new URLSearchParams({ mode, style });
+  if (flight_id !== undefined) {
+    params.append('flight_id', flight_id.toString());
+  }
   const url = `${API_BASE_URL}/api/3d/heatmap/${sessionId}?${params.toString()}`;
   const response = await fetch(url);
 

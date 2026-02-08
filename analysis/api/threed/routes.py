@@ -96,6 +96,85 @@ def get_flight_metadata(session_id):
         return jsonify({'error': str(e)}), 500
 
 
+@api_3d_bp.route('/flights/<session_id>/scenarios', methods=['GET'])
+def get_flight_scenarios(session_id):
+    """
+    Get list of available flight scenarios (individual flights) within a session
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        JSON array of flight scenarios with metadata
+    """
+    try:
+        import pandas as pd
+
+        session = Session.get_by_id(session_id)
+
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+
+        if session.status != 'completed':
+            return jsonify({'error': 'Session not completed'}), 400
+
+        # Read merged data to extract flight information
+        results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
+        merged_data_path = results_dir / 'merged_data.csv'
+
+        if not merged_data_path.exists():
+            return jsonify({'error': 'No merged data found for session'}), 404
+
+        # Read CSV and extract unique flights
+        df = pd.read_csv(merged_data_path)
+
+        if 'flight_id' not in df.columns or 'flight_name' not in df.columns:
+            return jsonify({'error': 'Flight information not available'}), 400
+
+        # Group by flight to get metadata
+        scenarios = []
+        for flight_id, group in df.groupby('flight_id'):
+            flight_name = group['flight_name'].iloc[0]
+
+            # Extract scenario name from filename (e.g., "1_RTL__20260123_1600" -> "RTL")
+            scenario_name = "Unknown"
+            if '_' in flight_name:
+                parts = flight_name.split('_')
+                if len(parts) >= 2 and parts[1]:
+                    scenario_name = parts[1]
+                elif len(parts) >= 3 and parts[2]:
+                    scenario_name = parts[2].split('__')[0] if '__' in parts[2] else parts[2]
+
+            scenarios.append({
+                'flight_id': int(flight_id),
+                'flight_name': flight_name,
+                'scenario_name': scenario_name,
+                'data_points': len(group),
+                'time_range': {
+                    'start': str(group['timestamp'].min()),
+                    'end': str(group['timestamp'].max())
+                },
+                'coordinates': {
+                    'lat_min': float(group['latitude'].min()),
+                    'lat_max': float(group['latitude'].max()),
+                    'lon_min': float(group['longitude'].min()),
+                    'lon_max': float(group['longitude'].max()),
+                    'alt_min': float(group['altitude'].min()),
+                    'alt_max': float(group['altitude'].max())
+                }
+            })
+
+        # Sort by flight_id
+        scenarios.sort(key=lambda x: x['flight_id'])
+
+        return jsonify(scenarios), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @api_3d_bp.route('/czml/<session_id>', methods=['GET'])
 def get_czml_data(session_id):
     """
@@ -107,6 +186,7 @@ def get_czml_data(session_id):
     Query Parameters:
         - sample_rate: Sampling rate in Hz (default: 1)
         - color_by: What to color by ('altitude', 'speed', 'quality') (default: 'altitude')
+        - flight_id: Optional flight ID to filter by (for multi-flight sessions)
 
     Returns:
         CZML JSON data
@@ -115,6 +195,7 @@ def get_czml_data(session_id):
         # Get query parameters
         sample_rate = request.args.get('sample_rate', 1, type=int)
         color_by = request.args.get('color_by', 'altitude', type=str)
+        flight_id = request.args.get('flight_id', None, type=int)
 
         # Validate session
         session = Session.get_by_id(session_id)
@@ -129,7 +210,8 @@ def get_czml_data(session_id):
         generator = CZMLGenerator(session_id)
         czml_data = generator.generate(
             sample_rate=sample_rate,
-            color_by=color_by
+            color_by=color_by,
+            flight_id=flight_id
         )
 
         return jsonify(czml_data), 200
@@ -151,6 +233,7 @@ def get_heatmap_czml(session_id):
     Query Parameters:
         - mode: Heatmap mode ('lte', 'starlink', or 'combined') (default: 'lte')
         - style: Visualization style ('point' or 'voxel') (default: 'point')
+        - flight_id: Optional flight ID to filter by (for multi-flight sessions)
 
     Returns:
         CZML JSON data with heatmap entities
@@ -159,6 +242,7 @@ def get_heatmap_czml(session_id):
         # Get query parameters
         mode = request.args.get('mode', 'lte', type=str)
         style = request.args.get('style', 'point', type=str)
+        flight_id = request.args.get('flight_id', None, type=int)
 
         # Validate mode
         if mode not in ['lte', 'starlink', 'combined']:
@@ -179,7 +263,7 @@ def get_heatmap_czml(session_id):
 
         # Generate heatmap CZML
         generator = CZMLGenerator(session_id)
-        czml_data = generator.create_heatmap_czml(mode=mode, style=style)
+        czml_data = generator.create_heatmap_czml(mode=mode, style=style, flight_id=flight_id)
 
         return jsonify(czml_data), 200
 

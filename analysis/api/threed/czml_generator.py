@@ -26,13 +26,14 @@ class CZMLGenerator:
         self.session_id = session_id
         self.analyzer = None
 
-    def generate(self, sample_rate: int = 1, color_by: str = 'altitude') -> list:
+    def generate(self, sample_rate: int = 1, color_by: str = 'altitude', flight_id: int = None) -> list:
         """
         Generate CZML data for the flight session
 
         Args:
             sample_rate: Sampling rate in Hz (1 = 1 point per second)
             color_by: What to color by ('altitude', 'speed', 'quality')
+            flight_id: Optional flight ID to filter by (for multi-flight sessions)
 
         Returns:
             CZML data as list of dictionaries
@@ -46,6 +47,14 @@ class CZMLGenerator:
 
         # Read CSV with timestamp as index
         df = pd.read_csv(merged_data_path, parse_dates=['timestamp'])
+
+        # Filter by flight_id if specified
+        if flight_id is not None and 'flight_id' in df.columns:
+            df = df[df['flight_id'] == flight_id].copy()
+            if df.empty:
+                raise ValueError(f"No data found for flight_id {flight_id}")
+            print(f"🎯 Filtered to flight_id {flight_id}: {len(df)} data points")
+
         df.set_index('timestamp', inplace=True)
 
         if df.empty:
@@ -787,13 +796,14 @@ class CZMLGenerator:
             }
         }
 
-    def create_heatmap_czml(self, mode: str = 'lte', style: str = 'point') -> list:
+    def create_heatmap_czml(self, mode: str = 'lte', style: str = 'point', flight_id: int = None) -> list:
         """
         Generate heatmap CZML for data quality visualization
 
         Args:
             mode: 'lte', 'starlink', or 'combined'
             style: 'point' or 'voxel' (default: 'point')
+            flight_id: Optional flight ID to filter by (for multi-flight sessions)
 
         Returns:
             CZML data as list of dictionaries
@@ -807,6 +817,14 @@ class CZMLGenerator:
 
         # Read CSV with timestamp as index
         df = pd.read_csv(merged_data_path, parse_dates=['timestamp'])
+
+        # Filter by flight_id if specified
+        if flight_id is not None and 'flight_id' in df.columns:
+            df = df[df['flight_id'] == flight_id].copy()
+            if df.empty:
+                raise ValueError(f"No data found for flight_id {flight_id}")
+            print(f"🎯 Filtered heatmap to flight_id {flight_id}: {len(df)} data points")
+
         df.set_index('timestamp', inplace=True)
 
         if df.empty:
