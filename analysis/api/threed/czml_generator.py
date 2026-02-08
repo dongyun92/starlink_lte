@@ -904,10 +904,12 @@ class CZMLGenerator:
             elif mode == 'starlink' and starlink_column:
                 quality_score = self._normalize_starlink_quality(row[starlink_column], starlink_column)
             elif mode == 'combined':
-                lte_score = self._normalize_lte_quality(row[lte_column], lte_column) if lte_column else 0
-                starlink_score = self._normalize_starlink_quality(row[starlink_column], starlink_column) if starlink_column else 0
-                # Combined uses max (best redundancy advantage)
-                quality_score = max(lte_score, starlink_score)
+                # Redundancy logic: Use whichever signal is available (LTE OR Starlink)
+                # If both exist, use the better one (max)
+                lte_score = self._normalize_lte_quality(row[lte_column], lte_column) if lte_column else np.nan
+                starlink_score = self._normalize_starlink_quality(row[starlink_column], starlink_column) if starlink_column else np.nan
+                # np.nanmax: Ignores NaN, returns max of valid values
+                quality_score = np.nanmax([lte_score, starlink_score])
 
             # Skip if no quality data
             if quality_score is None or np.isnan(quality_score):
@@ -1106,9 +1108,10 @@ class CZMLGenerator:
                         elif mode == 'starlink' and starlink_column:
                             score = self._normalize_starlink_quality(row[starlink_column], starlink_column)
                         elif mode == 'combined':
-                            lte_score = self._normalize_lte_quality(row[lte_column], lte_column) if lte_column else 0
-                            starlink_score = self._normalize_starlink_quality(row[starlink_column], starlink_column) if starlink_column else 0
-                            score = max(lte_score, starlink_score)
+                            # Redundancy logic: Use whichever signal is available
+                            lte_score = self._normalize_lte_quality(row[lte_column], lte_column) if lte_column else np.nan
+                            starlink_score = self._normalize_starlink_quality(row[starlink_column], starlink_column) if starlink_column else np.nan
+                            score = np.nanmax([lte_score, starlink_score])
                         else:
                             continue
 
