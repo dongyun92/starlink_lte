@@ -17,81 +17,30 @@ export const FlightSelector: React.FC<FlightSelectorProps> = ({
     return null;
   }
 
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    onFlightSelect(value === 'all' ? null : parseInt(value, 10));
+  };
+
   return (
-    <div className="absolute top-[30rem] left-4 bg-white rounded-lg shadow-lg p-3 z-10 min-w-[280px] max-w-[320px]">
-      <h3 className="text-sm font-bold mb-2">Flight Scenarios</h3>
-
-      <div className="space-y-2">
-        {/* All Flights option */}
-        <label className="flex items-center space-x-2 cursor-pointer">
-          <input
-            type="radio"
-            name="flight"
-            checked={selectedFlightId === null}
-            onChange={() => onFlightSelect(null)}
-            className="w-3 h-3 text-blue-600"
-          />
-          <span className="text-sm text-gray-700">
-            All Flights ({scenarios.reduce((sum, s) => sum + s.data_points, 0)} points)
-          </span>
-        </label>
-
-        {/* Individual flight options */}
-        {scenarios.map((scenario) => (
-          <label
-            key={scenario.flight_id}
-            className="flex items-center space-x-2 cursor-pointer"
-          >
-            <input
-              type="radio"
-              name="flight"
-              checked={selectedFlightId === scenario.flight_id}
-              onChange={() => onFlightSelect(scenario.flight_id)}
-              className="w-3 h-3 text-blue-600"
-            />
-            <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900">
-                Flight {scenario.flight_id + 1}: {scenario.scenario_name}
-              </div>
-              <div className="text-xs text-gray-500">
-                {scenario.data_points.toLocaleString()} points
-              </div>
-            </div>
-          </label>
-        ))}
-      </div>
-
-      {/* Selected flight details */}
-      {selectedFlightId !== null && (
-        <div className="mt-3 pt-3 border-t border-gray-200">
-          {(() => {
-            const selected = scenarios.find((s) => s.flight_id === selectedFlightId);
-            if (!selected) return null;
-
-            const startTime = new Date(selected.time_range.start);
-            const endTime = new Date(selected.time_range.end);
-            const durationSec = (endTime.getTime() - startTime.getTime()) / 1000;
-            const durationMin = Math.floor(durationSec / 60);
-            const durationSecRem = Math.floor(durationSec % 60);
-
-            return (
-              <div className="space-y-1">
-                <div className="text-xs text-gray-600">
-                  <span className="font-semibold">Duration:</span> {durationMin}m {durationSecRem}s
-                </div>
-                <div className="text-xs text-gray-600">
-                  <span className="font-semibold">Altitude:</span>{' '}
-                  {selected.coordinates.alt_min.toFixed(1)}m - {selected.coordinates.alt_max.toFixed(1)}m
-                </div>
-                <div className="text-xs text-gray-600">
-                  <span className="font-semibold">Time:</span>{' '}
-                  {startTime.toLocaleTimeString()} - {endTime.toLocaleTimeString()}
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
+    <div className="absolute top-[16.5rem] left-4 bg-white rounded-lg shadow-lg p-3 z-10 min-w-[280px] max-w-[320px]">
+      <label className="block">
+        <span className="text-sm font-bold text-gray-700 mb-2 block">Flight Scenario</span>
+        <select
+          value={selectedFlightId === null ? 'all' : selectedFlightId.toString()}
+          onChange={handleChange}
+          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+          <option value="all">
+            All Flights ({scenarios.reduce((sum, s) => sum + s.data_points, 0).toLocaleString()} pts)
+          </option>
+          {scenarios.map((scenario) => (
+            <option key={scenario.flight_id} value={scenario.flight_id}>
+              Flight {scenario.flight_id + 1}: {scenario.scenario_name} ({scenario.data_points.toLocaleString()} pts)
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
   );
 };

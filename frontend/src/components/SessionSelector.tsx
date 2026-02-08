@@ -41,7 +41,7 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
 
   if (loading) {
     return (
-      <div className="absolute top-4 right-4 z-20 bg-gray-900/90 text-white px-3 py-2 rounded-lg shadow-lg">
+      <div className="absolute bottom-4 left-4 z-20 bg-gray-900/90 text-white px-3 py-2 rounded-lg shadow-lg">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
           <span className="text-sm">Loading...</span>
@@ -52,7 +52,7 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
 
   if (error) {
     return (
-      <div className="absolute top-4 right-4 z-20 bg-red-900/90 text-white px-3 py-2 rounded-lg shadow-lg max-w-xs">
+      <div className="absolute bottom-4 left-4 z-20 bg-red-900/90 text-white px-3 py-2 rounded-lg shadow-lg max-w-xs">
         <div className="flex items-start gap-2">
           <span>⚠️</span>
           <div>
@@ -72,7 +72,7 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
 
   if (sessions.length === 0) {
     return (
-      <div className="absolute top-4 right-4 z-20 bg-gray-900/90 text-white px-3 py-2 rounded-lg shadow-lg">
+      <div className="absolute bottom-4 left-4 z-20 bg-gray-900/90 text-white px-3 py-2 rounded-lg shadow-lg">
         <div className="flex items-center gap-2 text-sm">
           <span>📭</span>
           <span>No sessions</span>
@@ -84,7 +84,7 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
   const selectedSession = sessions.find((s) => s.id === selectedSessionId);
 
   return (
-    <div className="absolute top-4 right-4 z-20">
+    <div className="absolute bottom-4 left-4 z-20">
       {/* Compact dropdown button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -119,7 +119,7 @@ export default function SessionSelector({ onSessionSelect, selectedSessionId }: 
           />
 
           {/* Dropdown content */}
-          <div className="absolute right-0 mt-2 bg-gray-900/95 text-white rounded-lg shadow-xl overflow-hidden min-w-[280px] max-w-[320px] z-20">
+          <div className="absolute left-0 bottom-full mb-2 bg-gray-900/95 text-white rounded-lg shadow-xl overflow-hidden min-w-[280px] max-w-[320px] z-20">
             <div className="px-3 py-2 border-b border-gray-700">
               <h3 className="font-semibold text-xs text-gray-400">
                 SESSIONS ({sessions.length})

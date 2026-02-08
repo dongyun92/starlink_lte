@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface DataLayerControlProps {
   lteLayers: boolean;
@@ -29,184 +29,176 @@ export const DataLayerControl: React.FC<DataLayerControlProps> = ({
   onCombinedHeatmapToggle,
   onHeatmapStyleChange,
 }) => {
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+
+  const toggleSection = (section: string) => {
+    setExpandedSection(expandedSection === section ? null : section);
+  };
+
   return (
-    <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-4 z-10">
-      <h3 className="text-lg font-bold mb-3">Data Layers</h3>
+    <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3 z-10 max-w-[280px]">
+      <h3 className="text-sm font-bold mb-2">Data Layers</h3>
 
       {/* LTE Layer Control */}
-      <div className="mb-4">
+      <div className="mb-2 border-b pb-2">
         <label className="flex items-center space-x-2 cursor-pointer">
           <input
             type="checkbox"
             checked={lteLayers}
             onChange={(e) => onLteToggle(e.target.checked)}
-            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+            className="w-3 h-3 text-blue-600 rounded"
           />
-          <span className="font-medium">LTE Signal (RSRP)</span>
+          <span className="text-sm font-medium flex-1">LTE Signal</span>
+          <button
+            onClick={() => toggleSection('lte')}
+            className="text-xs text-gray-500 hover:text-gray-700"
+          >
+            {expandedSection === 'lte' ? '▼' : '▶'}
+          </button>
         </label>
 
-        {lteLayers && (
-          <div className="mt-2 ml-6 space-y-1">
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-red-500 rounded"></div>
-              <span className="text-sm text-gray-600">&lt; -110 dBm (Very Poor)</span>
+        {expandedSection === 'lte' && (
+          <div className="mt-2 ml-5 space-y-1 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-red-500 rounded"></div>
+              <span className="text-gray-700">&lt; -110 dBm</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-orange-500 rounded"></div>
-              <span className="text-sm text-gray-600">-110 ~ -100 dBm (Poor)</span>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-orange-500 rounded"></div>
+              <span className="text-gray-700">-110 ~ -100</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-yellow-500 rounded"></div>
-              <span className="text-sm text-gray-600">-100 ~ -90 dBm (Fair)</span>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-yellow-500 rounded"></div>
+              <span className="text-gray-700">-100 ~ -90</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-green-300 rounded"></div>
-              <span className="text-sm text-gray-600">-90 ~ -80 dBm (Good)</span>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-400 rounded"></div>
+              <span className="text-gray-700">-90 ~ -80</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-green-500 rounded"></div>
-              <span className="text-sm text-gray-600">&gt; -80 dBm (Excellent)</span>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-600 rounded"></div>
+              <span className="text-gray-700">&gt; -80 dBm</span>
             </div>
           </div>
         )}
       </div>
 
       {/* Starlink Layer Control */}
-      <div className="mb-4">
+      <div className="mb-2 border-b pb-2">
         <label className="flex items-center space-x-2 cursor-pointer">
           <input
             type="checkbox"
             checked={starlinkLayers}
             onChange={(e) => onStarlinkToggle(e.target.checked)}
-            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+            className="w-3 h-3 text-blue-600 rounded"
           />
-          <span className="font-medium">Starlink Signal (SNR)</span>
+          <span className="text-sm font-medium flex-1">Starlink Signal</span>
+          <button
+            onClick={() => toggleSection('starlink')}
+            className="text-xs text-gray-500 hover:text-gray-700"
+          >
+            {expandedSection === 'starlink' ? '▼' : '▶'}
+          </button>
         </label>
 
-        {starlinkLayers && (
-          <div className="mt-2 ml-6 space-y-1">
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 rounded" style={{ backgroundColor: 'rgb(0, 0, 139)' }}></div>
-              <span className="text-sm text-gray-600">&lt; 3 dB (Very Poor)</span>
+        {expandedSection === 'starlink' && (
+          <div className="mt-2 ml-5 space-y-1 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-blue-900 rounded"></div>
+              <span className="text-gray-700">&lt; 3 dB</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-blue-500 rounded"></div>
-              <span className="text-sm text-gray-600">3 ~ 5 dB (Poor)</span>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-blue-500 rounded"></div>
+              <span className="text-gray-700">3 ~ 5 dB</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 rounded" style={{ backgroundColor: 'rgb(135, 206, 235)' }}></div>
-              <span className="text-sm text-gray-600">5 ~ 8 dB (Fair)</span>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-sky-400 rounded"></div>
+              <span className="text-gray-700">5 ~ 8 dB</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-cyan-500 rounded"></div>
-              <span className="text-sm text-gray-600">8 ~ 12 dB (Good)</span>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-cyan-400 rounded"></div>
+              <span className="text-gray-700">8 ~ 12 dB</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-white border border-gray-300 rounded"></div>
-              <span className="text-sm text-gray-600">&gt; 12 dB (Excellent)</span>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-cyan-600 rounded"></div>
+              <span className="text-gray-700">&gt; 12 dB</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Separator */}
-      <div className="border-t border-gray-300 my-4"></div>
-
       {/* Quality Heatmaps Section */}
-      <h3 className="text-lg font-bold mb-3">Quality Heatmaps</h3>
+      <div className="mb-2">
+        <button
+          onClick={() => toggleSection('heatmaps')}
+          className="flex items-center justify-between w-full text-sm font-bold text-gray-700 hover:text-gray-900"
+        >
+          <span>Quality Heatmaps</span>
+          <span className="text-xs">{expandedSection === 'heatmaps' ? '▼' : '▶'}</span>
+        </button>
 
-      {/* Heatmap Style Selector */}
-      <div className="mb-4 ml-2">
-        <p className="text-xs font-semibold text-gray-700 mb-2">Visualization Style:</p>
-        <div className="space-y-2">
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="radio"
-              value="point"
-              checked={heatmapStyle === 'point'}
-              onChange={() => onHeatmapStyleChange('point')}
-              className="w-3 h-3 text-blue-600"
-            />
-            <span className="text-sm text-gray-700">Points (Detailed)</span>
-          </label>
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="radio"
-              value="voxel"
-              checked={heatmapStyle === 'voxel'}
-              onChange={() => onHeatmapStyleChange('voxel')}
-              className="w-3 h-3 text-blue-600"
-            />
-            <span className="text-sm text-gray-700">Voxels (Clean Grid)</span>
-          </label>
-        </div>
+        {expandedSection === 'heatmaps' && (
+          <div className="mt-2 space-y-2">
+            {/* Heatmap Style Selector */}
+            <div className="mb-2 pb-2 border-b">
+              <p className="text-xs font-semibold text-gray-600 mb-1">Style:</p>
+              <div className="flex gap-2">
+                <label className="flex items-center space-x-1 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    value="point"
+                    checked={heatmapStyle === 'point'}
+                    onChange={() => onHeatmapStyleChange('point')}
+                    className="w-3 h-3"
+                  />
+                  <span>Points</span>
+                </label>
+                <label className="flex items-center space-x-1 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    value="voxel"
+                    checked={heatmapStyle === 'voxel'}
+                    onChange={() => onHeatmapStyleChange('voxel')}
+                    className="w-3 h-3"
+                  />
+                  <span>Voxels</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Heatmap Toggles */}
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={lteHeatmap}
+                onChange={(e) => onLteHeatmapToggle(e.target.checked)}
+                className="w-3 h-3 text-blue-600 rounded"
+              />
+              <span className="text-xs">LTE Heatmap</span>
+            </label>
+
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={starlinkHeatmap}
+                onChange={(e) => onStarlinkHeatmapToggle(e.target.checked)}
+                className="w-3 h-3 text-blue-600 rounded"
+              />
+              <span className="text-xs">Starlink Heatmap</span>
+            </label>
+
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={combinedHeatmap}
+                onChange={(e) => onCombinedHeatmapToggle(e.target.checked)}
+                className="w-3 h-3 text-blue-600 rounded"
+              />
+              <span className="text-xs">Combined Heatmap</span>
+            </label>
+          </div>
+        )}
       </div>
-
-      {/* LTE Heatmap */}
-      <div className="mb-3">
-        <label className="flex items-center space-x-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={lteHeatmap}
-            onChange={(e) => onLteHeatmapToggle(e.target.checked)}
-            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
-          />
-          <span className="font-medium">LTE Quality Heatmap</span>
-        </label>
-      </div>
-
-      {/* Starlink Heatmap */}
-      <div className="mb-3">
-        <label className="flex items-center space-x-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={starlinkHeatmap}
-            onChange={(e) => onStarlinkHeatmapToggle(e.target.checked)}
-            className="w-4 h-4 text-cyan-600 rounded focus:ring-cyan-500"
-          />
-          <span className="font-medium">Starlink Quality Heatmap</span>
-        </label>
-      </div>
-
-      {/* Combined Heatmap */}
-      <div className="mb-4">
-        <label className="flex items-center space-x-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={combinedHeatmap}
-            onChange={(e) => onCombinedHeatmapToggle(e.target.checked)}
-            className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-          />
-          <span className="font-medium">Combined Quality (Redundancy)</span>
-        </label>
-      </div>
-
-      {/* Unified Color Legend (shown if any heatmap is enabled) */}
-      {(lteHeatmap || starlinkHeatmap || combinedHeatmap) && (
-        <div className="mt-2 ml-6 space-y-1">
-          <p className="text-xs font-semibold text-gray-700 mb-1">Quality Score Legend:</p>
-          <div className="flex items-center space-x-2">
-            <div className="w-4 h-4 bg-red-500 rounded"></div>
-            <span className="text-sm text-gray-600">0-20 (Very Poor)</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-4 h-4 bg-orange-500 rounded"></div>
-            <span className="text-sm text-gray-600">20-40 (Poor)</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-4 h-4 bg-yellow-500 rounded"></div>
-            <span className="text-sm text-gray-600">40-60 (Fair)</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-4 h-4 bg-green-300 rounded"></div>
-            <span className="text-sm text-gray-600">60-80 (Good)</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-4 h-4 bg-green-500 rounded"></div>
-            <span className="text-sm text-gray-600">80-100 (Excellent)</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
