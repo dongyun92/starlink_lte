@@ -787,12 +787,13 @@ class CZMLGenerator:
             }
         }
 
-    def create_heatmap_czml(self, mode: str = 'lte') -> list:
+    def create_heatmap_czml(self, mode: str = 'lte', style: str = 'point') -> list:
         """
-        Generate point-based heatmap CZML for data quality visualization
+        Generate heatmap CZML for data quality visualization
 
         Args:
             mode: 'lte', 'starlink', or 'combined'
+            style: 'point' or 'voxel' (default: 'point')
 
         Returns:
             CZML data as list of dictionaries
@@ -817,9 +818,13 @@ class CZMLGenerator:
         # Document header
         czml.append(self._create_document_header(df))
 
-        # Generate heatmap point entities
-        point_entities = self._create_heatmap_point_entities(df, mode)
-        czml.extend(point_entities)
+        # Generate heatmap entities based on style
+        if style == 'voxel':
+            heatmap_entities = self._create_voxel_heatmap_entities(df, mode)
+        else:  # point (default)
+            heatmap_entities = self._create_heatmap_point_entities(df, mode)
+
+        czml.extend(heatmap_entities)
 
         return czml
 
@@ -988,3 +993,141 @@ class CZMLGenerator:
             return [144, 238, 144, 255]  # Light Green
         else:
             return [0, 255, 0, 255]  # Green
+
+    def _create_voxel_heatmap_entities(self, df, mode: str) -> list:
+        """
+        Create voxel (3D grid box) entities for heatmap visualization
+
+        Args:
+            df: Flight data DataFrame
+            mode: 'lte', 'starlink', or 'combined'
+
+        Returns:
+            List of CZML box entities
+        """
+        entities = []
+
+        # Auto-detect available columns
+        lte_column = None
+        if 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all():
+            lte_column = 'lte_rsrp'
+        elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
+            lte_column = 'lte_rssi'
+
+        starlink_column = None
+        if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
+            starlink_column = 'starlink_snr'
+        elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
+            starlink_column = 'starlink_latency'
+
+        print(f"🔲 Generating {mode.upper()} voxel heatmap: LTE={lte_column}, Starlink={starlink_column}", flush=True)
+
+        # Calculate bounding box
+        lon_min, lon_max = df['longitude'].min(), df['longitude'].max()
+        lat_min, lat_max = df['latitude'].min(), df['latitude'].max()
+        alt_min, alt_max = df['altitude'].min(), df['altitude'].max()
+
+        # Voxel size configuration (in meters, converted to degrees for lat/lon)
+        voxel_size_horizontal = 100  # 100 meters
+        voxel_size_vertical = 30      # 30 meters
+
+        # Approximate conversion: 1 degree latitude ≈ 111,000 meters
+        # Longitude varies by latitude, but use average for simplicity
+        avg_lat = (lat_min + lat_max) / 2
+        meters_per_degree_lon = 111000 * np.cos(np.radians(avg_lat))
+        meters_per_degree_lat = 111000
+
+        voxel_lon_size = voxel_size_horizontal / meters_per_degree_lon
+        voxel_lat_size = voxel_size_horizontal / meters_per_degree_lat
+
+        # Create voxel grid
+        lon_bins = np.arange(lon_min, lon_max + voxel_lon_size, voxel_lon_size)
+        lat_bins = np.arange(lat_min, lat_max + voxel_lat_size, voxel_lat_size)
+        alt_bins = np.arange(alt_min, alt_max + voxel_size_vertical, voxel_size_vertical)
+
+        print(f"   Voxel grid: {len(lon_bins)-1} x {len(lat_bins)-1} x {len(alt_bins)-1} cells", flush=True)
+
+        # Aggregate data into voxels
+        voxel_count = 0
+        for i in range(len(lon_bins) - 1):
+            for j in range(len(lat_bins) - 1):
+                for k in range(len(alt_bins) - 1):
+                    # Define voxel boundaries
+                    lon_start, lon_end = lon_bins[i], lon_bins[i + 1]
+                    lat_start, lat_end = lat_bins[j], lat_bins[j + 1]
+                    alt_start, alt_end = alt_bins[k], alt_bins[k + 1]
+
+                    # Find points within this voxel
+                    mask = (
+                        (df['longitude'] >= lon_start) & (df['longitude'] < lon_end) &
+                        (df['latitude'] >= lat_start) & (df['latitude'] < lat_end) &
+                        (df['altitude'] >= alt_start) & (df['altitude'] < alt_end)
+                    )
+                    voxel_data = df[mask]
+
+                    if len(voxel_data) == 0:
+                        continue  # Skip empty voxels
+
+                    # Calculate average quality score for this voxel
+                    quality_scores = []
+                    for _, row in voxel_data.iterrows():
+                        if mode == 'lte' and lte_column:
+                            score = self._normalize_lte_quality(row[lte_column], lte_column)
+                        elif mode == 'starlink' and starlink_column:
+                            score = self._normalize_starlink_quality(row[starlink_column], starlink_column)
+                        elif mode == 'combined':
+                            lte_score = self._normalize_lte_quality(row[lte_column], lte_column) if lte_column else 0
+                            starlink_score = self._normalize_starlink_quality(row[starlink_column], starlink_column) if starlink_column else 0
+                            score = max(lte_score, starlink_score)
+                        else:
+                            continue
+
+                        if score is not None and not np.isnan(score):
+                            quality_scores.append(score)
+
+                    if len(quality_scores) == 0:
+                        continue  # Skip voxels with no valid quality data
+
+                    # Average quality score for this voxel
+                    avg_quality = np.mean(quality_scores)
+                    color = self._get_unified_quality_color(avg_quality)
+
+                    # Add transparency to voxels (60% opacity)
+                    color_with_alpha = color.copy()
+                    color_with_alpha[3] = 153  # 60% opacity (255 * 0.6)
+
+                    # Voxel center position
+                    center_lon = (lon_start + lon_end) / 2
+                    center_lat = (lat_start + lat_end) / 2
+                    center_alt = (alt_start + alt_end) / 2
+
+                    # Create box entity
+                    voxel_id = f"voxel_{mode}_{self.session_id}_{voxel_count}"
+                    entity = {
+                        "id": voxel_id,
+                        "position": {
+                            "cartographicDegrees": [center_lon, center_lat, center_alt]
+                        },
+                        "box": {
+                            "dimensions": {
+                                "cartesian": [voxel_size_horizontal, voxel_size_horizontal, voxel_size_vertical]
+                            },
+                            "material": {
+                                "solidColor": {
+                                    "color": {
+                                        "rgba": color_with_alpha
+                                    }
+                                }
+                            },
+                            "outline": True,
+                            "outlineColor": {
+                                "rgba": [0, 0, 0, 100]  # Semi-transparent black outline
+                            },
+                            "outlineWidth": 1.0
+                        }
+                    }
+                    entities.append(entity)
+                    voxel_count += 1
+
+        print(f"✅ Created {len(entities)} voxel boxes for {mode.upper()} mode", flush=True)
+        return entities

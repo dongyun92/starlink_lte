@@ -6,11 +6,13 @@ interface DataLayerControlProps {
   lteHeatmap: boolean;
   starlinkHeatmap: boolean;
   combinedHeatmap: boolean;
+  heatmapStyle: 'point' | 'voxel';
   onLteToggle: (enabled: boolean) => void;
   onStarlinkToggle: (enabled: boolean) => void;
   onLteHeatmapToggle: (enabled: boolean) => void;
   onStarlinkHeatmapToggle: (enabled: boolean) => void;
   onCombinedHeatmapToggle: (enabled: boolean) => void;
+  onHeatmapStyleChange: (style: 'point' | 'voxel') => void;
 }
 
 export const DataLayerControl: React.FC<DataLayerControlProps> = ({
@@ -19,11 +21,13 @@ export const DataLayerControl: React.FC<DataLayerControlProps> = ({
   lteHeatmap,
   starlinkHeatmap,
   combinedHeatmap,
+  heatmapStyle,
   onLteToggle,
   onStarlinkToggle,
   onLteHeatmapToggle,
   onStarlinkHeatmapToggle,
   onCombinedHeatmapToggle,
+  onHeatmapStyleChange,
 }) => {
   return (
     <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-4 z-10">
@@ -110,6 +114,33 @@ export const DataLayerControl: React.FC<DataLayerControlProps> = ({
 
       {/* Quality Heatmaps Section */}
       <h3 className="text-lg font-bold mb-3">Quality Heatmaps</h3>
+
+      {/* Heatmap Style Selector */}
+      <div className="mb-4 ml-2">
+        <p className="text-xs font-semibold text-gray-700 mb-2">Visualization Style:</p>
+        <div className="space-y-2">
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input
+              type="radio"
+              value="point"
+              checked={heatmapStyle === 'point'}
+              onChange={() => onHeatmapStyleChange('point')}
+              className="w-3 h-3 text-blue-600"
+            />
+            <span className="text-sm text-gray-700">Points (Detailed)</span>
+          </label>
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input
+              type="radio"
+              value="voxel"
+              checked={heatmapStyle === 'voxel'}
+              onChange={() => onHeatmapStyleChange('voxel')}
+              className="w-3 h-3 text-blue-600"
+            />
+            <span className="text-sm text-gray-700">Voxels (Clean Grid)</span>
+          </label>
+        </div>
+      </div>
 
       {/* LTE Heatmap */}
       <div className="mb-3">

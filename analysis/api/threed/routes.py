@@ -150,17 +150,23 @@ def get_heatmap_czml(session_id):
 
     Query Parameters:
         - mode: Heatmap mode ('lte', 'starlink', or 'combined') (default: 'lte')
+        - style: Visualization style ('point' or 'voxel') (default: 'point')
 
     Returns:
-        CZML JSON data with point-based heatmap entities
+        CZML JSON data with heatmap entities
     """
     try:
         # Get query parameters
         mode = request.args.get('mode', 'lte', type=str)
+        style = request.args.get('style', 'point', type=str)
 
         # Validate mode
         if mode not in ['lte', 'starlink', 'combined']:
             return jsonify({'error': 'Invalid mode. Must be lte, starlink, or combined'}), 400
+
+        # Validate style
+        if style not in ['point', 'voxel']:
+            return jsonify({'error': 'Invalid style. Must be point or voxel'}), 400
 
         # Validate session
         session = Session.get_by_id(session_id)
@@ -173,7 +179,7 @@ def get_heatmap_czml(session_id):
 
         # Generate heatmap CZML
         generator = CZMLGenerator(session_id)
-        czml_data = generator.create_heatmap_czml(mode=mode)
+        czml_data = generator.create_heatmap_czml(mode=mode, style=style)
 
         return jsonify(czml_data), 200
 

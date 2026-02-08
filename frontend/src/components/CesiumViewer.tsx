@@ -34,6 +34,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [lteHeatmap, setLteHeatmap] = useState<boolean>(false);
   const [starlinkHeatmap, setStarlinkHeatmap] = useState<boolean>(false);
   const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
+  const [heatmapStyle, setHeatmapStyle] = useState<'point' | 'voxel'>('point');
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -311,8 +312,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             lteHeatmapSourceRef.current = null;
           }
 
-          console.log('🗺️ Loading LTE quality heatmap...');
-          const czmlData = await getHeatmapCZML(selectedSessionId, 'lte');
+          console.log(`🗺️ Loading LTE quality heatmap (${heatmapStyle})...`);
+          const czmlData = await getHeatmapCZML(selectedSessionId, 'lte', heatmapStyle);
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -334,7 +335,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadLTEHeatmap();
-  }, [selectedSessionId, lteHeatmap]);
+  }, [selectedSessionId, lteHeatmap, heatmapStyle]);
 
   // Starlink Heatmap 로드 및 토글
   useEffect(() => {
@@ -351,8 +352,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             starlinkHeatmapSourceRef.current = null;
           }
 
-          console.log('🗺️ Loading Starlink quality heatmap...');
-          const czmlData = await getHeatmapCZML(selectedSessionId, 'starlink');
+          console.log(`🗺️ Loading Starlink quality heatmap (${heatmapStyle})...`);
+          const czmlData = await getHeatmapCZML(selectedSessionId, 'starlink', heatmapStyle);
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -374,7 +375,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadStarlinkHeatmap();
-  }, [selectedSessionId, starlinkHeatmap]);
+  }, [selectedSessionId, starlinkHeatmap, heatmapStyle]);
 
   // Combined Heatmap 로드 및 토글
   useEffect(() => {
@@ -391,8 +392,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             combinedHeatmapSourceRef.current = null;
           }
 
-          console.log('🗺️ Loading Combined quality heatmap (redundancy)...');
-          const czmlData = await getHeatmapCZML(selectedSessionId, 'combined');
+          console.log(`🗺️ Loading Combined quality heatmap (${heatmapStyle})...`);
+          const czmlData = await getHeatmapCZML(selectedSessionId, 'combined', heatmapStyle);
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -414,7 +415,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadCombinedHeatmap();
-  }, [selectedSessionId, combinedHeatmap]);
+  }, [selectedSessionId, combinedHeatmap, heatmapStyle]);
 
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
@@ -429,11 +430,13 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         lteHeatmap={lteHeatmap}
         starlinkHeatmap={starlinkHeatmap}
         combinedHeatmap={combinedHeatmap}
+        heatmapStyle={heatmapStyle}
         onLteToggle={setLteLayers}
         onStarlinkToggle={setStarlinkLayers}
         onLteHeatmapToggle={setLteHeatmap}
         onStarlinkHeatmapToggle={setStarlinkHeatmap}
         onCombinedHeatmapToggle={setCombinedHeatmap}
+        onHeatmapStyleChange={setHeatmapStyle}
       />
 
       {/* 카메라 모드 전환 버튼 */}

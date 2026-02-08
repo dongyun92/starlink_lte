@@ -67,9 +67,10 @@ export async function getCZMLData(
  */
 export async function getHeatmapCZML(
   sessionId: string,
-  mode: 'lte' | 'starlink' | 'combined'
+  mode: 'lte' | 'starlink' | 'combined',
+  style: 'point' | 'voxel' = 'point'
 ): Promise<CZMLDocument> {
-  const params = new URLSearchParams({ mode });
+  const params = new URLSearchParams({ mode, style });
   const url = `${API_BASE_URL}/api/3d/heatmap/${sessionId}?${params.toString()}`;
   const response = await fetch(url);
 
