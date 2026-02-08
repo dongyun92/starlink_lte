@@ -259,13 +259,21 @@ class CZMLGenerator:
         )
         entities.extend(starlink_segments)
 
+        # Convert aircraft_positions to polyline format (remove time_offset)
+        polyline_positions = []
+        for i in range(0, len(aircraft_positions), 4):
+            lon = aircraft_positions[i+1]
+            lat = aircraft_positions[i+2]
+            alt = aircraft_positions[i+3]
+            polyline_positions.extend([lon, lat, alt])
+
         # Entity: White center flight path (solid line showing complete trajectory)
         center_path_entity = {
             "id": f"center_path_{self.session_id}",
             "name": f"Flight Path - Session {self.session_id}",
             "polyline": {
                 "positions": {
-                    "cartographicDegrees": aircraft_positions
+                    "cartographicDegrees": polyline_positions
                 },
                 "material": {
                     "solidColor": {
