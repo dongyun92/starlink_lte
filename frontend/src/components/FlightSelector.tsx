@@ -18,7 +18,7 @@ export const FlightSelector: React.FC<FlightSelectorProps> = ({
   }
 
   return (
-    <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-3 z-10 min-w-[280px]">
+    <div className="absolute top-[30rem] left-4 bg-white rounded-lg shadow-lg p-3 z-10 min-w-[280px] max-w-[320px]">
       <h3 className="text-sm font-bold mb-2">Flight Scenarios</h3>
 
       <div className="space-y-2">

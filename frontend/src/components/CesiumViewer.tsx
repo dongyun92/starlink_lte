@@ -492,7 +492,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       />
 
       {/* 카메라 모드 전환 버튼 */}
-      <div className="absolute top-20 right-4 z-10">
+      <div className="absolute top-4 right-4 z-10">
         <button
           onClick={toggleCameraMode}
           className={`px-4 py-2 rounded-lg shadow-lg font-medium transition-all ${
