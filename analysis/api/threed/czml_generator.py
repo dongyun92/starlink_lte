@@ -1028,8 +1028,9 @@ class CZMLGenerator:
         alt_min, alt_max = df['altitude'].min(), df['altitude'].max()
 
         # Voxel size configuration (in meters, converted to degrees for lat/lon)
-        voxel_size_horizontal = 100  # 100 meters
-        voxel_size_vertical = 30      # 30 meters
+        # Aviation visualization standard: 50m horizontal, 15m vertical for clean grid
+        voxel_size_horizontal = 50  # 50 meters
+        voxel_size_vertical = 15    # 15 meters
 
         # Approximate conversion: 1 degree latitude ≈ 111,000 meters
         # Longitude varies by latitude, but use average for simplicity
