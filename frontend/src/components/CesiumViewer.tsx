@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCZMLData, getHeatmapCZML, getFlightScenarios } from '@/services/api';
 import type { FlightScenario } from '@/types/flight';
-import { DataLayerControl } from './DataLayerControl';
-import { FlightSelector } from './FlightSelector';
+import { UnifiedControlPanel } from './UnifiedControlPanel';
 
 interface CesiumViewerProps {
   className?: string;
@@ -468,24 +467,20 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   return (
     <div className={className}>
-      {/* 데이터 레이어 컨트롤 */}
-      <DataLayerControl
+      {/* Unified Control Panel */}
+      <UnifiedControlPanel
         lteLayers={lteLayers}
         starlinkLayers={starlinkLayers}
+        onLteToggle={setLteLayers}
+        onStarlinkToggle={setStarlinkLayers}
         lteHeatmap={lteHeatmap}
         starlinkHeatmap={starlinkHeatmap}
         combinedHeatmap={combinedHeatmap}
         heatmapStyle={heatmapStyle}
-        onLteToggle={setLteLayers}
-        onStarlinkToggle={setStarlinkLayers}
         onLteHeatmapToggle={setLteHeatmap}
         onStarlinkHeatmapToggle={setStarlinkHeatmap}
         onCombinedHeatmapToggle={setCombinedHeatmap}
         onHeatmapStyleChange={setHeatmapStyle}
-      />
-
-      {/* Flight Scenario Selector */}
-      <FlightSelector
         scenarios={flightScenarios}
         selectedFlightId={selectedFlightId}
         onFlightSelect={setSelectedFlightId}
