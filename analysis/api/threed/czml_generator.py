@@ -834,6 +834,13 @@ class CZMLGenerator:
         if df.empty:
             raise ValueError("No flight data available")
 
+        # Apply aggressive sampling for point heatmaps (every 5th point)
+        if style == 'point' and len(df) > 1000:
+            sample_interval = 5
+            original_len = len(df)
+            df = df.iloc[::sample_interval].copy()
+            print(f"🗺️ Heatmap sampling: {len(df)} points from {original_len} (interval={sample_interval})")
+
         # Generate CZML document
         czml = []
 

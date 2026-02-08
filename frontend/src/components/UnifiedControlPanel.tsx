@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
-import type { FlightScenario } from '@/types/flight';
+import type { FlightScenario, FlightSession } from '@/types/flight';
 
 interface UnifiedControlPanelProps {
+  // Session controls
+  sessions: FlightSession[];
+  selectedSessionId: string | null;
+  onSessionSelect: (sessionId: string) => void;
+
   // Layer controls
   lteLayers: boolean;
   starlinkLayers: boolean;
@@ -29,6 +34,9 @@ interface UnifiedControlPanelProps {
 }
 
 export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
+  sessions,
+  selectedSessionId,
+  onSessionSelect,
   lteLayers,
   starlinkLayers,
   onLteToggle,
@@ -69,6 +77,24 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
 
       {isExpanded && (
         <div className="p-3 space-y-3 max-h-[calc(100vh-120px)] overflow-y-auto">
+          {/* Session Selection */}
+          <div className="pb-3 border-b">
+            <label className="block">
+              <span className="text-xs font-bold text-gray-700 mb-1 block">Session</span>
+              <select
+                value={selectedSessionId || ''}
+                onChange={(e) => onSessionSelect(e.target.value)}
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+              >
+                {sessions.map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {session.name} ({session.file_count.flight_logs} flights)
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           {/* Camera Mode */}
           <div className="pb-3 border-b">
             <button

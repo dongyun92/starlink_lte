@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCZMLData, getHeatmapCZML, getFlightScenarios } from '@/services/api';
-import type { FlightScenario } from '@/types/flight';
+import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 
 interface CesiumViewerProps {
   className?: string;
   selectedSessionId: string | null;
+  sessions: FlightSession[];
+  onSessionSelect: (sessionId: string) => void;
 }
 
 type CameraMode = 'free' | 'track';
@@ -14,7 +16,7 @@ type CameraMode = 'free' | 'track';
  * CesiumViewer 컴포넌트
  * 3D 지구본과 지형, 건물을 렌더링하고 비행 경로를 표시하는 Cesium Viewer
  */
-export default function CesiumViewer({ className = 'w-full h-screen', selectedSessionId }: CesiumViewerProps) {
+export default function CesiumViewer({ className = 'w-full h-screen', selectedSessionId, sessions, onSessionSelect }: CesiumViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const cesiumViewerRef = useRef<any>(null);
   const czmlDataSourceRef = useRef<any>(null);
@@ -469,6 +471,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     <div className={className}>
       {/* Unified Control Panel */}
       <UnifiedControlPanel
+        sessions={sessions}
+        selectedSessionId={selectedSessionId}
+        onSessionSelect={onSessionSelect}
         lteLayers={lteLayers}
         starlinkLayers={starlinkLayers}
         onLteToggle={setLteLayers}
