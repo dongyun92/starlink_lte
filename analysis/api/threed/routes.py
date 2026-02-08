@@ -9,7 +9,6 @@ import sys
 import redis
 import json
 import hashlib
-import gzip
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -221,14 +220,12 @@ def get_czml_data(session_id):
         # Try to get from cache
         if redis_client:
             try:
-                cached_data = redis_client.get(cache_key)
-                if cached_data:
+                cached_json = redis_client.get(cache_key)
+                if cached_json:
                     print(f"✅ Cache HIT: {cache_key}")
-                    # Decompress and return
-                    decompressed = gzip.decompress(cached_data)
-                    response = make_response(decompressed)
+                    # Return cached JSON directly
+                    response = make_response(cached_json)
                     response.headers['Content-Type'] = 'application/json'
-                    response.headers['Content-Encoding'] = 'gzip'
                     response.headers['X-Cache'] = 'HIT'
                     return response
             except Exception as e:
@@ -251,22 +248,20 @@ def get_czml_data(session_id):
             flight_id=flight_id
         )
 
-        # Compress response
+        # Convert to JSON
         czml_json = json.dumps(czml_data)
-        compressed = gzip.compress(czml_json.encode('utf-8'))
 
-        # Cache the compressed data (5 minutes TTL)
+        # Cache the JSON data (5 minutes TTL)
         if redis_client:
             try:
-                redis_client.setex(cache_key, 300, compressed)
-                print(f"💾 Cache MISS: {cache_key} saved ({len(compressed)} bytes)")
+                redis_client.setex(cache_key, 300, czml_json)
+                print(f"💾 Cache MISS: {cache_key} saved ({len(czml_json)} bytes)")
             except Exception as e:
                 print(f"⚠️ Cache write error: {e}")
 
-        # Return compressed response
-        response = make_response(compressed)
+        # Return JSON response
+        response = make_response(czml_json)
         response.headers['Content-Type'] = 'application/json'
-        response.headers['Content-Encoding'] = 'gzip'
         response.headers['X-Cache'] = 'MISS'
         return response
 
@@ -312,14 +307,12 @@ def get_heatmap_czml(session_id):
         # Try to get from cache
         if redis_client:
             try:
-                cached_data = redis_client.get(cache_key)
-                if cached_data:
+                cached_json = redis_client.get(cache_key)
+                if cached_json:
                     print(f"✅ Cache HIT: {cache_key}")
-                    # Decompress and return
-                    decompressed = gzip.decompress(cached_data)
-                    response = make_response(decompressed)
+                    # Return cached JSON directly
+                    response = make_response(cached_json)
                     response.headers['Content-Type'] = 'application/json'
-                    response.headers['Content-Encoding'] = 'gzip'
                     response.headers['X-Cache'] = 'HIT'
                     return response
             except Exception as e:
@@ -338,22 +331,20 @@ def get_heatmap_czml(session_id):
         generator = CZMLGenerator(session_id)
         czml_data = generator.create_heatmap_czml(mode=mode, style=style, flight_id=flight_id)
 
-        # Compress response
+        # Convert to JSON
         czml_json = json.dumps(czml_data)
-        compressed = gzip.compress(czml_json.encode('utf-8'))
 
-        # Cache the compressed data (5 minutes TTL)
+        # Cache the JSON data (5 minutes TTL)
         if redis_client:
             try:
-                redis_client.setex(cache_key, 300, compressed)
-                print(f"💾 Cache MISS: {cache_key} saved ({len(compressed)} bytes)")
+                redis_client.setex(cache_key, 300, czml_json)
+                print(f"💾 Cache MISS: {cache_key} saved ({len(czml_json)} bytes)")
             except Exception as e:
                 print(f"⚠️ Cache write error: {e}")
 
-        # Return compressed response
-        response = make_response(compressed)
+        # Return JSON response
+        response = make_response(czml_json)
         response.headers['Content-Type'] = 'application/json'
-        response.headers['Content-Encoding'] = 'gzip'
         response.headers['X-Cache'] = 'MISS'
         return response
 
