@@ -60,10 +60,14 @@ class CZMLGenerator:
         if df.empty:
             raise ValueError("No flight data available")
 
-        # Sample data
-        if sample_rate > 0:
-            sample_interval = max(1, int(len(df) / (len(df) * sample_rate)))
+        # Sample data (e.g., sample_rate=0.5 means 1 point every 2 seconds)
+        if sample_rate > 0 and sample_rate < 1:
+            sample_interval = max(1, int(1 / sample_rate))
+            original_len = len(df)
             df = df.iloc[::sample_interval].copy()
+            print(f"🎯 Sampling: {len(df)} points from {original_len} (interval={sample_interval}, rate={sample_rate})")
+        elif sample_rate >= 1:
+            print(f"📊 No sampling: {len(df)} points (rate={sample_rate})")
 
         # Generate CZML document
         czml = []

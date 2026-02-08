@@ -193,7 +193,7 @@ def get_czml_data(session_id):
     """
     try:
         # Get query parameters
-        sample_rate = request.args.get('sample_rate', 1, type=int)
+        sample_rate = request.args.get('sample_rate', 1.0, type=float)
         color_by = request.args.get('color_by', 'altitude', type=str)
         flight_id = request.args.get('flight_id', None, type=int)
 

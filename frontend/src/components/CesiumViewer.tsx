@@ -152,9 +152,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           czmlDataSourceRef.current = null;
         }
 
-        // CZML 데이터 가져오기 (듀얼 모드)
+        // CZML 데이터 가져오기 (듀얼 모드, 최적화된 샘플링)
         const czmlData = await getCZMLData(selectedSessionId, {
-          sample_rate: 1,
+          sample_rate: 0.2,  // 5초마다 1개 포인트 (80% 빠름, 5배 적은 데이터)
           color_by: 'dual',
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined,
         });
