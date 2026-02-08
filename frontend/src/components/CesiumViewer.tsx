@@ -484,21 +484,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         scenarios={flightScenarios}
         selectedFlightId={selectedFlightId}
         onFlightSelect={setSelectedFlightId}
+        cameraMode={cameraMode}
+        onCameraModeToggle={toggleCameraMode}
       />
-
-      {/* 카메라 모드 전환 버튼 */}
-      <div className="absolute top-4 right-4 z-10">
-        <button
-          onClick={toggleCameraMode}
-          className={`px-4 py-2 rounded-lg shadow-lg font-medium transition-all ${
-            cameraMode === 'track'
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : 'bg-gray-800 hover:bg-gray-700 text-white'
-          }`}
-        >
-          {cameraMode === 'track' ? '📹 추적 모드' : '🎮 자유 시점'}
-        </button>
-      </div>
 
       <div ref={viewerRef} className="w-full h-full" />
     </div>

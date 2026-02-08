@@ -22,6 +22,10 @@ interface UnifiedControlPanelProps {
   scenarios: FlightScenario[];
   selectedFlightId: number | null;
   onFlightSelect: (flightId: number | null) => void;
+
+  // Camera controls
+  cameraMode: 'free' | 'track';
+  onCameraModeToggle: () => void;
 }
 
 export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
@@ -40,6 +44,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   scenarios,
   selectedFlightId,
   onFlightSelect,
+  cameraMode,
+  onCameraModeToggle,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
@@ -63,6 +69,20 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
 
       {isExpanded && (
         <div className="p-3 space-y-3 max-h-[calc(100vh-120px)] overflow-y-auto">
+          {/* Camera Mode */}
+          <div className="pb-3 border-b">
+            <button
+              onClick={onCameraModeToggle}
+              className={`w-full px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                cameraMode === 'track'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-gray-800 hover:bg-gray-700 text-white'
+              }`}
+            >
+              {cameraMode === 'track' ? '📹 추적 모드' : '🎮 자유 시점'}
+            </button>
+          </div>
+
           {/* Flight Scenario Selection */}
           {scenarios.length > 1 && (
             <div className="pb-3 border-b">
