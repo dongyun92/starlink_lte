@@ -75,23 +75,11 @@ class CZMLGenerator:
         # Document header
         czml.append(self._create_document_header(df))
 
-        # Flight path entities
-        if color_by == 'dual':
-            # Dual path mode: LTE + Starlink
-            # Check if LTE or Starlink data is available
-            has_lte = 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all()
-            has_starlink = 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all()
+        # Flight path entity (single path only, colored by user selection)
+        czml.extend(self._create_flight_path_entity(df, color_by))
 
-            if has_lte or has_starlink:
-                # At least one data source available, use dual mode
-                czml.extend(self._create_dual_path_entities(df))
-            else:
-                # No LTE/Starlink data, fallback to altitude mode
-                print(f"⚠️ No LTE/Starlink data for session {self.session_id}, using altitude mode")
-                czml.extend(self._create_flight_path_entity(df, 'altitude'))
-        else:
-            # Single path mode (altitude, speed, etc.)
-            czml.extend(self._create_flight_path_entity(df, color_by))
+        # Signal layer entities (LTE/Starlink points at actual flight path position)
+        czml.extend(self._create_signal_layer_entities(df))
 
         return czml
 
@@ -337,6 +325,60 @@ class CZMLGenerator:
             }
         }
         entities.append(aircraft_entity)
+
+        return entities
+
+    def _create_signal_layer_entities(self, df) -> list:
+        """
+        Create signal layer entities (LTE + Starlink points) at actual flight path position
+        No offset - all points displayed at real GPS coordinates
+
+        Args:
+            df: Flight data DataFrame
+
+        Returns:
+            List of CZML entities [lte_segments..., starlink_segments...]
+        """
+        # No offset - display at actual flight path position
+        LON_OFFSET = 0
+
+        # Build position samples for aircraft (center path)
+        aircraft_positions = self._build_position_samples(df)
+
+        # Create entities list
+        entities = []
+
+        # Auto-detect available LTE column (prefer lte_rsrp, fallback to lte_rssi)
+        lte_column = None
+        if 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all():
+            lte_column = 'lte_rsrp'
+        elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
+            lte_column = 'lte_rssi'
+
+        # Auto-detect available Starlink column (prefer starlink_snr, fallback to starlink_latency)
+        starlink_column = None
+        if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
+            starlink_column = 'starlink_snr'
+        elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
+            starlink_column = 'starlink_latency'
+
+        print(f"📊 Signal layers: LTE={lte_column}, Starlink={starlink_column} (offset=0)", flush=True)
+
+        # Create LTE gradient path segments (at actual position)
+        if lte_column:
+            lte_segments = self._create_gradient_path_segments(
+                df, aircraft_positions, LON_OFFSET, 'lte', lte_column
+            )
+            entities.extend(lte_segments)
+            print(f"  ├─ LTE segments: {len(lte_segments)}", flush=True)
+
+        # Create Starlink gradient path segments (at actual position)
+        if starlink_column:
+            starlink_segments = self._create_gradient_path_segments(
+                df, aircraft_positions, LON_OFFSET, 'starlink', starlink_column
+            )
+            entities.extend(starlink_segments)
+            print(f"  └─ Starlink segments: {len(starlink_segments)}", flush=True)
 
         return entities
 

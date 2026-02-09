@@ -31,6 +31,10 @@ interface UnifiedControlPanelProps {
   // Camera controls
   cameraMode: 'free' | 'track';
   onCameraModeToggle: () => void;
+
+  // Path color controls
+  pathColorMode: 'altitude' | 'lte' | 'starlink' | 'speed';
+  onPathColorModeChange: (mode: 'altitude' | 'lte' | 'starlink' | 'speed') => void;
 }
 
 export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
@@ -54,6 +58,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onFlightSelect,
   cameraMode,
   onCameraModeToggle,
+  pathColorMode,
+  onPathColorModeChange,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
@@ -134,6 +140,53 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
               </label>
             </div>
           )}
+
+          {/* Path Color Mode */}
+          <div className="pb-3 border-b">
+            <div className="text-xs font-bold text-gray-700 mb-2">Path Color Mode</div>
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  value="altitude"
+                  checked={pathColorMode === 'altitude'}
+                  onChange={() => onPathColorModeChange('altitude')}
+                  className="w-3 h-3"
+                />
+                <span className="text-xs">Altitude (High ↔ Low)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  value="lte"
+                  checked={pathColorMode === 'lte'}
+                  onChange={() => onPathColorModeChange('lte')}
+                  className="w-3 h-3"
+                />
+                <span className="text-xs">LTE Signal (Strong ↔ Weak)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  value="starlink"
+                  checked={pathColorMode === 'starlink'}
+                  onChange={() => onPathColorModeChange('starlink')}
+                  className="w-3 h-3"
+                />
+                <span className="text-xs">Starlink Signal (Strong ↔ Weak)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  value="speed"
+                  checked={pathColorMode === 'speed'}
+                  onChange={() => onPathColorModeChange('speed')}
+                  className="w-3 h-3"
+                />
+                <span className="text-xs">Speed (Fast ↔ Slow)</span>
+              </label>
+            </div>
+          </div>
 
           {/* Signal Layers */}
           <div className="space-y-2 pb-3 border-b">

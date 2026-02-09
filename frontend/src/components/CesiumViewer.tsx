@@ -43,6 +43,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [flightScenarios, setFlightScenarios] = useState<FlightScenario[]>([]);
   const [selectedFlightId, setSelectedFlightId] = useState<number | null>(null);
 
+  // Path color mode
+  const [pathColorMode, setPathColorMode] = useState<'altitude' | 'lte' | 'starlink' | 'speed'>('altitude');
+
   // Cesium Viewer 초기화
   useEffect(() => {
     // Cesium이 로드될 때까지 대기
@@ -154,10 +157,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           czmlDataSourceRef.current = null;
         }
 
-        // CZML 데이터 가져오기 (듀얼 모드, 최적화된 샘플링)
+        // CZML 데이터 가져오기 (단일 경로, 최적화된 샘플링)
         const czmlData = await getCZMLData(selectedSessionId, {
           sample_rate: 0.2,  // 5초마다 1개 포인트 (80% 빠름, 5배 적은 데이터)
-          color_by: 'dual',
+          color_by: pathColorMode,  // 사용자 선택한 색상 모드 (altitude/lte/starlink/speed)
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined,
         });
 
@@ -285,7 +288,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadFlightData();
-  }, [selectedSessionId, selectedFlightId]);
+  }, [selectedSessionId, selectedFlightId, pathColorMode]);
 
   // 카메라 모드 전환 효과
   useEffect(() => {
@@ -491,6 +494,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onFlightSelect={setSelectedFlightId}
         cameraMode={cameraMode}
         onCameraModeToggle={toggleCameraMode}
+        pathColorMode={pathColorMode}
+        onPathColorModeChange={setPathColorMode}
       />
 
       <div ref={viewerRef} className="w-full h-full" />
