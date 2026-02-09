@@ -147,9 +147,6 @@ class CZMLGenerator:
         # Build position property (time-tagged samples)
         positions = self._build_position_samples(df)
 
-        # Build path material (gradient colors)
-        path_material = self._build_path_material(colors)
-
         # 전체 경로를 Cartesian3 좌표로 변환 (시간 오프셋 제거)
         polyline_positions = []
         for i in range(0, len(positions), 4):
@@ -158,20 +155,46 @@ class CZMLGenerator:
             alt = positions[i+3]
             polyline_positions.extend([lon, lat, alt])
 
-        # Entity 1: 고정된 polyline (전체 경로)
-        polyline_entity = {
-            "id": f"flight_path_{self.session_id}",
-            "name": f"Flight Path - Session {self.session_id}",
-            "polyline": {
-                "positions": {
-                    "cartographicDegrees": polyline_positions
-                },
-                "show": True,
-                "width": 8,
-                "material": path_material,
-                "clampToGround": False
+        # Create multiple polyline segments for gradient effect
+        segment_entities = []
+        num_points = len(polyline_positions) // 3
+
+        for i in range(num_points - 1):
+            # Get two consecutive points
+            start_idx = i * 3
+            end_idx = (i + 1) * 3
+
+            segment_positions = [
+                polyline_positions[start_idx],     # lon1
+                polyline_positions[start_idx + 1], # lat1
+                polyline_positions[start_idx + 2], # alt1
+                polyline_positions[end_idx],       # lon2
+                polyline_positions[end_idx + 1],   # lat2
+                polyline_positions[end_idx + 2]    # alt2
+            ]
+
+            # Use color from start point
+            segment_color = colors[i].tolist()
+
+            segment_entity = {
+                "id": f"flight_path_segment_{self.session_id}_{i}",
+                "polyline": {
+                    "positions": {
+                        "cartographicDegrees": segment_positions
+                    },
+                    "show": True,
+                    "width": 8,
+                    "material": {
+                        "solidColor": {
+                            "color": {
+                                "rgba": segment_color
+                            }
+                        }
+                    },
+                    "clampToGround": False
+                }
             }
-        }
+            segment_entities.append(segment_entity)
 
         # Entity 2: 움직이는 point (비행기)
         import pandas as pd
@@ -208,7 +231,8 @@ class CZMLGenerator:
             }
         }
 
-        return [polyline_entity, aircraft_entity]
+        # Return all segment entities plus aircraft entity
+        return segment_entities + [aircraft_entity]
 
     def _create_dual_path_entities(self, df) -> list:
         """
