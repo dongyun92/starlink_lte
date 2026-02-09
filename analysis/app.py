@@ -36,6 +36,27 @@ app.register_blueprint(api_3d_bp)
 with app.app_context():
     init_db()
 
+# 셀 타워 캐시 워밍업 (백그라운드)
+try:
+    from api.threed.routes import redis_client
+    from api.threed.opencellid_client import OpenCellIDClient
+    from api.threed.cache_warmup import warmup_cell_tower_cache
+
+    # Get OpenCellID client
+    opencellid_client = None
+    try:
+        opencellid_client = OpenCellIDClient()
+    except ValueError:
+        pass  # API key not configured, skip warmup
+
+    # Start warmup if both Redis and OpenCellID are available
+    if redis_client and opencellid_client:
+        warmup_cell_tower_cache(redis_client, opencellid_client)
+    else:
+        print("⚠️ Cell tower cache warmup skipped (Redis or OpenCellID not available)")
+except Exception as e:
+    print(f"⚠️ Cache warmup initialization failed: {e}")
+
 @app.route('/')
 def index():
     """메인 페이지"""
