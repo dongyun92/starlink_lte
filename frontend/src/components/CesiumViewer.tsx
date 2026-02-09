@@ -21,8 +21,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const cesiumViewerRef = useRef<any>(null);
   const czmlDataSourceRef = useRef<any>(null);
   const aircraftEntityRef = useRef<any>(null);
-  const lteEntitiesRef = useRef<any[]>([]);
-  const starlinkEntitiesRef = useRef<any[]>([]);
 
   // Heatmap data source refs
   const lteHeatmapSourceRef = useRef<any>(null);
@@ -30,8 +28,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const combinedHeatmapSourceRef = useRef<any>(null);
 
   const [cameraMode, setCameraMode] = useState<CameraMode>('free');
-  const [lteLayers, setLteLayers] = useState<boolean>(true);
-  const [starlinkLayers, setStarlinkLayers] = useState<boolean>(true);
 
   // Heatmap layer states
   const [lteHeatmap, setLteHeatmap] = useState<boolean>(false);
@@ -182,17 +178,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         const aircraft = entities.find((e: any) => e.id.includes('aircraft_'));
         aircraftEntityRef.current = aircraft;
 
-        // Find LTE segments (gradient mode: multiple segments with 'lte_path_*_seg*')
-        const lteSegments = entities.filter((e: any) => e.id.includes('lte_path_'));
-        lteEntitiesRef.current = lteSegments;
-
-        // Find Starlink segments (gradient mode: multiple segments with 'starlink_path_*_seg*')
-        const starlinkSegments = entities.filter((e: any) => e.id.includes('starlink_path_'));
-        starlinkEntitiesRef.current = starlinkSegments;
-
-        // Determine mode based on entity count
-        const isDualMode = lteSegments.length > 0 || starlinkSegments.length > 0;
-
         // Get first position from aircraft
         let lon, lat, alt;
         if (aircraft && aircraft.position) {
@@ -203,12 +188,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             lat = firstPosition[2];
             alt = firstPosition[3];
           }
-        }
-
-        if (isDualMode) {
-          console.log(`📊 Dual path mode: LTE segments=${lteSegments.length}, Starlink segments=${starlinkSegments.length}`);
-        } else {
-          console.log('⚠️ Single path mode (no LTE/Starlink data)');
         }
 
         console.log(`📍 First position: lon=${lon}, lat=${lat}, alt=${alt}`);
@@ -306,30 +285,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       console.log('📹 Camera mode: Free view');
     }
   }, [cameraMode]);
-
-  // LTE 레이어 토글 효과 (모든 segment에 적용)
-  useEffect(() => {
-    if (!lteEntitiesRef.current || lteEntitiesRef.current.length === 0) return;
-
-    lteEntitiesRef.current.forEach((entity: any) => {
-      if (entity.polyline) {
-        entity.polyline.show = lteLayers;
-      }
-    });
-    console.log(`🔴 LTE layer (${lteEntitiesRef.current.length} segments): ${lteLayers ? 'visible' : 'hidden'}`);
-  }, [lteLayers]);
-
-  // Starlink 레이어 토글 효과 (모든 segment에 적용)
-  useEffect(() => {
-    if (!starlinkEntitiesRef.current || starlinkEntitiesRef.current.length === 0) return;
-
-    starlinkEntitiesRef.current.forEach((entity: any) => {
-      if (entity.polyline) {
-        entity.polyline.show = starlinkLayers;
-      }
-    });
-    console.log(`🔵 Starlink layer (${starlinkEntitiesRef.current.length} segments): ${starlinkLayers ? 'visible' : 'hidden'}`);
-  }, [starlinkLayers]);
 
   // LTE Heatmap 로드 및 토글
   useEffect(() => {
@@ -477,10 +432,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         sessions={sessions}
         selectedSessionId={selectedSessionId}
         onSessionSelect={onSessionSelect}
-        lteLayers={lteLayers}
-        starlinkLayers={starlinkLayers}
-        onLteToggle={setLteLayers}
-        onStarlinkToggle={setStarlinkLayers}
         lteHeatmap={lteHeatmap}
         starlinkHeatmap={starlinkHeatmap}
         combinedHeatmap={combinedHeatmap}

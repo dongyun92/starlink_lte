@@ -7,12 +7,6 @@ interface UnifiedControlPanelProps {
   selectedSessionId: string | null;
   onSessionSelect: (sessionId: string) => void;
 
-  // Layer controls
-  lteLayers: boolean;
-  starlinkLayers: boolean;
-  onLteToggle: (enabled: boolean) => void;
-  onStarlinkToggle: (enabled: boolean) => void;
-
   // Heatmap controls
   lteHeatmap: boolean;
   starlinkHeatmap: boolean;
@@ -41,10 +35,6 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   sessions,
   selectedSessionId,
   onSessionSelect,
-  lteLayers,
-  starlinkLayers,
-  onLteToggle,
-  onStarlinkToggle,
   lteHeatmap,
   starlinkHeatmap,
   combinedHeatmap,
@@ -186,93 +176,6 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 <span className="text-xs">Speed (Fast ↔ Slow)</span>
               </label>
             </div>
-          </div>
-
-          {/* Signal Layers */}
-          <div className="space-y-2 pb-3 border-b">
-            <div className="text-xs font-bold text-gray-700 mb-2">Signal Layers</div>
-
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={lteLayers}
-                onChange={(e) => onLteToggle(e.target.checked)}
-                className="w-3 h-3"
-              />
-              <span className="text-xs flex-1">LTE Signal</span>
-              <button
-                onClick={() => toggleSection('lte')}
-                className="text-xs text-gray-500 hover:text-gray-700 px-1"
-              >
-                {expandedSection === 'lte' ? '▼' : '▶'}
-              </button>
-            </label>
-
-            {expandedSection === 'lte' && (
-              <div className="ml-5 space-y-0.5 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-red-500 rounded-sm"></div>
-                  <span>&lt; -110 dBm</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-orange-500 rounded-sm"></div>
-                  <span>-110 ~ -100</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-yellow-500 rounded-sm"></div>
-                  <span>-100 ~ -90</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-green-400 rounded-sm"></div>
-                  <span>-90 ~ -80</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-green-600 rounded-sm"></div>
-                  <span>&gt; -80 dBm</span>
-                </div>
-              </div>
-            )}
-
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={starlinkLayers}
-                onChange={(e) => onStarlinkToggle(e.target.checked)}
-                className="w-3 h-3"
-              />
-              <span className="text-xs flex-1">Starlink Signal</span>
-              <button
-                onClick={() => toggleSection('starlink')}
-                className="text-xs text-gray-500 hover:text-gray-700 px-1"
-              >
-                {expandedSection === 'starlink' ? '▼' : '▶'}
-              </button>
-            </label>
-
-            {expandedSection === 'starlink' && (
-              <div className="ml-5 space-y-0.5 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-blue-900 rounded-sm"></div>
-                  <span>&lt; 3 dB</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-blue-500 rounded-sm"></div>
-                  <span>3 ~ 5 dB</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-sky-400 rounded-sm"></div>
-                  <span>5 ~ 8 dB</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-cyan-400 rounded-sm"></div>
-                  <span>8 ~ 12 dB</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-cyan-600 rounded-sm"></div>
-                  <span>&gt; 12 dB</span>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Quality Heatmaps */}
