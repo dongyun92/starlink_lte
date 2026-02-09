@@ -382,7 +382,7 @@ class CZMLGenerator:
 
     def _viridis_colormap(self, values: np.ndarray) -> np.ndarray:
         """
-        Apply viridis colormap to normalized values
+        Apply jet colormap to normalized values for rich gradient visualization
 
         Args:
             values: Normalized values (0-1)
@@ -390,13 +390,19 @@ class CZMLGenerator:
         Returns:
             RGBA colors (0-255)
         """
-        # Simplified viridis colormap (5 control points)
-        viridis_colors = np.array([
-            [68, 1, 84],      # Purple (low)
-            [59, 82, 139],    # Blue
-            [33, 145, 140],   # Teal
-            [94, 201, 98],    # Green
-            [253, 231, 37]    # Yellow (high)
+        # Jet colormap (풍부한 그라데이션 - 파랑→청록→녹색→노랑→주황→빨강)
+        jet_colors = np.array([
+            [0, 0, 143],        # Dark blue (0.0)
+            [0, 0, 255],        # Blue (0.1)
+            [0, 127, 255],      # Sky blue (0.2)
+            [0, 255, 255],      # Cyan (0.3)
+            [0, 255, 127],      # Cyan-green (0.4)
+            [0, 255, 0],        # Green (0.5)
+            [127, 255, 0],      # Yellow-green (0.6)
+            [255, 255, 0],      # Yellow (0.7)
+            [255, 127, 0],      # Orange (0.8)
+            [255, 0, 0],        # Red (0.9)
+            [127, 0, 0]         # Dark red (1.0)
         ])
 
         # Interpolate colors
@@ -409,27 +415,23 @@ class CZMLGenerator:
                 continue
 
             # Find interpolation indices
-            idx = val * (len(viridis_colors) - 1)
+            idx = val * (len(jet_colors) - 1)
             idx0 = int(np.floor(idx))
-            idx1 = min(idx0 + 1, len(viridis_colors) - 1)
+            idx1 = min(idx0 + 1, len(jet_colors) - 1)
             frac = idx - idx0
 
             # Interpolate RGB
-            rgb = viridis_colors[idx0] * (1 - frac) + viridis_colors[idx1] * frac
+            rgb = jet_colors[idx0] * (1 - frac) + jet_colors[idx1] * frac
             colors[i] = [int(rgb[0]), int(rgb[1]), int(rgb[2]), 255]
 
         return colors
 
     def _calculate_lte_colors(self, df) -> np.ndarray:
         """
-        Calculate colors based on LTE RSRP values
+        Calculate colors based on LTE RSRP values with smooth gradient
 
-        RSRP Color Mapping:
-        - Red (< -110 dBm): Very poor signal
-        - Orange (-110 ~ -100 dBm): Poor signal
-        - Yellow (-100 ~ -90 dBm): Fair signal
-        - Light Green (-90 ~ -80 dBm): Good signal
-        - Green (> -80 dBm): Excellent signal
+        RSRP range: -120 dBm (worst) to -40 dBm (best)
+        Color gradient: Red → Orange → Yellow → Green → Cyan
 
         Args:
             df: Flight data DataFrame with 'lte_rsrp' column
@@ -443,41 +445,22 @@ class CZMLGenerator:
             return np.full((n, 4), [128, 128, 128, 255], dtype=np.uint8)
 
         rsrp_values = df['lte_rsrp'].values
-        n = len(rsrp_values)
-        colors = np.zeros((n, 4), dtype=np.uint8)
 
-        for i, rsrp in enumerate(rsrp_values):
-            if np.isnan(rsrp):
-                # Gray for missing data
-                colors[i] = [128, 128, 128, 255]
-            elif rsrp < -110:
-                # Red - Very poor
-                colors[i] = [255, 0, 0, 255]
-            elif rsrp < -100:
-                # Orange - Poor
-                colors[i] = [255, 165, 0, 255]
-            elif rsrp < -90:
-                # Yellow - Fair
-                colors[i] = [255, 255, 0, 255]
-            elif rsrp < -80:
-                # Light Green - Good
-                colors[i] = [144, 238, 144, 255]
-            else:
-                # Green - Excellent
-                colors[i] = [0, 255, 0, 255]
+        # Normalize RSRP to 0-1 range (-120 to -40 dBm)
+        rsrp_min, rsrp_max = -120, -40
+        normalized = np.clip((rsrp_values - rsrp_min) / (rsrp_max - rsrp_min), 0, 1)
+
+        # Apply jet colormap for smooth gradient
+        colors = self._viridis_colormap(normalized)
 
         return colors
 
     def _calculate_starlink_colors(self, df) -> np.ndarray:
         """
-        Calculate colors based on Starlink SNR values
+        Calculate colors based on Starlink SNR values with smooth gradient
 
-        SNR Color Mapping:
-        - Dark Blue (< 3 dB): Very poor signal
-        - Blue (3 ~ 5 dB): Poor signal
-        - Sky Blue (5 ~ 8 dB): Fair signal
-        - Cyan (8 ~ 12 dB): Good signal
-        - White (> 12 dB): Excellent signal
+        SNR range: -5 dB (worst) to 20 dB (best)
+        Color gradient: Dark blue → Blue → Cyan → Green → Yellow → Red
 
         Args:
             df: Flight data DataFrame with 'starlink_snr' column
@@ -491,28 +474,13 @@ class CZMLGenerator:
             return np.full((n, 4), [128, 128, 128, 255], dtype=np.uint8)
 
         snr_values = df['starlink_snr'].values
-        n = len(snr_values)
-        colors = np.zeros((n, 4), dtype=np.uint8)
 
-        for i, snr in enumerate(snr_values):
-            if np.isnan(snr):
-                # Gray for missing data
-                colors[i] = [128, 128, 128, 255]
-            elif snr < 3:
-                # Dark Blue - Very poor
-                colors[i] = [0, 0, 139, 255]
-            elif snr < 5:
-                # Blue - Poor
-                colors[i] = [0, 0, 255, 255]
-            elif snr < 8:
-                # Sky Blue - Fair
-                colors[i] = [135, 206, 235, 255]
-            elif snr < 12:
-                # Cyan - Good
-                colors[i] = [0, 255, 255, 255]
-            else:
-                # White - Excellent
-                colors[i] = [255, 255, 255, 255]
+        # Normalize SNR to 0-1 range (-5 to 20 dB)
+        snr_min, snr_max = -5, 20
+        normalized = np.clip((snr_values - snr_min) / (snr_max - snr_min), 0, 1)
+
+        # Apply jet colormap for smooth gradient
+        colors = self._viridis_colormap(normalized)
 
         return colors
 
