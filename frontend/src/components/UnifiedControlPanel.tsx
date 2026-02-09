@@ -44,6 +44,10 @@ interface UnifiedControlPanelProps {
   // Cell tower controls
   showCellTowers: boolean;
   onCellTowersToggle: (enabled: boolean) => void;
+
+  // Analytics controls
+  showAnalytics: boolean;
+  onAnalyticsToggle: (enabled: boolean) => void;
 }
 
 export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
@@ -69,6 +73,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   colorMetadata,
   showCellTowers,
   onCellTowersToggle,
+  showAnalytics,
+  onAnalyticsToggle,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showCustomBuilder, setShowCustomBuilder] = useState(false);
@@ -466,6 +472,24 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
               />
               <span className="text-xs">Show LTE Towers</span>
             </label>
+          </div>
+
+          {/* Analytics Panel */}
+          <div className="space-y-2 pt-3 border-t">
+            <div className="text-xs font-bold text-gray-700 mb-2">📊 Analytics</div>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showAnalytics}
+                onChange={(e) => onAnalyticsToggle(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span className="text-xs">Show Analytics Panel</span>
+            </label>
+            <p className="text-[10px] text-gray-500 ml-5">
+              Time series, distribution, and satellite direction charts
+            </p>
           </div>
         </div>
       )}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers } from '@/services/api';
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
+import { AnalyticsPanel } from './AnalyticsPanel';
 
 interface CesiumViewerProps {
   className?: string;
@@ -55,6 +56,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Cell tower states
   const [showCellTowers, setShowCellTowers] = useState<boolean>(false);
   const [cellTowerData, setCellTowerData] = useState<any>(null);
+
+  // Analytics panel state
+  const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -598,7 +602,18 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         colorMetadata={colorMetadata}
         showCellTowers={showCellTowers}
         onCellTowersToggle={setShowCellTowers}
+        onAnalyticsToggle={setShowAnalytics}
+        showAnalytics={showAnalytics}
       />
+
+      {/* Analytics Panel */}
+      {showAnalytics && selectedSessionId && (
+        <AnalyticsPanel
+          sessionId={selectedSessionId}
+          flightId={selectedFlightId}
+          metric={pathColorMode}
+        />
+      )}
 
       <div ref={viewerRef} className="w-full h-full" />
     </div>
