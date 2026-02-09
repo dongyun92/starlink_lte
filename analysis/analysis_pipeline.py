@@ -90,12 +90,15 @@ class AnalysisPipeline:
 
             ulog = ULog(str(ulg_path))
 
-            # vehicle_gps_position 데이터셋 찾기 (time_utc_usec 필드 있음)
+            # vehicle_gps_position 및 vehicle_attitude 데이터셋 찾기
             gps_dataset = None
+            attitude_dataset = None
+
             for data in ulog.data_list:
                 if data.name == 'vehicle_gps_position':
                     gps_dataset = data
-                    break
+                elif data.name == 'vehicle_attitude':
+                    attitude_dataset = data
 
             # Fallback: vehicle_global_position
             if gps_dataset is None:
@@ -107,6 +110,9 @@ class AnalysisPipeline:
             if gps_dataset is None:
                 print(f"  │  ⚠️  GPS 데이터셋 없음")
                 return None
+
+            if attitude_dataset:
+                print(f"  │  ✓ Attitude 데이터 발견 (yaw/roll/pitch)")
 
             # 데이터 추출
             timestamps_us = gps_dataset.data['timestamp']  # microseconds (relative time)
@@ -167,8 +173,59 @@ class AnalysisPipeline:
                 'timestamp': absolute_timestamps,
                 'latitude': latitudes,
                 'longitude': longitudes,
-                'altitude': altitudes
+                'altitude': altitudes,
+                'timestamp_us': timestamps_us  # 매칭용 원본 타임스탬프
             })
+
+            # GPS COG (Course Over Ground) - 헤딩 데이터 추출 (0-360도)
+            # MAVLink GLOBAL_POSITION_INT.hdg에 해당
+            if 'cog_rad' in gps_dataset.data:
+                cog_rad = gps_dataset.data['cog_rad']
+                # 라디안 -> 도 변환 후 0-360 범위로 정규화
+                heading_deg = np.degrees(cog_rad) % 360
+                df['heading'] = heading_deg
+
+                valid_heading = df['heading'].notna().sum()
+                print(f"  │  ✓ GPS COG (헤딩): {valid_heading}/{len(df)} 포인트")
+                print(f"  │    범위: {df['heading'].min():.1f}° ~ {df['heading'].max():.1f}° (0-360도)")
+
+            # Attitude 데이터 병합 (Roll/Pitch - 선택사항)
+            if attitude_dataset:
+                # Quaternion에서 Euler 각도 변환
+                q = attitude_dataset.data
+                q0 = q['q[0]']
+                q1 = q['q[1]']
+                q2 = q['q[2]']
+                q3 = q['q[3]']
+
+                # Roll, Pitch 계산 (라디안 -> 도)
+                roll = np.arctan2(2*(q0*q1 + q2*q3), 1 - 2*(q1**2 + q2**2))
+                pitch = np.arcsin(2*(q0*q2 - q3*q1))
+
+                attitude_df = pd.DataFrame({
+                    'timestamp_us': q['timestamp'],
+                    'roll': np.degrees(roll),
+                    'pitch': np.degrees(pitch)
+                })
+
+                # GPS 타임스탬프에 맞춰 attitude 매칭 (nearest neighbor)
+                df['roll'] = np.nan
+                df['pitch'] = np.nan
+
+                for i, row in df.iterrows():
+                    # 가장 가까운 attitude 데이터 찾기
+                    time_diff = np.abs(attitude_df['timestamp_us'] - row['timestamp_us'])
+                    closest_idx = time_diff.argmin()
+
+                    if time_diff.iloc[closest_idx] < 100000:  # 100ms 이내
+                        df.at[i, 'roll'] = attitude_df.iloc[closest_idx]['roll']
+                        df.at[i, 'pitch'] = attitude_df.iloc[closest_idx]['pitch']
+
+                valid_attitude = df['roll'].notna().sum()
+                print(f"  │  ✓ Attitude (Roll/Pitch): {valid_attitude}/{len(df)} 포인트")
+
+            # timestamp_us 제거 (임시 컬럼)
+            df = df.drop(columns=['timestamp_us'], errors='ignore')
 
             # 중복 제거 및 정렬
             df = df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)

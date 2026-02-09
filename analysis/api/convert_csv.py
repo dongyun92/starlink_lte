@@ -60,16 +60,14 @@ def convert_ulg_to_csv_data(ulg_path, session_id, aircraft_id='UMT001'):
         speed_ms = gps_data.data['vel_m_s'][i]
         speed = round(speed_ms * 1.94384)  # m/s → knots
 
-        # Heading
-        if 'heading' in gps_data.data and not math.isnan(gps_data.data['heading'][i]):
-            heading_deg = gps_data.data['heading'][i]
+        # Heading - GPS COG (Course Over Ground) 0-360도
+        # MAVLink GLOBAL_POSITION_INT.hdg 표준에 해당
+        cog_rad = gps_data.data['cog_rad'][i]
+        if not math.isnan(cog_rad):
+            heading_deg = math.degrees(cog_rad) % 360  # 라디안 → 도, 0-360 범위
         else:
-            cog_rad = gps_data.data['cog_rad'][i]
-            if not math.isnan(cog_rad):
-                heading_deg = cog_rad * 57.2958  # radians to degrees
-            else:
-                heading_deg = 0
-        heading = round(heading_deg) % 360
+            heading_deg = 0
+        heading = round(heading_deg)
 
         # Vertical rate
         vel_d_ms = gps_data.data['vel_d_m_s'][i]
