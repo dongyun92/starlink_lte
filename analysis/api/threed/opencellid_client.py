@@ -101,3 +101,101 @@ class OpenCellIDClient:
         except Exception as e:
             print(f"❌ OpenCellID API unexpected error: {e}", flush=True)
             return []
+
+    def get_cell_towers_grid_search(
+        self,
+        min_lat: float,
+        max_lat: float,
+        min_lon: float,
+        max_lon: float,
+        radio: str = 'LTE',
+        grid_size: float = 0.018,
+        limit: int = 1000
+    ) -> List[Dict]:
+        """
+        Get cell towers using grid search to cover larger areas
+
+        Divides the bounding box into overlapping grids and queries each grid.
+        Removes duplicate towers based on cell ID.
+
+        Args:
+            min_lat: Minimum latitude
+            max_lat: Maximum latitude
+            min_lon: Minimum longitude
+            max_lon: Maximum longitude
+            radio: Radio type filter (LTE, UMTS, GSM, NR)
+            grid_size: Grid cell size in degrees (default 0.018° ≈ 2km)
+            limit: Max number of results per grid (default 1000)
+
+        Returns:
+            List of unique cell tower dicts
+        """
+        import math
+        import time
+
+        print(f"\n🔍 Grid search starting...", flush=True)
+        print(f"  📐 Area: ({min_lat:.4f}, {min_lon:.4f}) to ({max_lat:.4f}, {max_lon:.4f})", flush=True)
+
+        # Calculate grid dimensions
+        lat_range = max_lat - min_lat
+        lon_range = max_lon - min_lon
+
+        # Number of grids (with 50% overlap for better coverage)
+        lat_grids = max(1, int(math.ceil(lat_range / (grid_size * 0.5))))
+        lon_grids = max(1, int(math.ceil(lon_range / (grid_size * 0.5))))
+
+        print(f"  📊 Grid configuration: {lat_grids} × {lon_grids} = {lat_grids * lon_grids} grids", flush=True)
+
+        all_towers = []
+        successful_queries = 0
+
+        # Iterate through grid cells
+        for i in range(lat_grids):
+            for j in range(lon_grids):
+                # Calculate grid boundaries
+                grid_min_lat = min_lat + i * grid_size * 0.5
+                grid_max_lat = min(grid_min_lat + grid_size, max_lat)
+                grid_min_lon = min_lon + j * grid_size * 0.5
+                grid_max_lon = min(grid_min_lon + grid_size, max_lon)
+
+                # Skip if grid is too small
+                if grid_max_lat - grid_min_lat < 0.001 or grid_max_lon - grid_min_lon < 0.001:
+                    continue
+
+                print(f"  🔎 Grid [{i},{j}]: ({grid_min_lat:.4f}, {grid_min_lon:.4f}) to ({grid_max_lat:.4f}, {grid_max_lon:.4f})", flush=True)
+
+                # Query this grid
+                towers = self.get_cell_towers_in_bounding_box(
+                    min_lat=grid_min_lat,
+                    max_lat=grid_max_lat,
+                    min_lon=grid_min_lon,
+                    max_lon=grid_max_lon,
+                    radio=radio,
+                    limit=limit
+                )
+
+                if towers:
+                    all_towers.extend(towers)
+                    successful_queries += 1
+
+                # Rate limiting (5 requests per second max)
+                time.sleep(0.2)
+
+        # Remove duplicates based on cell ID
+        unique_towers = {}
+        for tower in all_towers:
+            # Create unique key from cell identifiers
+            key = f"{tower.get('mcc', 0)}-{tower.get('mnc', 0)}-{tower.get('lac', 0)}-{tower.get('cellid', 0)}"
+
+            # Keep first occurrence of each tower
+            if key not in unique_towers:
+                unique_towers[key] = tower
+
+        unique_list = list(unique_towers.values())
+
+        print(f"\n📊 Grid search results:", flush=True)
+        print(f"  ✅ Successful queries: {successful_queries}/{lat_grids * lon_grids}", flush=True)
+        print(f"  📡 Total towers found: {len(all_towers)}", flush=True)
+        print(f"  🎯 Unique towers: {len(unique_list)}", flush=True)
+
+        return unique_list

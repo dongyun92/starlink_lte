@@ -439,12 +439,11 @@ def get_cell_towers(session_id):
 
         print(f"📡 Querying cell towers: {radio}, bbox=[{min_lat:.4f}, {max_lat:.4f}, {min_lon:.4f}, {max_lon:.4f}]")
 
-        # Query OpenCellID
-        towers = client.get_cell_towers_in_bounding_box(
-            min_lat, max_lat, min_lon, max_lon, radio
+        # Query OpenCellID using grid search for better coverage
+        towers = client.get_cell_towers_grid_search(
+            min_lat, max_lat, min_lon, max_lon, radio,
+            grid_size=0.018  # 2km grid cells
         )
-
-        print(f"   Found {len(towers)} towers")
 
         # Convert to GeoJSON
         geojson = _convert_towers_to_geojson(towers)
