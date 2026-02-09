@@ -361,42 +361,47 @@ class CZMLGenerator:
             Array of RGBA color values (0-255)
         """
         # Determine which column to use
+        column_name = color_by  # Track selected column name for error messages
+
         if color_by == 'altitude':
             values = df['altitude'].values
         elif color_by == 'speed':
-            if 'speed_mps' in df.columns:
-                values = df['speed_mps'].values
-            else:
-                print(f"⚠️ speed_mps column not found, using altitude")
-                values = df['altitude'].values
+            if 'speed_mps' not in df.columns:
+                raise ValueError(f"❌ Speed data not available in this session")
+            values = df['speed_mps'].values
         elif color_by == 'lte_rsrp':
-            if 'lte_rsrp' in df.columns:
-                values = df['lte_rsrp'].values
-            else:
-                print(f"⚠️ lte_rsrp column not found, using altitude")
-                values = df['altitude'].values
+            if 'lte_rsrp' not in df.columns:
+                raise ValueError(f"❌ LTE RSRP data not available in this session")
+            values = df['lte_rsrp'].values
         elif color_by == 'lte_sinr':
-            if 'lte_sinr' in df.columns:
-                values = df['lte_sinr'].values
-            else:
-                print(f"⚠️ lte_sinr column not found, using altitude")
-                values = df['altitude'].values
+            if 'lte_sinr' not in df.columns:
+                raise ValueError(f"❌ LTE SINR data not available in this session")
+            values = df['lte_sinr'].values
         elif color_by == 'starlink_snr':
-            if 'starlink_snr' in df.columns:
-                values = df['starlink_snr'].values
-            else:
-                print(f"⚠️ starlink_snr column not found, using altitude")
-                values = df['altitude'].values
+            if 'starlink_snr' not in df.columns:
+                raise ValueError(f"❌ Starlink SNR data not available in this session")
+            values = df['starlink_snr'].values
         elif color_by == 'lte_rssi':
-            if 'lte_rssi' in df.columns:
-                values = df['lte_rssi'].values
-            else:
-                print(f"⚠️ lte_rssi column not found, using altitude")
-                values = df['altitude'].values
+            if 'lte_rssi' not in df.columns:
+                raise ValueError(f"❌ LTE RSSI data not available in this session")
+            values = df['lte_rssi'].values
         else:
             # Default to altitude
             print(f"⚠️ Unknown color_by '{color_by}', using altitude")
             values = df['altitude'].values
+            column_name = 'altitude'
+
+        # Check data availability (reject if >80% NaN)
+        nan_count = np.sum(np.isnan(values))
+        total_count = len(values)
+        nan_ratio = nan_count / total_count if total_count > 0 else 1.0
+
+        print(f"🔍 Data check: column={column_name}, NaN={nan_count}/{total_count} ({nan_ratio*100:.1f}%)")
+
+        if nan_ratio > 0.8:
+            error_msg = f"❌ Insufficient data for '{column_name}': {nan_ratio*100:.1f}% missing. Choose a different color mode."
+            print(error_msg)
+            raise ValueError(error_msg)
 
         # Normalize values to 0-1 range
         vmin, vmax = np.nanmin(values), np.nanmax(values)
