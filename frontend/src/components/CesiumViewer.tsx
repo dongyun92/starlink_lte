@@ -234,7 +234,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           clock.currentTime = startTime.clone();
           clock.clockRange = Cesium.ClockRange.LOOP_STOP;
           clock.multiplier = 10;
-          clock.shouldAnimate = true;
+          clock.shouldAnimate = false;  // 자동재생 비활성화
 
           console.log('🕐 Clock AFTER config:', {
             startTime: Cesium.JulianDate.toIso8601(clock.startTime),
@@ -267,7 +267,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         });
 
         console.log('✅ Flight path visualization complete');
-        console.log('▶️ Timeline playing automatically');
+        console.log('⏸️ Timeline paused (autoplay disabled)');
       } catch (error) {
         console.error('❌ Failed to load flight data:', error);
       }
