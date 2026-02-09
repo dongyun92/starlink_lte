@@ -1362,8 +1362,8 @@ class CZMLGenerator:
             raise ValueError(f"No merged data found for session {self.session_id}")
 
         df = pd.read_csv(merged_data_path)
-        # Ensure timestamp is datetime
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        # Ensure timestamp is datetime (handle mixed formats with ISO8601)
+        df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
 
         # Filter by flight_id if specified
         if flight_id is not None and 'flight_id' in df.columns:
