@@ -160,10 +160,19 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           czmlDataSourceRef.current = null;
         }
 
+        // Path color mode 매핑: UI 값 → API 값
+        const colorByMapping: Record<string, string> = {
+          'altitude': 'altitude',
+          'speed': 'speed',
+          'lte': 'lte_rsrp',         // LTE는 RSRP 사용
+          'starlink': 'starlink_snr'  // Starlink는 SNR 사용
+        };
+        const apiColorBy = colorByMapping[pathColorMode] || 'altitude';
+
         // CZML 데이터 가져오기 (단일 경로, 최적화된 샘플링)
         const czmlData = await getCZMLData(selectedSessionId, {
           sample_rate: 0.2,  // 5초마다 1개 포인트 (80% 빠름, 5배 적은 데이터)
-          color_by: pathColorMode,  // 사용자 선택한 색상 모드 (altitude/lte/starlink/speed)
+          color_by: apiColorBy,  // 매핑된 API 색상 모드
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined,
         });
 
