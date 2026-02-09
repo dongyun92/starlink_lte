@@ -449,9 +449,10 @@ def get_cell_towers(session_id):
         print(f"📱 Connected cell IDs during flight: {len(connected_cell_ids)}")
 
         # Query OpenCellID using grid search for better coverage
+        # Larger grid size (5km) with max 25 grids for faster response
         towers = client.get_cell_towers_grid_search(
             min_lat, max_lat, min_lon, max_lon, radio,
-            grid_size=0.018  # 2km grid cells
+            grid_size=0.045  # ~5km grid cells, max 25 grids
         )
 
         # Convert to GeoJSON with connected tower information

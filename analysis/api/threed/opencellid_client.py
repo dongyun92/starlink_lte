@@ -140,11 +140,27 @@ class OpenCellIDClient:
         lat_range = max_lat - min_lat
         lon_range = max_lon - min_lon
 
-        # Number of grids (with 50% overlap for better coverage)
-        lat_grids = max(1, int(math.ceil(lat_range / (grid_size * 0.5))))
-        lon_grids = max(1, int(math.ceil(lon_range / (grid_size * 0.5))))
+        # Number of grids (NO overlap for speed)
+        lat_grids = max(1, int(math.ceil(lat_range / grid_size)))
+        lon_grids = max(1, int(math.ceil(lon_range / grid_size)))
+
+        # Limit max grids to prevent excessive API calls
+        MAX_GRIDS = 25
+        total_grids = lat_grids * lon_grids
+
+        if total_grids > MAX_GRIDS:
+            # Adjust grid size to fit within limit
+            scale_factor = math.sqrt(total_grids / MAX_GRIDS)
+            adjusted_grid_size = grid_size * scale_factor
+            lat_grids = max(1, int(math.ceil(lat_range / adjusted_grid_size)))
+            lon_grids = max(1, int(math.ceil(lon_range / adjusted_grid_size)))
+            actual_grid_size = adjusted_grid_size
+            print(f"  ⚠️ Too many grids, adjusted to {lat_grids} × {lon_grids} = {lat_grids * lon_grids}", flush=True)
+        else:
+            actual_grid_size = grid_size
 
         print(f"  📊 Grid configuration: {lat_grids} × {lon_grids} = {lat_grids * lon_grids} grids", flush=True)
+        print(f"  ⏱️ Estimated time: ~{lat_grids * lon_grids * 0.15:.1f}s", flush=True)
 
         all_towers = []
         successful_queries = 0
@@ -152,11 +168,11 @@ class OpenCellIDClient:
         # Iterate through grid cells
         for i in range(lat_grids):
             for j in range(lon_grids):
-                # Calculate grid boundaries
-                grid_min_lat = min_lat + i * grid_size * 0.5
-                grid_max_lat = min(grid_min_lat + grid_size, max_lat)
-                grid_min_lon = min_lon + j * grid_size * 0.5
-                grid_max_lon = min(grid_min_lon + grid_size, max_lon)
+                # Calculate grid boundaries (no overlap)
+                grid_min_lat = min_lat + i * actual_grid_size
+                grid_max_lat = min(grid_min_lat + actual_grid_size, max_lat)
+                grid_min_lon = min_lon + j * actual_grid_size
+                grid_max_lon = min(grid_min_lon + actual_grid_size, max_lon)
 
                 # Skip if grid is too small
                 if grid_max_lat - grid_min_lat < 0.001 or grid_max_lon - grid_min_lon < 0.001:
@@ -178,8 +194,8 @@ class OpenCellIDClient:
                     all_towers.extend(towers)
                     successful_queries += 1
 
-                # Rate limiting (5 requests per second max)
-                time.sleep(0.2)
+                # Rate limiting (10 requests per second max)
+                time.sleep(0.1)
 
         # Remove duplicates based on cell ID
         unique_towers = {}
