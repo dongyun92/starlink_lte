@@ -52,12 +52,12 @@ class OpenCellIDClient:
         center_lon = (min_lon + max_lon) / 2
 
         # OpenCellID BBOX limit: 4,000,000 sq.mts = 4 km²
-        # Use 2km × 2km box around center (safe margin)
-        # 1 degree latitude ≈ 111 km, so 2km ≈ 0.018 degrees
-        # Adjust for longitude based on latitude (cos correction)
+        # Use 1km × 1km box around center (safe margin with cos correction)
+        # 1 degree latitude ≈ 111 km, so 1km ≈ 0.009 degrees
+        # Longitude: same 0.009 degrees (actual distance = 0.009 * 111 * cos(lat) km)
         import math
-        lat_offset = 0.018  # ~2km
-        lon_offset = 0.018 / math.cos(math.radians(center_lat))  # ~2km at this latitude
+        lat_offset = 0.009  # ~1km radius (2km total height)
+        lon_offset = 0.009  # ~1km radius at equator, less at higher latitudes
 
         # Create limited BBOX around center
         bbox_min_lat = center_lat - lat_offset
