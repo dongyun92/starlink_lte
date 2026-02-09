@@ -355,17 +355,47 @@ class CZMLGenerator:
 
         Args:
             df: Flight data DataFrame
-            color_by: What to color by ('altitude', 'speed', 'quality')
+            color_by: What to color by ('altitude', 'speed', 'lte_rsrp', 'lte_sinr', 'starlink_snr', etc.)
 
         Returns:
             Array of RGBA color values (0-255)
         """
+        # Determine which column to use
         if color_by == 'altitude':
             values = df['altitude'].values
         elif color_by == 'speed':
-            values = df.get('speed_mps', df['altitude']).values
+            if 'speed_mps' in df.columns:
+                values = df['speed_mps'].values
+            else:
+                print(f"⚠️ speed_mps column not found, using altitude")
+                values = df['altitude'].values
+        elif color_by == 'lte_rsrp':
+            if 'lte_rsrp' in df.columns:
+                values = df['lte_rsrp'].values
+            else:
+                print(f"⚠️ lte_rsrp column not found, using altitude")
+                values = df['altitude'].values
+        elif color_by == 'lte_sinr':
+            if 'lte_sinr' in df.columns:
+                values = df['lte_sinr'].values
+            else:
+                print(f"⚠️ lte_sinr column not found, using altitude")
+                values = df['altitude'].values
+        elif color_by == 'starlink_snr':
+            if 'starlink_snr' in df.columns:
+                values = df['starlink_snr'].values
+            else:
+                print(f"⚠️ starlink_snr column not found, using altitude")
+                values = df['altitude'].values
+        elif color_by == 'lte_rssi':
+            if 'lte_rssi' in df.columns:
+                values = df['lte_rssi'].values
+            else:
+                print(f"⚠️ lte_rssi column not found, using altitude")
+                values = df['altitude'].values
         else:
             # Default to altitude
+            print(f"⚠️ Unknown color_by '{color_by}', using altitude")
             values = df['altitude'].values
 
         # Normalize values to 0-1 range
@@ -375,7 +405,7 @@ class CZMLGenerator:
         else:
             normalized = np.zeros_like(values)
 
-        # Apply viridis colormap
+        # Apply jet colormap
         colors = self._viridis_colormap(normalized)
 
         return colors
