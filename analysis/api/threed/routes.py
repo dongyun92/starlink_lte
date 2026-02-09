@@ -15,6 +15,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from models.session import Session
 from .czml_generator import CZMLGenerator
+from .opencellid_client import OpenCellIDClient
 
 api_3d_bp = Blueprint('api_3d', __name__, url_prefix='/api/3d')
 
@@ -31,6 +32,20 @@ try:
 except Exception as e:
     print(f"⚠️ Redis connection failed: {e}")
     redis_client = None
+
+# OpenCellID client (singleton)
+opencellid_client = None
+
+def get_opencellid_client():
+    """Get or create OpenCellID client"""
+    global opencellid_client
+    if opencellid_client is None:
+        try:
+            opencellid_client = OpenCellIDClient()
+        except ValueError as e:
+            print(f"⚠️ OpenCellID client not available: {e}")
+            return None
+    return opencellid_client
 
 
 @api_3d_bp.route('/flights', methods=['GET'])
@@ -352,6 +367,160 @@ def get_heatmap_czml(session_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@api_3d_bp.route('/cell-towers/<session_id>', methods=['GET'])
+def get_cell_towers(session_id):
+    """
+    Get cell tower data for visualization
+
+    Query Parameters:
+        - radio: Radio type filter (LTE, UMTS, GSM, NR, all) [default: LTE]
+        - use_cache: Use cached data if available (true/false) [default: true]
+
+    Response:
+        GeoJSON FeatureCollection with cell tower locations
+    """
+    try:
+        # Get query parameters
+        radio = request.args.get('radio', 'LTE', type=str)
+        use_cache = request.args.get('use_cache', 'true', type=str) == 'true'
+
+        # Check if OpenCellID is configured
+        client = get_opencellid_client()
+        if client is None:
+            return jsonify({
+                'error': 'OpenCellID API key not configured',
+                'message': 'Set OPENCELLID_API_KEY environment variable'
+            }), 503
+
+        # Cache key
+        cache_key = f"cell_towers:{session_id}:{radio}"
+
+        # Check cache (24 hour TTL)
+        if use_cache and redis_client:
+            try:
+                cached = redis_client.get(cache_key)
+                if cached:
+                    print(f"✅ Cell towers cache HIT: {cache_key}")
+                    return jsonify(json.loads(cached)), 200
+            except Exception as e:
+                print(f"⚠️ Redis cache read error: {e}")
+
+        # Load session data to get bounding box
+        session = Session.get_by_id(session_id)
+
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+
+        if session.status != 'completed':
+            return jsonify({'error': 'Session not completed'}), 400
+
+        # Read merged data to get bounding box
+        results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
+        merged_data_path = results_dir / 'merged_data.csv'
+
+        if not merged_data_path.exists():
+            return jsonify({'error': 'No flight data available'}), 404
+
+        # Read CSV to get bounding box
+        import pandas as pd
+        df = pd.read_csv(merged_data_path)
+
+        if df.empty:
+            return jsonify({'error': 'No flight data available'}), 404
+
+        # Calculate bounding box with margin
+        MARGIN = 0.05  # ~5km margin
+        min_lat = float(df['latitude'].min() - MARGIN)
+        max_lat = float(df['latitude'].max() + MARGIN)
+        min_lon = float(df['longitude'].min() - MARGIN)
+        max_lon = float(df['longitude'].max() + MARGIN)
+
+        print(f"📡 Querying cell towers: {radio}, bbox=[{min_lat:.4f}, {max_lat:.4f}, {min_lon:.4f}, {max_lon:.4f}]")
+
+        # Query OpenCellID
+        towers = client.get_cell_towers_in_bounding_box(
+            min_lat, max_lat, min_lon, max_lon, radio
+        )
+
+        print(f"   Found {len(towers)} towers")
+
+        # Convert to GeoJSON
+        geojson = _convert_towers_to_geojson(towers)
+
+        # Cache result (24 hours)
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 86400, json.dumps(geojson))
+                print(f"💾 Cell towers cached: {cache_key}")
+            except Exception as e:
+                print(f"⚠️ Redis cache write error: {e}")
+
+        return jsonify(geojson), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to fetch cell towers: {str(e)}'}), 500
+
+
+def _convert_towers_to_geojson(towers: list) -> dict:
+    """
+    Convert OpenCellID tower list to GeoJSON FeatureCollection
+
+    Args:
+        towers: List of tower dicts from OpenCellID
+
+    Returns:
+        GeoJSON FeatureCollection
+    """
+    # Operator mapping (MCC 450 = Korea)
+    OPERATORS = {
+        5: 'SK Telecom',
+        6: 'LG U+',
+        8: 'KT'
+    }
+
+    features = []
+
+    for tower in towers:
+        # Skip towers without coordinates
+        if not tower.get('lat') or not tower.get('lon'):
+            continue
+
+        # Create feature
+        feature = {
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Point',
+                'coordinates': [
+                    float(tower['lon']),
+                    float(tower['lat']),
+                    0  # Ground level
+                ]
+            },
+            'properties': {
+                'id': f"{tower.get('mcc', 'unknown')}-{tower.get('mnc', 'unknown')}-{tower.get('lac', 'unknown')}-{tower.get('cid', 'unknown')}",
+                'radio': tower.get('radio', 'unknown'),
+                'operator': OPERATORS.get(tower.get('mnc'), 'Unknown'),
+                'mcc': tower.get('mcc'),
+                'mnc': tower.get('mnc'),
+                'lac': tower.get('lac'),
+                'cid': tower.get('cid'),
+                'range': tower.get('range', 1000),  # Default 1km
+                'samples': tower.get('samples', 0),
+                'signal': tower.get('averageSignal'),
+                'updated': tower.get('updated')
+            }
+        }
+
+        features.append(feature)
+
+    return {
+        'type': 'FeatureCollection',
+        'features': features
+    }
 
 
 @api_3d_bp.route('/health', methods=['GET'])

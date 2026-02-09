@@ -3,7 +3,15 @@
 """
 from flask import Flask, render_template, send_file, Response
 from flask_cors import CORS
+from dotenv import load_dotenv
+from pathlib import Path
 import config
+
+# Load environment variables from .env file
+env_path = Path(__file__).parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"✅ Loaded environment variables from {env_path}")
 from models import init_db
 from api import upload_bp, sessions_bp, results_bp, compare_bp, convert_csv_bp
 from api.threed import api_3d_bp

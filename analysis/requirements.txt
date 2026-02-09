@@ -24,3 +24,9 @@ redis==5.0.1
 
 # 유틸리티
 Werkzeug==3.0.1
+
+# 환경 변수 로드
+python-dotenv==1.0.0
+
+# HTTP 요청 (OpenCellID API)
+requests==2.31.0
