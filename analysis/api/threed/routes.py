@@ -280,7 +280,13 @@ def get_czml_data(session_id):
         response.headers['X-Cache'] = 'MISS'
         return response
 
+    except ValueError as e:
+        # Client error - invalid data selection (e.g., missing data for color_by)
+        error_msg = str(e)
+        print(f"⚠️ ValueError: {error_msg}")
+        return jsonify({'error': error_msg}), 400
     except Exception as e:
+        # Server error
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -363,7 +369,13 @@ def get_heatmap_czml(session_id):
         response.headers['X-Cache'] = 'MISS'
         return response
 
+    except ValueError as e:
+        # Client error - invalid data selection (e.g., missing data for color_by)
+        error_msg = str(e)
+        print(f"⚠️ ValueError: {error_msg}")
+        return jsonify({'error': error_msg}), 400
     except Exception as e:
+        # Server error
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500

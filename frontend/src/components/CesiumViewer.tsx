@@ -279,6 +279,16 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         console.log('⏸️ Timeline paused (autoplay disabled)');
       } catch (error) {
         console.error('❌ Failed to load flight data:', error);
+
+        // Show user-friendly error message
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (errorMessage.includes('Insufficient data')) {
+          // Data availability error - user needs to choose different color mode
+          alert(`⚠️ ${errorMessage}\n\nPlease select a different Path Color Mode.`);
+        } else {
+          // Other errors
+          alert(`❌ Failed to load flight path:\n${errorMessage}`);
+        }
       }
     };
 

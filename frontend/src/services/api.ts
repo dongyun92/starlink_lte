@@ -74,7 +74,13 @@ export async function getCZMLData(
   const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch CZML data: ${response.statusText}`);
+    // Try to parse error message from server
+    try {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to fetch CZML data: ${response.statusText}`);
+    } catch (parseError) {
+      throw new Error(`Failed to fetch CZML data: ${response.statusText}`);
+    }
   }
 
   return response.json();
