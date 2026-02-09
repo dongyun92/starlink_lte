@@ -437,16 +437,24 @@ def get_cell_towers(session_id):
         min_lon = float(df['longitude'].min() - MARGIN)
         max_lon = float(df['longitude'].max() + MARGIN)
 
-        # Extract connected cell IDs from LTE data
-        connected_cell_ids = set()
-        lte_id_columns = ['lte_eps_cell_id', 'lte_cell_id']
-        for col in lte_id_columns:
-            if col in df.columns:
-                cell_ids = df[col].dropna().astype(str).unique()
-                connected_cell_ids.update(cell_ids)
+        # Extract connected LAC (Location Area Code) from LTE data
+        # LAC is stored as hex string in CSV, need to convert to decimal
+        connected_lacs = set()
+        if 'lte_lac' in df.columns:
+            lac_values = df['lte_lac'].dropna().astype(str).unique()
+            for lac_hex in lac_values:
+                try:
+                    # Skip invalid values
+                    if lac_hex in ['0', 'FFFF', 'nan']:
+                        continue
+                    # Convert hex string to decimal integer
+                    lac_decimal = int(lac_hex, 16)
+                    connected_lacs.add(lac_decimal)
+                except ValueError:
+                    continue
 
         print(f"📡 Querying cell towers: {radio}, bbox=[{min_lat:.4f}, {max_lat:.4f}, {min_lon:.4f}, {max_lon:.4f}]")
-        print(f"📱 Connected cell IDs during flight: {len(connected_cell_ids)}")
+        print(f"📱 Connected LACs during flight: {connected_lacs}")
 
         # Query OpenCellID using grid search for better coverage
         # Larger grid size (5km) with max 25 grids for faster response
@@ -456,7 +464,7 @@ def get_cell_towers(session_id):
         )
 
         # Convert to GeoJSON with connected tower information
-        geojson = _convert_towers_to_geojson(towers, connected_cell_ids)
+        geojson = _convert_towers_to_geojson(towers, connected_lacs)
 
         # Cache result (24 hours)
         if redis_client:
@@ -474,19 +482,19 @@ def get_cell_towers(session_id):
         return jsonify({'error': f'Failed to fetch cell towers: {str(e)}'}), 500
 
 
-def _convert_towers_to_geojson(towers: list, connected_cell_ids: set = None) -> dict:
+def _convert_towers_to_geojson(towers: list, connected_lacs: set = None) -> dict:
     """
     Convert OpenCellID tower list to GeoJSON FeatureCollection
 
     Args:
         towers: List of tower dicts from OpenCellID
-        connected_cell_ids: Set of cell IDs that were connected during flight
+        connected_lacs: Set of LAC (Location Area Code) values that were connected during flight
 
     Returns:
         GeoJSON FeatureCollection
     """
-    if connected_cell_ids is None:
-        connected_cell_ids = set()
+    if connected_lacs is None:
+        connected_lacs = set()
 
     # Operator mapping (MCC 450 = Korea)
     OPERATORS = {
@@ -502,11 +510,9 @@ def _convert_towers_to_geojson(towers: list, connected_cell_ids: set = None) -> 
         if not tower.get('lat') or not tower.get('lon'):
             continue
 
-        # Generate cell ID in same format as CSV
-        tower_cell_id = str(tower.get('cellid', ''))
-
-        # Check if this tower was connected during flight
-        is_connected = tower_cell_id in connected_cell_ids
+        # Check if this tower's LAC was connected during flight
+        tower_lac = tower.get('lac')
+        is_connected = tower_lac in connected_lacs
 
         # Create feature
         feature = {
