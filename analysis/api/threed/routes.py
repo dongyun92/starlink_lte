@@ -584,6 +584,99 @@ def _convert_towers_to_geojson(towers: list, connected_lacs: set = None) -> dict
     }
 
 
+@api_3d_bp.route('/satellite-direction/<session_id>', methods=['GET'])
+def get_satellite_direction_czml(session_id):
+    """
+    Generate and return CZML data for satellite direction arrows
+
+    Args:
+        session_id: Session identifier
+
+    Query Parameters:
+        - sample_rate: Sampling rate in Hz (default: 0.2)
+        - color_by: What to color arrows by ('starlink_snr' or 'starlink_latency') (default: 'starlink_snr')
+        - arrow_length: Arrow length in meters (default: 1000)
+        - flight_id: Optional flight ID to filter by (for multi-flight sessions)
+
+    Returns:
+        CZML JSON data with satellite direction polyline arrows
+    """
+    try:
+        # Get query parameters
+        sample_rate = request.args.get('sample_rate', 0.2, type=float)
+        color_by = request.args.get('color_by', 'starlink_snr', type=str)
+        arrow_length = request.args.get('arrow_length', 1000, type=int)
+        flight_id = request.args.get('flight_id', None, type=int)
+
+        # Validate color_by
+        if color_by not in ['starlink_snr', 'starlink_latency']:
+            return jsonify({'error': 'Invalid color_by. Must be starlink_snr or starlink_latency'}), 400
+
+        # Create cache key
+        cache_key = f"sat_dir:{session_id}:{sample_rate}:{color_by}:{arrow_length}:{flight_id}"
+
+        # Try to get from cache
+        if redis_client:
+            try:
+                cached_json = redis_client.get(cache_key)
+                if cached_json:
+                    print(f"✅ Cache HIT: {cache_key}")
+                    response = make_response(cached_json)
+                    response.headers['Content-Type'] = 'application/json'
+                    response.headers['X-Cache'] = 'HIT'
+                    return response
+            except Exception as e:
+                print(f"⚠️ Cache read error: {e}")
+
+        # Validate session
+        session = Session.get_by_id(session_id)
+
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+
+        if session.status != 'completed':
+            return jsonify({'error': 'Session not completed'}), 400
+
+        # Generate satellite direction CZML
+        start_time = time.time()
+        generator = CZMLGenerator(session_id)
+        czml_data = generator.generate_satellite_direction_arrows(
+            sample_rate=sample_rate,
+            color_by=color_by,
+            flight_id=flight_id,
+            arrow_length=arrow_length
+        )
+        generation_time = (time.time() - start_time) * 1000
+        print(f"⏱️ Satellite direction CZML generation time: {generation_time:.1f}ms")
+
+        # Convert to JSON
+        czml_json = json.dumps(czml_data)
+
+        # Cache the JSON data (5 minutes TTL)
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 300, czml_json)
+                print(f"💾 Cache MISS: {cache_key} saved ({len(czml_json)} bytes)")
+            except Exception as e:
+                print(f"⚠️ Cache write error: {e}")
+
+        # Return JSON response
+        response = make_response(czml_json)
+        response.headers['Content-Type'] = 'application/json'
+        response.headers['X-Cache'] = 'MISS'
+        return response
+
+    except ValueError as e:
+        error_msg = str(e)
+        print(f"⚠️ ValueError: {error_msg}")
+        return jsonify({'error': error_msg}), 400
+    except Exception as e:
+        print(f"❌ Error generating satellite direction CZML: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @api_3d_bp.route('/health', methods=['GET'])
 def health_check():
     """

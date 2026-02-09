@@ -119,6 +119,51 @@ export async function getHeatmapCZML(
 }
 
 /**
+ * Get satellite direction CZML data for Starlink visualization
+ */
+export async function getSatelliteDirectionCZML(
+  sessionId: string,
+  options: {
+    sample_rate?: number;
+    color_by?: 'starlink_snr' | 'starlink_latency';
+    arrow_length?: number;
+    flight_id?: number;
+  } = {}
+): Promise<CZMLDocument> {
+  const params = new URLSearchParams();
+
+  if (options.sample_rate !== undefined) {
+    params.append('sample_rate', options.sample_rate.toString());
+  }
+
+  if (options.color_by) {
+    params.append('color_by', options.color_by);
+  }
+
+  if (options.arrow_length !== undefined) {
+    params.append('arrow_length', options.arrow_length.toString());
+  }
+
+  if (options.flight_id !== undefined) {
+    params.append('flight_id', options.flight_id.toString());
+  }
+
+  const url = `${API_BASE_URL}/api/3d/satellite-direction/${sessionId}${params.toString() ? '?' + params.toString() : ''}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    try {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to fetch satellite direction CZML: ${response.statusText}`);
+    } catch (parseError) {
+      throw new Error(`Failed to fetch satellite direction CZML: ${response.statusText}`);
+    }
+  }
+
+  return response.json();
+}
+
+/**
  * Health check for 3D API
  */
 export async function checkAPIHealth(): Promise<{ status: string; service: string; version: string }> {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers } from '@/services/api';
+import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML } from '@/services/api';
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
@@ -31,6 +31,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Cell tower refs
   const cellTowerEntitiesRef = useRef<any[]>([]);
 
+  // Satellite direction ref
+  const satelliteDirectionSourceRef = useRef<any>(null);
+
   const [cameraMode, setCameraMode] = useState<CameraMode>('free');
 
   // Heatmap layer states
@@ -59,6 +62,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Analytics panel state
   const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
+
+  // Satellite direction state
+  const [showSatelliteDirection, setShowSatelliteDirection] = useState<boolean>(false);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -572,6 +578,55 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     console.log(`✅ ${cellTowerEntitiesRef.current.length} cell tower entities rendered`);
   }, [cellTowerData, showCellTowers]);
 
+  // Load satellite direction arrows
+  useEffect(() => {
+    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined' || !showSatelliteDirection) {
+      // Remove satellite direction data source if exists
+      if (satelliteDirectionSourceRef.current) {
+        cesiumViewerRef.current.dataSources.remove(satelliteDirectionSourceRef.current);
+        satelliteDirectionSourceRef.current = null;
+      }
+      return;
+    }
+
+    const Cesium = window.Cesium;
+
+    const loadSatelliteDirection = async () => {
+      try {
+        console.log('🛰️ Loading satellite direction arrows...');
+
+        // Remove existing data source
+        if (satelliteDirectionSourceRef.current) {
+          cesiumViewerRef.current.dataSources.remove(satelliteDirectionSourceRef.current);
+          satelliteDirectionSourceRef.current = null;
+        }
+
+        // Get CZML data
+        const czmlData = await getSatelliteDirectionCZML(selectedSessionId, {
+          sample_rate: 0.2,  // 5 second intervals
+          color_by: pathColorMode.startsWith('starlink') ?
+            (pathColorMode === 'starlink_latency' ? 'starlink_latency' : 'starlink_snr') :
+            'starlink_snr',
+          arrow_length: 1000,  // 1km arrows
+          flight_id: selectedFlightId !== null ? selectedFlightId : undefined
+        });
+
+        console.log('📦 Satellite direction CZML data loaded');
+
+        // Load CZML into Cesium
+        const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+        cesiumViewerRef.current.dataSources.add(dataSource);
+        satelliteDirectionSourceRef.current = dataSource;
+
+        console.log('✅ Satellite direction arrows rendered');
+      } catch (error) {
+        console.error('❌ Failed to load satellite direction arrows:', error);
+      }
+    };
+
+    loadSatelliteDirection();
+  }, [selectedSessionId, selectedFlightId, showSatelliteDirection, pathColorMode]);
+
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
   };
@@ -602,6 +657,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         colorMetadata={colorMetadata}
         showCellTowers={showCellTowers}
         onCellTowersToggle={setShowCellTowers}
+        showSatelliteDirection={showSatelliteDirection}
+        onSatelliteDirectionToggle={setShowSatelliteDirection}
         onAnalyticsToggle={setShowAnalytics}
         showAnalytics={showAnalytics}
       />

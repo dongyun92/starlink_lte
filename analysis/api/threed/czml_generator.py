@@ -1340,3 +1340,154 @@ class CZMLGenerator:
 
         print(f"✅ Created {len(entities)} voxel boxes for {mode.upper()} mode", flush=True)
         return entities
+
+    def generate_satellite_direction_arrows(self, sample_rate: int = 1, color_by: str = 'starlink_snr', flight_id: int = None, arrow_length: int = 1000) -> list:
+        """
+        Generate CZML with 3D arrows showing satellite direction
+
+        Args:
+            sample_rate: Sampling rate in Hz (default: 1)
+            color_by: What to color arrows by (default: 'starlink_snr')
+            flight_id: Optional flight ID filter
+            arrow_length: Arrow length in meters (default: 1000)
+
+        Returns:
+            CZML data with polyline arrows
+        """
+        # Load merged data
+        results_dir = Path(__file__).parent.parent.parent / 'results' / self.session_id
+        merged_data_path = results_dir / 'merged_data.csv'
+
+        if not merged_data_path.exists():
+            raise ValueError(f"No merged data found for session {self.session_id}")
+
+        df = pd.read_csv(merged_data_path, parse_dates=['timestamp'])
+
+        # Filter by flight_id if specified
+        if flight_id is not None and 'flight_id' in df.columns:
+            df = df[df['flight_id'] == flight_id].copy()
+            if df.empty:
+                raise ValueError(f"No data found for flight_id {flight_id}")
+
+        # Check required columns
+        required = ['latitude', 'longitude', 'altitude', 'starlink_azimuth', 'starlink_elevation']
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            raise ValueError(f"❌ Satellite direction requires: {', '.join(missing)}")
+
+        # Filter out NaN values in azimuth/elevation
+        df_valid = df.dropna(subset=['starlink_azimuth', 'starlink_elevation'])
+        if df_valid.empty:
+            raise ValueError(f"❌ No valid satellite direction data available")
+
+        # Apply sampling
+        if sample_rate < 1:
+            interval = int(1 / sample_rate)
+            df_sampled = df_valid.iloc[::interval].copy()
+        else:
+            df_sampled = df_valid.copy()
+
+        # Get quality values for coloring
+        if color_by == 'starlink_snr':
+            if 'starlink_snr' not in df_sampled.columns:
+                raise ValueError(f"❌ Starlink SNR data not available")
+            quality_values = df_sampled['starlink_snr'].values
+            vmin, vmax = 0, 15
+        elif color_by == 'starlink_latency':
+            if 'starlink_latency' not in df_sampled.columns:
+                raise ValueError(f"❌ Starlink latency data not available")
+            quality_values = df_sampled['starlink_latency'].values
+            vmin, vmax = 200, 0  # INVERTED
+        else:
+            # Default to SNR
+            quality_values = df_sampled['starlink_snr'].values if 'starlink_snr' in df_sampled.columns else np.ones(len(df_sampled)) * 0.5
+            vmin, vmax = 0, 15
+
+        # Normalize quality values
+        quality_norm = np.clip((quality_values - vmin) / (vmax - vmin), 0, 1)
+
+        # Generate CZML document
+        czml_document = [
+            {
+                "id": "document",
+                "name": f"Satellite Direction Arrows - {self.session_id}",
+                "version": "1.0",
+                "clock": {
+                    "interval": f"{df_sampled['timestamp'].min().isoformat()}/{df_sampled['timestamp'].max().isoformat()}",
+                    "currentTime": df_sampled['timestamp'].min().isoformat(),
+                    "multiplier": 1,
+                    "range": "LOOP_STOP",
+                    "step": "SYSTEM_CLOCK_MULTIPLIER"
+                }
+            }
+        ]
+
+        # Traffic Light colormap for quality
+        traffic_light_colors = np.array([
+            [215, 25, 28, 255],      # 0.0 - Red (worst)
+            [253, 174, 97, 255],     # 0.25 - Orange
+            [255, 255, 191, 255],    # 0.5 - Yellow
+            [166, 217, 106, 255],    # 0.75 - Light green
+            [26, 150, 65, 255]       # 1.0 - Green (best)
+        ])
+
+        # Create polyline arrows
+        arrow_count = 0
+        for idx, row in df_sampled.iterrows():
+            lat = row['latitude']
+            lon = row['longitude']
+            alt = row['altitude']
+            azimuth = row['starlink_azimuth']
+            elevation = row['starlink_elevation']
+            quality = quality_norm[arrow_count]
+
+            # Convert spherical coordinates to Cartesian offset
+            # Azimuth: 0° = North, 90° = East, 180° = South, 270° = West
+            # Elevation: 0° = Horizon, 90° = Zenith
+            azimuth_rad = np.radians(azimuth)
+            elevation_rad = np.radians(elevation)
+
+            # Calculate 3D vector in local ENU (East-North-Up) coordinates
+            # Then convert to geographic offset (approximate for short distances)
+            dx_east = arrow_length * np.cos(elevation_rad) * np.sin(azimuth_rad)
+            dy_north = arrow_length * np.cos(elevation_rad) * np.cos(azimuth_rad)
+            dz_up = arrow_length * np.sin(elevation_rad)
+
+            # Convert meters to degrees (approximate)
+            meters_per_degree_lat = 111320  # Constant
+            meters_per_degree_lon = 111320 * np.cos(np.radians(lat))
+
+            end_lon = lon + (dx_east / meters_per_degree_lon)
+            end_lat = lat + (dy_north / meters_per_degree_lat)
+            end_alt = alt + dz_up
+
+            # Get color from quality
+            color_idx = int(quality * (len(traffic_light_colors) - 1))
+            color = traffic_light_colors[color_idx]
+
+            # Create polyline entity (arrow)
+            entity = {
+                "id": f"sat_arrow_{arrow_count}",
+                "polyline": {
+                    "positions": {
+                        "cartographicDegrees": [
+                            lon, lat, alt,
+                            end_lon, end_lat, end_alt
+                        ]
+                    },
+                    "material": {
+                        "polylineArrow": {
+                            "color": {
+                                "rgba": color.tolist()
+                            }
+                        }
+                    },
+                    "width": 4,
+                    "arcType": "NONE"  # Straight line, not geodesic
+                }
+            }
+            czml_document.append(entity)
+            arrow_count += 1
+
+        print(f"✅ Created {arrow_count} satellite direction arrows", flush=True)
+        return czml_document

@@ -48,6 +48,10 @@ interface UnifiedControlPanelProps {
   // Analytics controls
   showAnalytics: boolean;
   onAnalyticsToggle: (enabled: boolean) => void;
+
+  // Satellite direction controls
+  showSatelliteDirection: boolean;
+  onSatelliteDirectionToggle: (enabled: boolean) => void;
 }
 
 export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
@@ -73,6 +77,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   colorMetadata,
   showCellTowers,
   onCellTowersToggle,
+  showSatelliteDirection,
+  onSatelliteDirectionToggle,
   showAnalytics,
   onAnalyticsToggle,
 }) => {
@@ -461,7 +467,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
 
           {/* Cell Towers */}
           <div className="space-y-2 pt-3 border-t">
-            <div className="text-xs font-bold text-gray-700 mb-2">📡 Cell Towers</div>
+            <div className="text-xs font-bold text-gray-700 mb-2">📡 Cell Towers & Satellite</div>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -472,6 +478,19 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
               />
               <span className="text-xs">Show LTE Towers</span>
             </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showSatelliteDirection}
+                onChange={(e) => onSatelliteDirectionToggle(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span className="text-xs">🛰️ Satellite Direction Arrows</span>
+            </label>
+            <p className="text-[10px] text-gray-500 ml-5">
+              3D arrows showing Starlink satellite direction with signal quality colors
+            </p>
           </div>
 
           {/* Analytics Panel */}
