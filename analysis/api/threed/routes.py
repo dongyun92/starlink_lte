@@ -9,6 +9,7 @@ import sys
 import redis
 import json
 import hashlib
+import time
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -256,12 +257,15 @@ def get_czml_data(session_id):
             return jsonify({'error': 'Session not completed'}), 400
 
         # Generate CZML
+        start_time = time.time()
         generator = CZMLGenerator(session_id)
         czml_data = generator.generate(
             sample_rate=sample_rate,
             color_by=color_by,
             flight_id=flight_id
         )
+        generation_time = (time.time() - start_time) * 1000  # Convert to ms
+        print(f"⏱️ CZML generation time: {generation_time:.1f}ms")
 
         # Convert to JSON
         czml_json = json.dumps(czml_data)
@@ -349,8 +353,11 @@ def get_heatmap_czml(session_id):
             return jsonify({'error': 'Session not completed'}), 400
 
         # Generate heatmap CZML
+        start_time = time.time()
         generator = CZMLGenerator(session_id)
         czml_data = generator.create_heatmap_czml(mode=mode, style=style, flight_id=flight_id)
+        generation_time = (time.time() - start_time) * 1000  # Convert to ms
+        print(f"⏱️ Heatmap generation time: {generation_time:.1f}ms (mode={mode}, style={style})")
 
         # Convert to JSON
         czml_json = json.dumps(czml_data)
@@ -470,10 +477,13 @@ def get_cell_towers(session_id):
 
         # Query OpenCellID using grid search for better coverage
         # Larger grid size (5km) with max 25 grids for faster response
+        start_time = time.time()
         towers = client.get_cell_towers_grid_search(
             min_lat, max_lat, min_lon, max_lon, radio,
             grid_size=0.045  # ~5km grid cells, max 25 grids
         )
+        query_time = (time.time() - start_time) * 1000  # Convert to ms
+        print(f"⏱️ Cell tower query time: {query_time:.1f}ms ({len(towers)} towers)")
 
         # Convert to GeoJSON with connected tower information
         geojson = _convert_towers_to_geojson(towers, connected_lacs)

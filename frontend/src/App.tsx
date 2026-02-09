@@ -17,11 +17,7 @@ function App() {
       setLoading(true);
       const data = await getFlightSessions();
       setSessions(data);
-
-      // Auto-select first session if none selected
-      if (data.length > 0 && !selectedSessionId) {
-        setSelectedSessionId(data[0].id);
-      }
+      // No auto-selection - user must manually select a session
     } catch (err) {
       console.error('Failed to load sessions:', err);
     } finally {

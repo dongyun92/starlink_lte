@@ -8,6 +8,8 @@ from pathlib import Path
 import sys
 import numpy as np
 import pandas as pd
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -72,11 +74,18 @@ class CZMLGenerator:
         # Generate CZML document
         czml = []
 
+        # Initialize color metadata
+        self._color_metadata = None
+
         # Document header
         czml.append(self._create_document_header(df))
 
         # Flight path entity (single path only, colored by user selection)
         czml.extend(self._create_flight_path_entity(df, color_by))
+
+        # Add color metadata to document header (custom property)
+        if self._color_metadata:
+            czml[0]['colorMetadata'] = self._color_metadata
 
         return czml
 
@@ -156,13 +165,28 @@ class CZMLGenerator:
             polyline_positions.extend([lon, lat, alt])
 
         # Create multiple polyline segments for gradient effect
+        # Performance optimization: Create segments every N points (not every point)
         segment_entities = []
         num_points = len(polyline_positions) // 3
 
-        for i in range(num_points - 1):
-            # Get two consecutive points
+        # Adaptive segment interval based on data size
+        # Small dataset (<500): every point
+        # Medium (500-2000): every 3 points
+        # Large (>2000): every 10 points
+        if num_points < 500:
+            segment_interval = 1
+        elif num_points < 2000:
+            segment_interval = 3
+        else:
+            segment_interval = 10
+
+        print(f"🎨 Creating gradient segments: {num_points} points, interval={segment_interval}")
+
+        # Use list comprehension for better performance
+        for i in range(0, num_points - 1, segment_interval):
+            # Get current and next point (or skip to interval point)
             start_idx = i * 3
-            end_idx = (i + 1) * 3
+            end_idx = min((i + segment_interval) * 3, (num_points - 1) * 3)
 
             segment_positions = [
                 polyline_positions[start_idx],     # lon1
@@ -176,8 +200,8 @@ class CZMLGenerator:
             # Use color from start point
             segment_color = colors[i].tolist()
 
-            segment_entity = {
-                "id": f"flight_path_segment_{self.session_id}_{i}",
+            segment_entities.append({
+                "id": f"path_seg_{i}",  # Shorter ID for performance
                 "polyline": {
                     "positions": {
                         "cartographicDegrees": segment_positions
@@ -193,8 +217,9 @@ class CZMLGenerator:
                     },
                     "clampToGround": False
                 }
-            }
-            segment_entities.append(segment_entity)
+            })
+
+        print(f"✅ Created {len(segment_entities)} gradient segments (reduced from {num_points-1})")
 
         # Entity 2: 움직이는 point (비행기)
         import pandas as pd
@@ -349,6 +374,101 @@ class CZMLGenerator:
 
         return entities
 
+    def _calculate_lte_quality_combined(self, df) -> np.ndarray:
+        """
+        Calculate combined LTE quality score
+
+        Formula: RSRP 30% + SINR 50% + RSRQ 20%
+
+        Args:
+            df: Flight data DataFrame with LTE columns
+
+        Returns:
+            Combined quality score (0-1 range, higher is better)
+        """
+        # Check required columns
+        required = ['lte_rsrp', 'lte_sinr', 'lte_rsrq']
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            raise ValueError(f"❌ LTE combined quality requires: {', '.join(missing)}")
+
+        # Get values
+        rsrp = df['lte_rsrp'].values
+        sinr = df['lte_sinr'].values
+        rsrq = df['lte_rsrq'].values
+
+        # Normalize each parameter to 0-1 range
+        # RSRP: -140 ~ -40 dBm (higher is better)
+        rsrp_norm = np.clip((rsrp - (-140)) / ((-40) - (-140)), 0, 1)
+
+        # SINR: -20 ~ 30 dB (higher is better)
+        sinr_norm = np.clip((sinr - (-20)) / (30 - (-20)), 0, 1)
+
+        # RSRQ: -20 ~ -3 dB (higher is better)
+        rsrq_norm = np.clip((rsrq - (-20)) / ((-3) - (-20)), 0, 1)
+
+        # Weighted combination: RSRP 30% + SINR 50% + RSRQ 20%
+        combined = 0.30 * rsrp_norm + 0.50 * sinr_norm + 0.20 * rsrq_norm
+
+        print(f"📊 LTE Combined Quality: RSRP(30%) + SINR(50%) + RSRQ(20%)")
+
+        return combined
+
+    def _calculate_starlink_quality_combined(self, df) -> np.ndarray:
+        """
+        Calculate combined Starlink quality score
+
+        Formula: SNR 60% + Latency 40% (auto-fallback if one is missing)
+
+        Args:
+            df: Flight data DataFrame with Starlink columns
+
+        Returns:
+            Combined quality score (0-1 range, higher is better)
+        """
+        # Check available columns
+        has_snr = 'starlink_snr' in df.columns
+        has_latency = 'starlink_latency' in df.columns
+
+        if not has_snr and not has_latency:
+            raise ValueError(f"❌ Starlink combined quality requires at least one of: starlink_snr, starlink_latency")
+
+        # Check data availability (not just column existence)
+        snr_valid = has_snr and not df['starlink_snr'].isna().all()
+        latency_valid = has_latency and not df['starlink_latency'].isna().all()
+
+        if not snr_valid and not latency_valid:
+            raise ValueError(f"❌ Starlink data is all NaN. Choose a different color mode.")
+
+        # Case 1: Both SNR and Latency available
+        if snr_valid and latency_valid:
+            snr = df['starlink_snr'].values
+            latency = df['starlink_latency'].values
+
+            # Normalize each parameter to 0-1 range
+            snr_norm = np.clip((snr - 0) / (15 - 0), 0, 1)
+            latency_norm = np.clip((latency - 200) / (0 - 200), 0, 1)
+
+            # Weighted combination: SNR 60% + Latency 40%
+            combined = 0.60 * snr_norm + 0.40 * latency_norm
+            print(f"📊 Starlink Combined Quality: SNR(60%) + Latency(40%)")
+
+        # Case 2: Only SNR available
+        elif snr_valid:
+            snr = df['starlink_snr'].values
+            snr_norm = np.clip((snr - 0) / (15 - 0), 0, 1)
+            combined = snr_norm
+            print(f"📊 Starlink Combined Quality: SNR only (100%) - Latency not available")
+
+        # Case 3: Only Latency available
+        else:  # latency_valid
+            latency = df['starlink_latency'].values
+            latency_norm = np.clip((latency - 200) / (0 - 200), 0, 1)
+            combined = latency_norm
+            print(f"📊 Starlink Combined Quality: Latency only (100%) - SNR not available")
+
+        return combined
+
     def _calculate_colors(self, df, color_by: str) -> np.ndarray:
         """
         Calculate colors for each position based on parameter
@@ -369,6 +489,11 @@ class CZMLGenerator:
             if 'speed_mps' not in df.columns:
                 raise ValueError(f"❌ Speed data not available in this session")
             values = df['speed_mps'].values
+
+        # LTE modes
+        elif color_by == 'lte_quality_combined':
+            values = self._calculate_lte_quality_combined(df)
+            column_name = 'lte_quality_combined'
         elif color_by == 'lte_rsrp':
             if 'lte_rsrp' not in df.columns:
                 raise ValueError(f"❌ LTE RSRP data not available in this session")
@@ -377,14 +502,60 @@ class CZMLGenerator:
             if 'lte_sinr' not in df.columns:
                 raise ValueError(f"❌ LTE SINR data not available in this session")
             values = df['lte_sinr'].values
-        elif color_by == 'starlink_snr':
-            if 'starlink_snr' not in df.columns:
-                raise ValueError(f"❌ Starlink SNR data not available in this session")
-            values = df['starlink_snr'].values
+        elif color_by == 'lte_rsrq':
+            if 'lte_rsrq' not in df.columns:
+                raise ValueError(f"❌ LTE RSRQ data not available in this session")
+            values = df['lte_rsrq'].values
         elif color_by == 'lte_rssi':
             if 'lte_rssi' not in df.columns:
                 raise ValueError(f"❌ LTE RSSI data not available in this session")
             values = df['lte_rssi'].values
+
+        # Starlink modes
+        elif color_by == 'starlink_quality_combined':
+            values = self._calculate_starlink_quality_combined(df)
+            column_name = 'starlink_quality_combined'
+        elif color_by == 'starlink_snr':
+            if 'starlink_snr' not in df.columns:
+                raise ValueError(f"❌ Starlink SNR data not available in this session")
+            values = df['starlink_snr'].values
+        elif color_by == 'starlink_latency':
+            if 'starlink_latency' not in df.columns:
+                raise ValueError(f"❌ Starlink latency data not available in this session")
+            values = df['starlink_latency'].values
+        elif color_by == 'starlink_packet_loss':
+            if 'starlink_ping_drop_rate' not in df.columns:
+                raise ValueError(f"❌ Starlink packet loss data not available in this session")
+            values = df['starlink_ping_drop_rate'].values
+            column_name = 'starlink_packet_loss'
+        elif color_by == 'starlink_throughput_down':
+            if 'starlink_downlink_throughput_bps' not in df.columns:
+                raise ValueError(f"❌ Starlink downlink throughput data not available in this session")
+            values = df['starlink_downlink_throughput_bps'].values / 1_000_000  # Convert to Mbps
+            column_name = 'starlink_throughput_down'
+        elif color_by == 'starlink_throughput_up':
+            if 'starlink_uplink_throughput_bps' not in df.columns:
+                raise ValueError(f"❌ Starlink uplink throughput data not available in this session")
+            values = df['starlink_uplink_throughput_bps'].values / 1_000_000  # Convert to Mbps
+            column_name = 'starlink_throughput_up'
+        elif color_by == 'starlink_obstruction':
+            # Try multiple field candidates (fallback logic)
+            obstruction_candidates = ['starlink_raw_status.fraction_obstructed', 'starlink_obstruction.valid_s']
+            obstruction_field = None
+            for field in obstruction_candidates:
+                if field in df.columns and not df[field].isna().all():
+                    obstruction_field = field
+                    break
+            if not obstruction_field:
+                raise ValueError(f"❌ Starlink obstruction data not available in this session")
+            values = df[obstruction_field].values
+            column_name = 'starlink_obstruction'
+        elif color_by == 'starlink_uptime':
+            if 'starlink_uptime' not in df.columns:
+                raise ValueError(f"❌ Starlink uptime data not available in this session")
+            values = df['starlink_uptime'].values / 3600  # Convert seconds to hours
+            column_name = 'starlink_uptime'
+
         else:
             # Default to altitude
             print(f"⚠️ Unknown color_by '{color_by}', using altitude")
@@ -403,44 +574,153 @@ class CZMLGenerator:
             print(error_msg)
             raise ValueError(error_msg)
 
-        # Normalize values to 0-1 range
-        vmin, vmax = np.nanmin(values), np.nanmax(values)
-        if vmax > vmin:
-            normalized = (values - vmin) / (vmax - vmin)
-        else:
-            normalized = np.zeros_like(values)
+        # Normalize values to 0-1 range using domain-specific logic
+        # This ensures consistent color mapping with heatmaps
+        vmin_actual = np.nanmin(values)
+        vmax_actual = np.nanmax(values)
 
-        # Apply jet colormap
-        colors = self._viridis_colormap(normalized)
+        # Domain-specific normalization (same as heatmap quality scores)
+        if column_name == 'lte_quality_combined' or column_name == 'starlink_quality_combined':
+            # Combined quality scores are already normalized 0-1
+            normalized = values
+            vmin, vmax = 0, 1
+        elif column_name == 'lte_rsrp':
+            # RSRP: -140 ~ -40 dBm (higher is better)
+            vmin, vmax = -140, -40
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'lte_rssi':
+            # RSSI: -120 ~ -20 dBm (higher is better)
+            vmin, vmax = -120, -20
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'lte_sinr':
+            # SINR: -20 ~ 30 dB (higher is better)
+            vmin, vmax = -20, 30
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'lte_rsrq':
+            # RSRQ: -20 ~ -3 dB (higher is better)
+            vmin, vmax = -20, -3
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'starlink_snr':
+            # SNR: 0 ~ 15 dB (higher is better)
+            vmin, vmax = 0, 15
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'starlink_latency':
+            # Latency: 200 ~ 0 ms (lower is better, INVERTED!)
+            vmin, vmax = 200, 0
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'starlink_packet_loss':
+            # Packet Loss: 1.0 ~ 0.0 (lower is better, INVERTED!)
+            vmin, vmax = 1.0, 0.0
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'starlink_throughput_down':
+            # Downlink: 0 ~ 100 Mbps (higher is better)
+            vmin, vmax = 0, 100
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'starlink_throughput_up':
+            # Uplink: 0 ~ 10 Mbps (higher is better)
+            vmin, vmax = 0, 10
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'starlink_obstruction':
+            # Obstruction: 1.0 ~ 0.0 (lower is better, INVERTED!)
+            vmin, vmax = 1.0, 0.0
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'starlink_uptime':
+            # Uptime: use actual min/max (higher is better)
+            vmin, vmax = vmin_actual, vmax_actual
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
+        elif column_name == 'speed_mps':
+            # Speed: use actual min/max (higher is faster = redder)
+            vmin, vmax = vmin_actual, vmax_actual
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
+        else:
+            # altitude and others: use actual min/max
+            vmin, vmax = vmin_actual, vmax_actual
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
+
+        # Clamp to 0-1 range
+        normalized = np.clip(normalized, 0, 1)
+
+        # Store metadata for legend
+        self._color_metadata = {
+            'column': column_name,
+            'min': float(vmin_actual),
+            'max': float(vmax_actual),
+            'unit': self._get_unit(column_name)
+        }
+        print(f"📊 Color range: {column_name} = {vmin_actual:.2f} ~ {vmax_actual:.2f} {self._color_metadata['unit']}")
+
+        # Apply industry-standard colormap based on data type
+        colors = self._apply_colormap(normalized, column_name)
 
         return colors
 
-    def _viridis_colormap(self, values: np.ndarray) -> np.ndarray:
+    def _get_unit(self, column_name: str) -> str:
+        """Get unit for column"""
+        if 'quality_combined' in column_name:
+            return 'score'
+        elif 'rsrp' in column_name or 'rssi' in column_name or 'sinr' in column_name or 'rsrq' in column_name or 'snr' in column_name:
+            return 'dB'
+        elif 'latency' in column_name:
+            return 'ms'
+        elif 'packet_loss' in column_name or 'obstruction' in column_name:
+            return 'ratio'
+        elif 'throughput' in column_name:
+            return 'Mbps'
+        elif 'uptime' in column_name:
+            return 'hours'
+        elif 'altitude' in column_name:
+            return 'm'
+        elif 'speed' in column_name:
+            return 'm/s'
+        else:
+            return ''
+
+    def _apply_colormap(self, values: np.ndarray, column_name: str) -> np.ndarray:
         """
-        Apply jet colormap to normalized values for rich gradient visualization
+        Apply industry-standard colormap based on data type
 
         Args:
             values: Normalized values (0-1)
+            column_name: Name of the data column (determines colormap)
 
         Returns:
             RGBA colors (0-255)
         """
-        # Jet colormap (풍부한 그라데이션 - 파랑→청록→녹색→노랑→주황→빨강)
-        jet_colors = np.array([
-            [0, 0, 143],        # Dark blue (0.0)
-            [0, 0, 255],        # Blue (0.1)
-            [0, 127, 255],      # Sky blue (0.2)
-            [0, 255, 255],      # Cyan (0.3)
-            [0, 255, 127],      # Cyan-green (0.4)
-            [0, 255, 0],        # Green (0.5)
-            [127, 255, 0],      # Yellow-green (0.6)
-            [255, 255, 0],      # Yellow (0.7)
-            [255, 127, 0],      # Orange (0.8)
-            [255, 0, 0],        # Red (0.9)
-            [127, 0, 0]         # Dark red (1.0)
-        ])
+        # Select appropriate colormap based on data type
+        if 'altitude' in column_name:
+            # Terrain colormap: 초록(평지) → 갈색(언덕) → 흰색(산)
+            # Natural terrain colors from DEM/elevation mapping standards
+            cmap = cm.terrain
+            print(f"🎨 Using TERRAIN colormap (Green→Brown→White) for altitude")
 
-        # Interpolate colors
+        elif any(sig in column_name for sig in ['rsrp', 'rssi', 'sinr', 'rsrq', 'snr', 'latency', 'quality_combined',
+                                                   'packet_loss', 'throughput', 'obstruction', 'uptime']):
+            # Traffic light colormap: 빨강(약함) → 노랑(보통) → 초록(강함)
+            # LTE/Telecom industry standard (reversed for low=bad, high=good)
+            cmap = cm.RdYlGn_r  # Red-Yellow-Green reversed
+            print(f"🎨 Using TRAFFIC LIGHT colormap (Red→Yellow→Green) for {column_name}")
+
+        elif 'speed' in column_name:
+            # Turbo colormap: 파랑(느림) → 초록/노랑 → 빨강(빠름)
+            # Fluid dynamics standard for velocity visualization
+            cmap = cm.turbo
+            print(f"🎨 Using TURBO colormap (Blue→Green→Yellow→Red) for speed")
+
+        else:
+            # Fallback: jet colormap
+            cmap = cm.jet
+            print(f"🎨 Using JET colormap (fallback) for {column_name}")
+
+        # Apply colormap
         n = len(values)
         colors = np.zeros((n, 4), dtype=np.uint8)
 
@@ -449,15 +729,16 @@ class CZMLGenerator:
                 colors[i] = [128, 128, 128, 255]  # Gray for NaN
                 continue
 
-            # Find interpolation indices
-            idx = val * (len(jet_colors) - 1)
-            idx0 = int(np.floor(idx))
-            idx1 = min(idx0 + 1, len(jet_colors) - 1)
-            frac = idx - idx0
+            # Get RGBA from matplotlib colormap (0-1 range)
+            rgba = cmap(val)
 
-            # Interpolate RGB
-            rgb = jet_colors[idx0] * (1 - frac) + jet_colors[idx1] * frac
-            colors[i] = [int(rgb[0]), int(rgb[1]), int(rgb[2]), 255]
+            # Convert to 0-255 range
+            colors[i] = [
+                int(rgba[0] * 255),  # R
+                int(rgba[1] * 255),  # G
+                int(rgba[2] * 255),  # B
+                255                   # A (fully opaque)
+            ]
 
         return colors
 
@@ -783,12 +1064,10 @@ class CZMLGenerator:
         """
         Get unified color based on quality score (0-100)
 
-        Unified Color Scheme:
-        - Red (0-20): Very poor
-        - Orange (20-40): Poor
-        - Yellow (40-60): Fair
-        - Light Green (60-80): Good
-        - Green (80-100): Excellent
+        Uses industry-standard traffic light colormap (Red-Yellow-Green)
+        - Red (0): Very poor signal
+        - Orange/Yellow (50): Fair signal
+        - Green (100): Excellent signal
 
         Args:
             quality_score: Quality score (0-100)
@@ -796,16 +1075,20 @@ class CZMLGenerator:
         Returns:
             RGBA color [R, G, B, A]
         """
-        if quality_score < 20:
-            return [255, 0, 0, 255]  # Red
-        elif quality_score < 40:
-            return [255, 165, 0, 255]  # Orange
-        elif quality_score < 60:
-            return [255, 255, 0, 255]  # Yellow
-        elif quality_score < 80:
-            return [144, 238, 144, 255]  # Light Green
-        else:
-            return [0, 255, 0, 255]  # Green
+        # Normalize to 0-1 range
+        normalized = np.clip(quality_score / 100.0, 0, 1)
+
+        # Use RdYlGn_r colormap (Traffic light standard: Red=bad, Green=good)
+        cmap = cm.RdYlGn_r
+        rgba = cmap(normalized)
+
+        # Convert to 0-255 range
+        return [
+            int(rgba[0] * 255),  # R
+            int(rgba[1] * 255),  # G
+            int(rgba[2] * 255),  # B
+            255                   # A (fully opaque)
+        ]
 
     def _create_voxel_heatmap_entities(self, df, mode: str) -> list:
         """

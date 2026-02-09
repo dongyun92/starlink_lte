@@ -52,7 +52,11 @@ export async function getCZMLData(
   sessionId: string,
   options?: {
     sample_rate?: number;
-    color_by?: 'altitude' | 'speed' | 'quality';
+    color_by?: 'altitude' | 'speed' |
+                'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' |
+                'starlink_quality_combined' | 'starlink_snr' | 'starlink_latency' |
+                'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
+                'starlink_obstruction' | 'starlink_uptime';
     flight_id?: number;
   }
 ): Promise<CZMLDocument> {

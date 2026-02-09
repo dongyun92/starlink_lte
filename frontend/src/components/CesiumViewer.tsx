@@ -43,7 +43,13 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [selectedFlightId, setSelectedFlightId] = useState<number | null>(null);
 
   // Path color mode
-  const [pathColorMode, setPathColorMode] = useState<'altitude' | 'lte' | 'starlink' | 'speed'>('altitude');
+  type PathColorMode = 'altitude' | 'speed' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
+    'starlink_quality_combined' | 'starlink_snr' | 'starlink_latency' |
+    'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
+    'starlink_obstruction' | 'starlink_uptime';
+  const [pathColorMode, setPathColorMode] = useState<PathColorMode>('altitude');
+  const [colorMetadata, setColorMetadata] = useState<{column: string; min: number; max: number; unit: string} | null>(null);
 
   // Cell tower states
   const [showCellTowers, setShowCellTowers] = useState<boolean>(false);
@@ -160,23 +166,23 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           czmlDataSourceRef.current = null;
         }
 
-        // Path color mode 매핑: UI 값 → API 값
-        const colorByMapping: Record<string, string> = {
-          'altitude': 'altitude',
-          'speed': 'speed',
-          'lte': 'lte_rsrp',         // LTE는 RSRP 사용
-          'starlink': 'starlink_snr'  // Starlink는 SNR 사용
-        };
-        const apiColorBy = colorByMapping[pathColorMode] || 'altitude';
-
         // CZML 데이터 가져오기 (단일 경로, 최적화된 샘플링)
+        // pathColorMode가 이제 API 파라미터와 직접 매칭됨
         const czmlData = await getCZMLData(selectedSessionId, {
           sample_rate: 0.2,  // 5초마다 1개 포인트 (80% 빠름, 5배 적은 데이터)
-          color_by: apiColorBy,  // 매핑된 API 색상 모드
+          color_by: pathColorMode,
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined,
         });
 
         console.log('📦 CZML data loaded:', czmlData);
+
+        // Extract color metadata from CZML document header
+        if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].colorMetadata) {
+          setColorMetadata(czmlData[0].colorMetadata);
+          console.log('📊 Color metadata:', czmlData[0].colorMetadata);
+        } else {
+          setColorMetadata(null);
+        }
 
         // CZML 데이터 소스 생성 및 추가
         const Cesium = window.Cesium;
@@ -586,6 +592,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onCameraModeToggle={toggleCameraMode}
         pathColorMode={pathColorMode}
         onPathColorModeChange={setPathColorMode}
+        colorMetadata={colorMetadata}
         showCellTowers={showCellTowers}
         onCellTowersToggle={setShowCellTowers}
       />
