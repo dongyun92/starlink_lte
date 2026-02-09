@@ -115,3 +115,29 @@ export async function checkAPIHealth(): Promise<{ status: string; service: strin
 
   return response.json();
 }
+
+/**
+ * Get cell tower data for a specific flight session
+ */
+export async function getCellTowers(
+  sessionId: string,
+  options: {
+    radio?: string;
+    use_cache?: boolean;
+  } = {}
+): Promise<any> {
+  const { radio = 'LTE', use_cache = true } = options;
+
+  const params = new URLSearchParams({
+    radio,
+    use_cache: use_cache.toString(),
+  });
+
+  const response = await fetch(`${API_BASE_URL}/api/3d/cell-towers/${sessionId}?${params}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch cell towers: ${response.statusText}`);
+  }
+
+  return response.json();
+}

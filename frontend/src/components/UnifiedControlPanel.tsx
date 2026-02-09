@@ -29,6 +29,14 @@ interface UnifiedControlPanelProps {
   // Path color controls
   pathColorMode: 'altitude' | 'lte' | 'starlink' | 'speed';
   onPathColorModeChange: (mode: 'altitude' | 'lte' | 'starlink' | 'speed') => void;
+
+  // Cell tower controls
+  showCellTowers: boolean;
+  showCoverage: boolean;
+  coverageRadius: number;
+  onCellTowersToggle: (enabled: boolean) => void;
+  onCoverageToggle: (enabled: boolean) => void;
+  onCoverageRadiusChange: (radius: number) => void;
 }
 
 export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
@@ -50,6 +58,12 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onCameraModeToggle,
   pathColorMode,
   onPathColorModeChange,
+  showCellTowers,
+  showCoverage,
+  coverageRadius,
+  onCellTowersToggle,
+  onCoverageToggle,
+  onCoverageRadiusChange,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
@@ -234,6 +248,53 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
               />
               <span className="text-xs">Combined Heatmap</span>
             </label>
+          </div>
+
+          {/* Cell Towers */}
+          <div className="space-y-2 pt-3 border-t">
+            <div className="text-xs font-bold text-gray-700 mb-2">📡 Cell Towers</div>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCellTowers}
+                onChange={(e) => onCellTowersToggle(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span className="text-xs">Show LTE Towers</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCoverage}
+                onChange={(e) => onCoverageToggle(e.target.checked)}
+                disabled={!showCellTowers}
+                className="w-3 h-3 disabled:opacity-50"
+              />
+              <span className={`text-xs ${!showCellTowers ? 'text-gray-400' : ''}`}>
+                Show Coverage Radius
+              </span>
+            </label>
+
+            {showCellTowers && (
+              <div className="pl-2 space-y-1">
+                <label className="block">
+                  <span className="text-xs text-gray-600 mb-1 block">
+                    Coverage Radius: {(coverageRadius / 1000).toFixed(1)} km
+                  </span>
+                  <input
+                    type="range"
+                    min="100"
+                    max="5000"
+                    step="100"
+                    value={coverageRadius}
+                    onChange={(e) => onCoverageRadiusChange(parseInt(e.target.value))}
+                    className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                  />
+                </label>
+              </div>
+            )}
           </div>
         </div>
       )}

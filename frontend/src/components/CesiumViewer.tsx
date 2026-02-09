@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData, getHeatmapCZML, getFlightScenarios } from '@/services/api';
+import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers } from '@/services/api';
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 
@@ -27,6 +27,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const starlinkHeatmapSourceRef = useRef<any>(null);
   const combinedHeatmapSourceRef = useRef<any>(null);
 
+  // Cell tower refs
+  const cellTowerEntitiesRef = useRef<any[]>([]);
+
   const [cameraMode, setCameraMode] = useState<CameraMode>('free');
 
   // Heatmap layer states
@@ -41,6 +44,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Path color mode
   const [pathColorMode, setPathColorMode] = useState<'altitude' | 'lte' | 'starlink' | 'speed'>('altitude');
+
+  // Cell tower states
+  const [showCellTowers, setShowCellTowers] = useState<boolean>(false);
+  const [showCoverage, setShowCoverage] = useState<boolean>(false);
+  const [coverageRadius, setCoverageRadius] = useState<number>(1000); // 1km default
+  const [cellTowerData, setCellTowerData] = useState<any>(null);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -421,6 +430,107 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadCombinedHeatmap();
   }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId]);
 
+  // Cell Tower 데이터 로드
+  useEffect(() => {
+    if (!selectedSessionId || !showCellTowers) {
+      setCellTowerData(null);
+      return;
+    }
+
+    const loadCellTowers = async () => {
+      try {
+        console.log('📡 Loading cell tower data...');
+        const data = await getCellTowers(selectedSessionId, {
+          radio: 'LTE',
+          use_cache: true
+        });
+        setCellTowerData(data);
+        console.log(`✅ Cell tower data loaded: ${data.features?.length || 0} towers`);
+      } catch (error) {
+        console.error('❌ Failed to load cell tower data:', error);
+        setCellTowerData(null);
+      }
+    };
+
+    loadCellTowers();
+  }, [selectedSessionId, showCellTowers]);
+
+  // Cell Tower 시각화
+  useEffect(() => {
+    if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+
+    const Cesium = window.Cesium;
+
+    // 기존 기지국 엔티티 제거
+    cellTowerEntitiesRef.current.forEach(entity => {
+      cesiumViewerRef.current.entities.remove(entity);
+    });
+    cellTowerEntitiesRef.current = [];
+
+    // 데이터가 없거나 표시 비활성화 시 종료
+    if (!cellTowerData || !showCellTowers || !cellTowerData.features) {
+      return;
+    }
+
+    console.log(`📡 Rendering ${cellTowerData.features.length} cell towers...`);
+
+    // 각 기지국을 Cesium Entity로 추가
+    cellTowerData.features.forEach((feature: any) => {
+      const coords = feature.geometry.coordinates;
+      const props = feature.properties;
+      const lon = coords[0];
+      const lat = coords[1];
+      const height = 30; // 기지국 높이 (지면에서 30m)
+
+      // 기지국 마커 (Billboard)
+      const towerEntity = cesiumViewerRef.current.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+        billboard: {
+          image: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNCIgZmlsbD0iIzM0OThkYiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8cGF0aCBkPSJNMTYgOFYyNCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xMiAxMkgxNiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xNiAxMkgyMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xMiAxNkgxNiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xNiAxNkgyMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xMiAyMEgxNiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xNiAyMEgyMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4=',
+          width: 32,
+          height: 32,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+        },
+        description: `
+          <div style="font-family: monospace; font-size: 12px;">
+            <b>📡 Cell Tower</b><br/>
+            <b>Radio:</b> ${props.radio}<br/>
+            <b>Operator:</b> ${props.operator_name || 'Unknown'}<br/>
+            <b>MCC:</b> ${props.mcc} <b>MNC:</b> ${props.mnc}<br/>
+            <b>Cell ID:</b> ${props.cell}<br/>
+            <b>Location:</b> ${lat.toFixed(5)}, ${lon.toFixed(5)}
+          </div>
+        `
+      });
+
+      cellTowerEntitiesRef.current.push(towerEntity);
+
+      // 커버리지 반경 표시 (선택 사항)
+      if (showCoverage) {
+        const coverageEntity = cesiumViewerRef.current.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+          ellipse: {
+            semiMajorAxis: coverageRadius,
+            semiMinorAxis: coverageRadius,
+            height: 0,
+            material: Cesium.Color.BLUE.withAlpha(0.1),
+            outline: true,
+            outlineColor: Cesium.Color.BLUE.withAlpha(0.3),
+            outlineWidth: 2,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+          }
+        });
+
+        cellTowerEntitiesRef.current.push(coverageEntity);
+      }
+    });
+
+    console.log(`✅ ${cellTowerEntitiesRef.current.length} cell tower entities rendered`);
+  }, [cellTowerData, showCellTowers, showCoverage, coverageRadius]);
+
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
   };
@@ -447,6 +557,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onCameraModeToggle={toggleCameraMode}
         pathColorMode={pathColorMode}
         onPathColorModeChange={setPathColorMode}
+        showCellTowers={showCellTowers}
+        showCoverage={showCoverage}
+        coverageRadius={coverageRadius}
+        onCellTowersToggle={setShowCellTowers}
+        onCoverageToggle={setShowCoverage}
+        onCoverageRadiusChange={setCoverageRadius}
       />
 
       <div ref={viewerRef} className="w-full h-full" />
