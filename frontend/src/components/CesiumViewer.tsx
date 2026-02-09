@@ -47,8 +47,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Cell tower states
   const [showCellTowers, setShowCellTowers] = useState<boolean>(false);
-  const [showCoverage, setShowCoverage] = useState<boolean>(false);
-  const [coverageRadius, setCoverageRadius] = useState<number>(1000); // 1km default
   const [cellTowerData, setCellTowerData] = useState<any>(null);
 
   // Cesium Viewer 초기화
@@ -484,52 +482,64 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       const lat = coords[1];
       const height = 30; // 기지국 높이 (지면에서 30m)
 
-      // 기지국 마커 (Billboard)
+      // Check if this tower was connected during flight
+      const isConnected = props.is_connected === true;
+
+      // Different colors for connected vs unconnected towers
+      const iconColor = isConnected ? '#ff4444' : '#3498db'; // Red for connected, Blue for unconnected
+      const iconSize = isConnected ? 40 : 28; // Larger for connected towers
+
+      // Generate SVG with dynamic color
+      const svgIcon = `data:image/svg+xml;base64,${btoa(`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="16" cy="16" r="14" fill="${iconColor}" stroke="#fff" stroke-width="2"/>
+  <path d="M16 8V24" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <path d="M12 12H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <path d="M16 12H20" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <path d="M12 16H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <path d="M16 16H20" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <path d="M12 20H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <path d="M16 20H20" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+</svg>`)}`;
+
+      // 기지국 마커 (Billboard) with Label
       const towerEntity = cesiumViewerRef.current.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lon, lat, height),
         billboard: {
-          image: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNCIgZmlsbD0iIzM0OThkYiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8cGF0aCBkPSJNMTYgOFYyNCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xMiAxMkgxNiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xNiAxMkgyMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xMiAxNkgxNiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xNiAxNkgyMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xMiAyMEgxNiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xNiAyMEgyMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4=',
-          width: 32,
-          height: 32,
+          image: svgIcon,
+          width: iconSize,
+          height: iconSize,
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+        },
+        label: {
+          text: props.id || 'Unknown',
+          font: '12px monospace',
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.TOP,
+          pixelOffset: new Cesium.Cartesian2(0, 10),
           heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
         },
         description: `
           <div style="font-family: monospace; font-size: 12px;">
             <b>📡 Cell Tower</b><br/>
+            ${isConnected ? '<b style="color: #ff4444;">✅ CONNECTED DURING FLIGHT</b><br/>' : ''}
+            <b>Cell ID:</b> ${props.id}<br/>
             <b>Radio:</b> ${props.radio}<br/>
-            <b>Operator:</b> ${props.operator_name || 'Unknown'}<br/>
+            <b>Operator:</b> ${props.operator || 'Unknown'}<br/>
             <b>MCC:</b> ${props.mcc} <b>MNC:</b> ${props.mnc}<br/>
-            <b>Cell ID:</b> ${props.cell}<br/>
             <b>Location:</b> ${lat.toFixed(5)}, ${lon.toFixed(5)}
           </div>
         `
       });
 
       cellTowerEntitiesRef.current.push(towerEntity);
-
-      // 커버리지 반경 표시 (선택 사항)
-      if (showCoverage) {
-        const coverageEntity = cesiumViewerRef.current.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
-          ellipse: {
-            semiMajorAxis: coverageRadius,
-            semiMinorAxis: coverageRadius,
-            height: 0,
-            material: Cesium.Color.BLUE.withAlpha(0.1),
-            outline: true,
-            outlineColor: Cesium.Color.BLUE.withAlpha(0.3),
-            outlineWidth: 2,
-            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-          }
-        });
-
-        cellTowerEntitiesRef.current.push(coverageEntity);
-      }
     });
 
     console.log(`✅ ${cellTowerEntitiesRef.current.length} cell tower entities rendered`);
-  }, [cellTowerData, showCellTowers, showCoverage, coverageRadius]);
+  }, [cellTowerData, showCellTowers]);
 
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
@@ -558,11 +568,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         pathColorMode={pathColorMode}
         onPathColorModeChange={setPathColorMode}
         showCellTowers={showCellTowers}
-        showCoverage={showCoverage}
-        coverageRadius={coverageRadius}
         onCellTowersToggle={setShowCellTowers}
-        onCoverageToggle={setShowCoverage}
-        onCoverageRadiusChange={setCoverageRadius}
       />
 
       <div ref={viewerRef} className="w-full h-full" />
