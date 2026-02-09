@@ -28,7 +28,7 @@ class CZMLGenerator:
         self.session_id = session_id
         self.analyzer = None
 
-    def generate(self, sample_rate: int = 1, color_by: str = 'altitude', flight_id: int = None) -> list:
+    def generate(self, sample_rate: int = 1, color_by: str = 'altitude', flight_id: int = None, custom_metrics: dict = None) -> list:
         """
         Generate CZML data for the flight session
 
@@ -36,10 +36,14 @@ class CZMLGenerator:
             sample_rate: Sampling rate in Hz (1 = 1 point per second)
             color_by: What to color by ('altitude', 'speed', 'quality')
             flight_id: Optional flight ID to filter by (for multi-flight sessions)
+            custom_metrics: Optional custom metric weights for quality calculation
+                           Format: {'rsrp': 0.3, 'sinr': 0.5, 'rsrq': 0.2} for LTE
+                                   or {'snr': 0.3, 'latency': 0.2, ...} for Starlink
 
         Returns:
             CZML data as list of dictionaries
         """
+        self.custom_metrics = custom_metrics
         # Load merged data from results directory
         results_dir = Path(__file__).parent.parent.parent / 'results' / self.session_id
         merged_data_path = results_dir / 'merged_data.csv'
@@ -378,7 +382,8 @@ class CZMLGenerator:
         """
         Calculate combined LTE quality score
 
-        Formula: RSRP 30% + SINR 50% + RSRQ 20%
+        Formula: RSRP 30% + SINR 50% + RSRQ 20% (default)
+                 Or custom weights if self.custom_metrics is set
 
         Args:
             df: Flight data DataFrame with LTE columns
@@ -386,7 +391,44 @@ class CZMLGenerator:
         Returns:
             Combined quality score (0-1 range, higher is better)
         """
-        # Check required columns
+        # Use custom weights if provided
+        if hasattr(self, 'custom_metrics') and self.custom_metrics:
+            # Map custom metric names to column names
+            metric_map = {
+                'rsrp': 'lte_rsrp',
+                'sinr': 'lte_sinr',
+                'rsrq': 'lte_rsrq',
+                'rssi': 'lte_rssi'
+            }
+
+            combined = np.zeros(len(df))
+            weights_used = []
+
+            for metric_name, weight in self.custom_metrics.items():
+                col_name = metric_map.get(metric_name)
+                if col_name and col_name in df.columns:
+                    values = df[col_name].values
+
+                    # Normalize based on metric type
+                    if metric_name == 'rsrp':
+                        normalized = np.clip((values - (-140)) / ((-40) - (-140)), 0, 1)
+                    elif metric_name == 'sinr':
+                        normalized = np.clip((values - (-20)) / (30 - (-20)), 0, 1)
+                    elif metric_name == 'rsrq':
+                        normalized = np.clip((values - (-20)) / ((-3) - (-20)), 0, 1)
+                    elif metric_name == 'rssi':
+                        normalized = np.clip((values - (-120)) / ((-20) - (-120)), 0, 1)
+
+                    combined += weight * normalized
+                    weights_used.append(f"{metric_name.upper()}({weight*100:.0f}%)")
+
+            if len(weights_used) == 0:
+                raise ValueError(f"❌ No valid LTE metrics found in custom configuration")
+
+            print(f"📊 LTE Custom Quality: {' + '.join(weights_used)}")
+            return combined
+
+        # Default: Check required columns
         required = ['lte_rsrp', 'lte_sinr', 'lte_rsrq']
         missing = [col for col in required if col not in df.columns]
         if missing:
@@ -418,7 +460,8 @@ class CZMLGenerator:
         """
         Calculate combined Starlink quality score
 
-        Formula: SNR 60% + Latency 40% (auto-fallback if one is missing)
+        Formula: SNR 60% + Latency 40% (default, auto-fallback if one is missing)
+                 Or custom weights if self.custom_metrics is set
 
         Args:
             df: Flight data DataFrame with Starlink columns
@@ -426,7 +469,75 @@ class CZMLGenerator:
         Returns:
             Combined quality score (0-1 range, higher is better)
         """
-        # Check available columns
+        # Use custom weights if provided
+        if hasattr(self, 'custom_metrics') and self.custom_metrics:
+            # Map custom metric names to column names
+            metric_map = {
+                'snr': 'starlink_snr',
+                'latency': 'starlink_latency',
+                'packet_loss': 'starlink_ping_drop_rate',
+                'obstruction': 'starlink_raw_status.fraction_obstructed',
+                'throughput_down': 'starlink_downlink_throughput_bps',
+                'throughput_up': 'starlink_uplink_throughput_bps',
+                'uptime': 'starlink_uptime'
+            }
+
+            combined = np.zeros(len(df))
+            weights_used = []
+
+            for metric_name, weight in self.custom_metrics.items():
+                col_name = metric_map.get(metric_name)
+
+                # Handle obstruction fallback
+                if metric_name == 'obstruction':
+                    if 'starlink_raw_status.fraction_obstructed' in df.columns:
+                        col_name = 'starlink_raw_status.fraction_obstructed'
+                    elif 'starlink_obstruction.valid_s' in df.columns:
+                        col_name = 'starlink_obstruction.valid_s'
+                    else:
+                        continue
+
+                if col_name and col_name in df.columns:
+                    values = df[col_name].values
+
+                    # Skip if all NaN
+                    if np.isnan(values).all():
+                        continue
+
+                    # Normalize based on metric type
+                    if metric_name == 'snr':
+                        normalized = np.clip((values - 0) / (15 - 0), 0, 1)
+                    elif metric_name == 'latency':
+                        normalized = np.clip((values - 200) / (0 - 200), 0, 1)  # INVERTED
+                    elif metric_name == 'packet_loss':
+                        normalized = np.clip((values - 1.0) / (0.0 - 1.0), 0, 1)  # INVERTED
+                    elif metric_name == 'obstruction':
+                        normalized = np.clip((values - 1.0) / (0.0 - 1.0), 0, 1)  # INVERTED
+                    elif metric_name == 'throughput_down':
+                        values_mbps = values / 1_000_000
+                        normalized = np.clip((values_mbps - 0) / (100 - 0), 0, 1)
+                    elif metric_name == 'throughput_up':
+                        values_mbps = values / 1_000_000
+                        normalized = np.clip((values_mbps - 0) / (10 - 0), 0, 1)
+                    elif metric_name == 'uptime':
+                        values_hours = values / 3600
+                        # Use actual min/max for uptime
+                        vmin, vmax = np.nanmin(values_hours), np.nanmax(values_hours)
+                        if vmax > vmin:
+                            normalized = np.clip((values_hours - vmin) / (vmax - vmin), 0, 1)
+                        else:
+                            normalized = np.ones_like(values_hours)
+
+                    combined += weight * normalized
+                    weights_used.append(f"{metric_name.upper()}({weight*100:.0f}%)")
+
+            if len(weights_used) == 0:
+                raise ValueError(f"❌ No valid Starlink metrics found in custom configuration")
+
+            print(f"📊 Starlink Custom Quality: {' + '.join(weights_used)}")
+            return combined
+
+        # Default: Check available columns
         has_snr = 'starlink_snr' in df.columns
         has_latency = 'starlink_latency' in df.columns
 

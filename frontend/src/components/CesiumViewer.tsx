@@ -50,6 +50,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     'starlink_obstruction' | 'starlink_uptime';
   const [pathColorMode, setPathColorMode] = useState<PathColorMode>('altitude');
   const [colorMetadata, setColorMetadata] = useState<{column: string; min: number; max: number; unit: string} | null>(null);
+  const [customMetrics, setCustomMetrics] = useState<Record<string, number> | null>(null);
 
   // Cell tower states
   const [showCellTowers, setShowCellTowers] = useState<boolean>(false);
@@ -172,6 +173,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           sample_rate: 0.2,  // 5초마다 1개 포인트 (80% 빠름, 5배 적은 데이터)
           color_by: pathColorMode,
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined,
+          custom_metrics: customMetrics || undefined,
         });
 
         console.log('📦 CZML data loaded:', czmlData);
@@ -299,7 +301,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadFlightData();
-  }, [selectedSessionId, selectedFlightId, pathColorMode]);
+  }, [selectedSessionId, selectedFlightId, pathColorMode, customMetrics]);
 
   // 카메라 모드 전환 효과
   useEffect(() => {
@@ -592,6 +594,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onCameraModeToggle={toggleCameraMode}
         pathColorMode={pathColorMode}
         onPathColorModeChange={setPathColorMode}
+        onCustomMetricsChange={setCustomMetrics}
         colorMetadata={colorMetadata}
         showCellTowers={showCellTowers}
         onCellTowersToggle={setShowCellTowers}

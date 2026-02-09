@@ -220,6 +220,8 @@ def get_czml_data(session_id):
         - sample_rate: Sampling rate in Hz (default: 1)
         - color_by: What to color by ('altitude', 'speed', 'quality') (default: 'altitude')
         - flight_id: Optional flight ID to filter by (for multi-flight sessions)
+        - custom_metrics: Optional JSON string of custom metric weights
+                         Example: {"rsrp": 0.3, "sinr": 0.5, "rsrq": 0.2}
 
     Returns:
         CZML JSON data
@@ -229,9 +231,19 @@ def get_czml_data(session_id):
         sample_rate = request.args.get('sample_rate', 1.0, type=float)
         color_by = request.args.get('color_by', 'altitude', type=str)
         flight_id = request.args.get('flight_id', None, type=int)
+        custom_metrics_str = request.args.get('custom_metrics', None, type=str)
 
-        # Create cache key
-        cache_key = f"czml:{session_id}:{sample_rate}:{color_by}:{flight_id}"
+        # Parse custom_metrics JSON if provided
+        custom_metrics = None
+        if custom_metrics_str:
+            try:
+                custom_metrics = json.loads(custom_metrics_str)
+            except json.JSONDecodeError as e:
+                return jsonify({'error': f'Invalid custom_metrics JSON: {str(e)}'}), 400
+
+        # Create cache key (include custom_metrics hash for unique caching)
+        custom_metrics_hash = hashlib.md5(custom_metrics_str.encode()).hexdigest()[:8] if custom_metrics_str else 'none'
+        cache_key = f"czml:{session_id}:{sample_rate}:{color_by}:{flight_id}:{custom_metrics_hash}"
 
         # Try to get from cache
         if redis_client:
@@ -262,7 +274,8 @@ def get_czml_data(session_id):
         czml_data = generator.generate(
             sample_rate=sample_rate,
             color_by=color_by,
-            flight_id=flight_id
+            flight_id=flight_id,
+            custom_metrics=custom_metrics
         )
         generation_time = (time.time() - start_time) * 1000  # Convert to ms
         print(f"⏱️ CZML generation time: {generation_time:.1f}ms")

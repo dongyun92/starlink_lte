@@ -58,6 +58,7 @@ export async function getCZMLData(
                 'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
                 'starlink_obstruction' | 'starlink_uptime';
     flight_id?: number;
+    custom_metrics?: Record<string, number>;
   }
 ): Promise<CZMLDocument> {
   const params = new URLSearchParams();
@@ -72,6 +73,10 @@ export async function getCZMLData(
 
   if (options?.flight_id !== undefined) {
     params.append('flight_id', options.flight_id.toString());
+  }
+
+  if (options?.custom_metrics) {
+    params.append('custom_metrics', JSON.stringify(options.custom_metrics));
   }
 
   const url = `${API_BASE_URL}/api/3d/czml/${sessionId}${params.toString() ? '?' + params.toString() : ''}`;

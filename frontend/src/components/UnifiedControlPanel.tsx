@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { FlightScenario, FlightSession } from '@/types/flight';
+import { CustomQualityBuilder } from './CustomQualityBuilder';
 
 interface UnifiedControlPanelProps {
   // Session controls
@@ -37,6 +38,7 @@ interface UnifiedControlPanelProps {
     'starlink_quality_combined' | 'starlink_snr' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime') => void;
+  onCustomMetricsChange: (metrics: Record<string, number> | null) => void;
   colorMetadata: {column: string; min: number; max: number; unit: string} | null;
 
   // Cell tower controls
@@ -63,15 +65,31 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onCameraModeToggle,
   pathColorMode,
   onPathColorModeChange,
+  onCustomMetricsChange,
   colorMetadata,
   showCellTowers,
   onCellTowersToggle,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [showCustomBuilder, setShowCustomBuilder] = useState(false);
+  const [customBuilderType, setCustomBuilderType] = useState<'lte' | 'starlink'>('starlink');
 
   // Determine main color category
   const isLteMode = pathColorMode.startsWith('lte_');
   const isStarlinkMode = pathColorMode.startsWith('starlink_');
+
+  // Handle custom quality builder
+  const handleCustomQualityConfirm = (metrics: Record<string, number>) => {
+    console.log('Custom metrics selected:', metrics);
+    setShowCustomBuilder(false);
+    // Set custom metrics and trigger combined mode
+    onCustomMetricsChange(metrics);
+    if (customBuilderType === 'starlink') {
+      onPathColorModeChange('starlink_quality_combined');
+    } else {
+      onPathColorModeChange('lte_quality_combined');
+    }
+  };
 
   return (
     <div className="absolute top-4 left-4 bg-white rounded-lg shadow-xl z-10 max-w-[300px]">
@@ -188,6 +206,16 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 </label>
                 {pathColorMode.startsWith('lte_') && (
                   <div className="ml-5 mt-1 space-y-1">
+                    {/* Custom Combined Button */}
+                    <button
+                      onClick={() => {
+                        setCustomBuilderType('lte');
+                        setShowCustomBuilder(true);
+                      }}
+                      className="w-full text-left px-2 py-1 text-xs bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-blue-700 font-medium"
+                    >
+                      🎛️ Custom Combined (Click to configure)
+                    </button>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
@@ -241,6 +269,16 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 </label>
                 {pathColorMode.startsWith('starlink_') && (
                   <div className="ml-5 mt-1 space-y-1">
+                    {/* Custom Combined Button */}
+                    <button
+                      onClick={() => {
+                        setCustomBuilderType('starlink');
+                        setShowCustomBuilder(true);
+                      }}
+                      className="w-full text-left px-2 py-1 text-xs bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-blue-700 font-medium"
+                    >
+                      🎛️ Custom Combined (Click to configure)
+                    </button>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
@@ -248,7 +286,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                         onChange={() => onPathColorModeChange('starlink_quality_combined')}
                         className="w-2.5 h-2.5"
                       />
-                      <span className="text-xs">Combined (SNR + Latency) ⭐</span>
+                      <span className="text-xs">Combined (Auto) ⭐</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -430,6 +468,15 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
             </label>
           </div>
         </div>
+      )}
+
+      {/* Custom Quality Builder Modal */}
+      {showCustomBuilder && (
+        <CustomQualityBuilder
+          type={customBuilderType}
+          onConfirm={handleCustomQualityConfirm}
+          onCancel={() => setShowCustomBuilder(false)}
+        />
       )}
     </div>
   );
