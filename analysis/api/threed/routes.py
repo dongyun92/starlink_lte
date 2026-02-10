@@ -465,7 +465,6 @@ def get_cell_towers(session_id):
         print(f"📡 Computing tower positions from {len(df_lte)} LTE connection points...")
 
         # Load original LTE CSV for detailed cell information
-        from pathlib import Path
         uploads_dir = Path(__file__).parent.parent.parent / 'uploads' / session_id / 'lte_data'
         lte_csv_files = list(uploads_dir.glob('*.csv')) if uploads_dir.exists() else []
 
