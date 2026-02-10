@@ -276,3 +276,13 @@ export async function getSessionCharts(sessionId: string): Promise<ChartInfo[]> 
   const results: SessionResults = await response.json();
   return results.charts;
 }
+
+export async function retryAnalysis(sessionId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/retry/${sessionId}`, {
+    method: 'POST'
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to retry analysis: ${response.statusText}`);
+  }
+}

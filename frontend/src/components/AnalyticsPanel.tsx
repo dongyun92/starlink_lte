@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSessionCharts, type ChartInfo } from '@/services/api';
+import { getSessionCharts, retryAnalysis, type ChartInfo } from '@/services/api';
 
 interface AnalyticsPanelProps {
   sessionId: string | null;
@@ -23,6 +23,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['basic']));
   const [selectedChart, setSelectedChart] = useState<ChartInfo | null>(null);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -96,6 +97,38 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
     });
   };
 
+  const handleReanalyze = async () => {
+    if (!sessionId || isReanalyzing) return;
+
+    setIsReanalyzing(true);
+    setError(null);
+
+    try {
+      await retryAnalysis(sessionId);
+      alert('재분석이 시작되었습니다. 완료되면 차트가 자동으로 업데이트됩니다.');
+
+      // Poll for updates every 3 seconds
+      const pollInterval = setInterval(async () => {
+        try {
+          const chartList = await getSessionCharts(sessionId);
+          setCharts(chartList);
+        } catch (err) {
+          // Charts not ready yet, continue polling
+        }
+      }, 3000);
+
+      // Stop polling after 2 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setIsReanalyzing(false);
+      }, 120000);
+    } catch (err) {
+      console.error('Failed to trigger re-analysis:', err);
+      setError('재분석 시작에 실패했습니다');
+      setIsReanalyzing(false);
+    }
+  };
+
   const categories = categorizeCharts();
 
   return (
@@ -104,8 +137,18 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between p-3 border-b bg-gray-50 rounded-t-lg flex-shrink-0">
           <h3 className="text-sm font-bold text-gray-800">📊 Analysis Charts</h3>
-          <div className="text-xs text-gray-600">
-            {charts.length} chart{charts.length !== 1 ? 's' : ''}
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-gray-600">
+              {charts.length} chart{charts.length !== 1 ? 's' : ''}
+            </div>
+            <button
+              onClick={handleReanalyze}
+              disabled={isReanalyzing || !sessionId}
+              className="px-3 py-1 text-xs font-semibold bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded transition-colors"
+              title="재분석 (한글 폰트 적용)"
+            >
+              {isReanalyzing ? '분석중...' : '🔄 재분석'}
+            </button>
           </div>
         </div>
 
