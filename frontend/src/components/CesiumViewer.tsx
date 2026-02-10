@@ -4,6 +4,7 @@ import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
 import { KPIDashboard } from './KPIDashboard';
+import RootCausePanel from './RootCausePanel';
 
 interface CesiumViewerProps {
   className?: string;
@@ -106,6 +107,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // KPI Dashboard state
   const [showKPIDashboard, setShowKPIDashboard] = useState<boolean>(true);
+
+  // Root Cause Panel state
+  const [showRootCausePanel, setShowRootCausePanel] = useState<boolean>(false);
 
   // Satellite direction state
   const [showSatelliteDirection, setShowSatelliteDirection] = useState<boolean>(false);
@@ -1152,11 +1156,22 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onAnalyticsToggle={setShowAnalytics}
         showKPIDashboard={showKPIDashboard}
         onKPIDashboardToggle={setShowKPIDashboard}
+        showRootCausePanel={showRootCausePanel}
+        onRootCausePanelToggle={setShowRootCausePanel}
       />
 
       {/* KPI Dashboard */}
       {showKPIDashboard && selectedSessionId && (
         <KPIDashboard sessionId={selectedSessionId} />
+      )}
+
+      {/* Root Cause Analysis Panel */}
+      {showRootCausePanel && selectedSessionId && (
+        <RootCausePanel
+          sessionId={selectedSessionId}
+          isVisible={showRootCausePanel}
+          onClose={() => setShowRootCausePanel(false)}
+        />
       )}
 
       {/* Analytics Panel */}

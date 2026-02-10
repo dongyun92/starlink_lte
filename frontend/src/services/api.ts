@@ -385,3 +385,61 @@ export async function getSignalLossSegments(sessionId: string): Promise<SignalLo
 
   return response.json();
 }
+
+/**
+ * Root Cause Analysis interfaces
+ */
+export interface CauseBreakdown {
+  lte_only: {
+    count: number;
+    percentage: number;
+    total_duration: number;
+  };
+  starlink_only: {
+    count: number;
+    percentage: number;
+    total_duration: number;
+  };
+  both: {
+    count: number;
+    percentage: number;
+    total_duration: number;
+  };
+}
+
+export interface AltitudeDistribution {
+  range: string;
+  count: number;
+  percentage: number;
+  avg_duration: number;
+}
+
+export interface TimeDistribution {
+  period: string;
+  count: number;
+  percentage: number;
+}
+
+export interface RootCauseAnalysis {
+  cause_breakdown: CauseBreakdown;
+  altitude_distribution: AltitudeDistribution[];
+  time_distribution: TimeDistribution[];
+  summary: {
+    total_segments: number;
+    avg_duration: number;
+    total_impact_time: number;
+  };
+}
+
+/**
+ * Get root cause analysis for signal loss segments
+ */
+export async function getRootCauseAnalysis(sessionId: string): Promise<RootCauseAnalysis> {
+  const response = await fetch(`${API_BASE_URL}/api/3d/root-cause/${sessionId}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch root cause analysis: ${response.statusText}`);
+  }
+
+  return response.json();
+}

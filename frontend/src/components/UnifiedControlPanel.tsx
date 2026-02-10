@@ -54,6 +54,10 @@ interface UnifiedControlPanelProps {
   showKPIDashboard: boolean;
   onKPIDashboardToggle: (enabled: boolean) => void;
 
+  // Root Cause Panel controls
+  showRootCausePanel: boolean;
+  onRootCausePanelToggle: (enabled: boolean) => void;
+
   // Satellite direction controls
   showSatelliteDirection: boolean;
   onSatelliteDirectionToggle: (enabled: boolean) => void;
@@ -113,6 +117,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onAnalyticsToggle,
   showKPIDashboard,
   onKPIDashboardToggle,
+  showRootCausePanel,
+  onRootCausePanelToggle,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showCustomBuilder, setShowCustomBuilder] = useState(false);
@@ -623,6 +629,19 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
             </label>
             <p className="text-[10px] text-gray-500 ml-5">
               Time series, distribution, and satellite direction charts
+            </p>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showRootCausePanel}
+                onChange={(e) => onRootCausePanelToggle(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span className="text-xs">Show Root Cause Analysis</span>
+            </label>
+            <p className="text-[10px] text-gray-500 ml-5">
+              Signal loss by cause, altitude, and flight period analysis
             </p>
           </div>
 
