@@ -5,6 +5,7 @@ import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
 import { KPIDashboard } from './KPIDashboard';
 import RootCausePanel from './RootCausePanel';
+import { SignalLossDrilldownModal } from './SignalLossDrilldownModal';
 
 interface CesiumViewerProps {
   className?: string;
@@ -111,6 +112,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Root Cause Panel state
   const [showRootCausePanel, setShowRootCausePanel] = useState<boolean>(false);
 
+  // Signal Loss Drilldown Modal state
+  const [selectedSegment, setSelectedSegment] = useState<any | null>(null);
+  const [showDrilldownModal, setShowDrilldownModal] = useState<boolean>(false);
+
   // Satellite direction state
   const [showSatelliteDirection, setShowSatelliteDirection] = useState<boolean>(false);
 
@@ -152,6 +157,28 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     const seconds = String(Math.floor(gregorianDate.second)).padStart(2, '0');
 
     return `${hours}:${minutes}:${seconds}`;
+  };
+
+  // Jump to location function for drilldown modal
+  const handleJumpToLocation = (lat: number, lon: number, altitude: number) => {
+    if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') return;
+
+    const Cesium = window.Cesium;
+    const viewer = cesiumViewerRef.current;
+
+    // Fly to the location with smooth animation
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(lon, lat, altitude + 500), // 500m above the segment
+      orientation: {
+        heading: Cesium.Math.toRadians(0),
+        pitch: Cesium.Math.toRadians(-45), // Look down at 45 degrees
+        roll: 0.0,
+      },
+      duration: 2.0, // 2 seconds animation
+    });
+
+    // Close the modal after jumping
+    setShowDrilldownModal(false);
   };
 
   // Track current time from clock
@@ -1020,7 +1047,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
                 <b>Location:</b> ${center_lat.toFixed(5)}, ${center_lon.toFixed(5)}<br/>
                 <b>Altitude:</b> ${center_altitude.toFixed(2)} m
               </div>
-            `
+            `,
+            // Store segment data for click handler
+            properties: {
+              segmentData: segment,
+              isSignalLossCylinder: true
+            }
           });
 
           signalLossEntitiesRef.current.push(cylinderEntity);
@@ -1035,6 +1067,43 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
     loadSignalLossSegments();
   }, [selectedSessionId, showSignalLoss]);
+
+  // Add click handler for signal loss cylinders
+  useEffect(() => {
+    if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+
+    const Cesium = window.Cesium;
+    const viewer = cesiumViewerRef.current;
+
+    // Create screen space event handler for clicks
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+    handler.setInputAction((click: any) => {
+      const pickedObject = viewer.scene.pick(click.position);
+
+      if (Cesium.defined(pickedObject) && Cesium.defined(pickedObject.id)) {
+        const entity = pickedObject.id;
+
+        // Check if this is a signal loss cylinder
+        if (entity.properties && entity.properties.isSignalLossCylinder && entity.properties.isSignalLossCylinder.getValue()) {
+          const segmentData = entity.properties.segmentData.getValue();
+
+          // Open drilldown modal with segment data
+          setSelectedSegment(segmentData);
+          setShowDrilldownModal(true);
+
+          console.log('🔴 Signal loss cylinder clicked:', segmentData);
+        }
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    // Cleanup handler on unmount
+    return () => {
+      handler.destroy();
+    };
+  }, []);
 
   // Render signal loss markers on timeline
   useEffect(() => {
@@ -1173,6 +1242,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           onClose={() => setShowRootCausePanel(false)}
         />
       )}
+
+      {/* Signal Loss Drilldown Modal */}
+      <SignalLossDrilldownModal
+        segment={selectedSegment}
+        isOpen={showDrilldownModal}
+        onClose={() => setShowDrilldownModal(false)}
+        onJumpToLocation={handleJumpToLocation}
+      />
 
       {/* Analytics Panel */}
       {showAnalytics && selectedSessionId && (
