@@ -405,9 +405,9 @@ def get_heatmap_czml(session_id):
 def get_cell_towers(session_id):
     """
     Get cell tower data for visualization
+    Computes tower locations from actual drone connection data (GPS-based)
 
     Query Parameters:
-        - radio: Radio type filter (LTE, UMTS, GSM, NR, all) [default: LTE]
         - use_cache: Use cached data if available (true/false) [default: true]
 
     Response:
@@ -415,19 +415,10 @@ def get_cell_towers(session_id):
     """
     try:
         # Get query parameters
-        radio = request.args.get('radio', 'LTE', type=str)
         use_cache = request.args.get('use_cache', 'true', type=str) == 'true'
 
-        # Check if OpenCellID is configured
-        client = get_opencellid_client()
-        if client is None:
-            return jsonify({
-                'error': 'OpenCellID API key not configured',
-                'message': 'Set OPENCELLID_API_KEY environment variable'
-            }), 503
-
         # Cache key
-        cache_key = f"cell_towers:{session_id}:{radio}"
+        cache_key = f"cell_towers_gps:{session_id}"
 
         # Check cache (24 hour TTL)
         if use_cache and redis_client:
@@ -439,7 +430,7 @@ def get_cell_towers(session_id):
             except Exception as e:
                 print(f"⚠️ Redis cache read error: {e}")
 
-        # Load session data to get bounding box
+        # Load session data
         session = Session.get_by_id(session_id)
 
         if not session:
@@ -448,58 +439,76 @@ def get_cell_towers(session_id):
         if session.status != 'completed':
             return jsonify({'error': 'Session not completed'}), 400
 
-        # Read merged data to get bounding box
+        # Read merged data
         results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
         merged_data_path = results_dir / 'merged_data.csv'
 
         if not merged_data_path.exists():
             return jsonify({'error': 'No flight data available'}), 404
 
-        # Read CSV to get bounding box and connected cell IDs
+        # Read CSV and compute tower positions
         import pandas as pd
         df = pd.read_csv(merged_data_path, low_memory=False)
 
         if df.empty:
             return jsonify({'error': 'No flight data available'}), 404
 
-        # Calculate bounding box with margin
-        MARGIN = 0.05  # ~5km margin
-        min_lat = float(df['latitude'].min() - MARGIN)
-        max_lat = float(df['latitude'].max() + MARGIN)
-        min_lon = float(df['longitude'].min() - MARGIN)
-        max_lon = float(df['longitude'].max() + MARGIN)
+        # Filter LTE data
+        if 'lte_cell_id' not in df.columns:
+            return jsonify({'error': 'No LTE cell data available'}), 404
 
-        # Extract connected LAC (Location Area Code) from LTE data
-        # LAC is stored as hex string in CSV, need to convert to decimal
-        connected_lacs = set()
-        if 'lte_lac' in df.columns:
-            lac_values = df['lte_lac'].dropna().astype(str).unique()
-            for lac_hex in lac_values:
-                try:
-                    # Skip invalid values
-                    if lac_hex in ['0', 'FFFF', 'nan']:
-                        continue
-                    # Convert hex string to decimal integer
-                    lac_decimal = int(lac_hex, 16)
-                    connected_lacs.add(lac_decimal)
-                except ValueError:
-                    continue
+        df_lte = df[df['lte_cell_id'].notna()].copy()
 
-        print(f"📡 Querying cell towers: {radio}, bbox=[{min_lat:.4f}, {max_lat:.4f}, {min_lon:.4f}, {max_lon:.4f}]")
-        print(f"📱 Connected LACs during flight: {connected_lacs}")
+        if df_lte.empty:
+            return jsonify({'error': 'No LTE connection data available'}), 404
 
-        # Query OpenCellID using grid search for better coverage
-        # Larger grid size (5km) with max 25 grids for faster response
-        start_time = time.time()
-        towers = client.get_cell_towers_grid_search(
-            min_lat, max_lat, min_lon, max_lon, radio,
-            grid_size=0.045  # ~5km grid cells, max 25 grids
-        )
-        query_time = (time.time() - start_time) * 1000  # Convert to ms
-        print(f"⏱️ Cell tower query time: {query_time:.1f}ms ({len(towers)} towers)")
+        print(f"📡 Computing tower positions from {len(df_lte)} LTE connection points...")
 
-        # Convert to GeoJSON with connected tower information
-        geojson = _convert_towers_to_geojson(towers, connected_lacs)
+        # Calculate tower positions from GPS data
+        tower_features = []
+        unique_cells = df_lte['lte_cell_id'].unique()
+
+        for cell_id in unique_cells:
+            # Skip invalid cell IDs
+            if cell_id in ['0', 'FFFFFFFF', 'nan'] or pd.isna(cell_id):
+                continue
+
+            # Get all positions where drone was connected to this cell
+            cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
+
+            # Use median position (more robust than mean)
+            tower_lat = float(cell_data['latitude'].median())
+            tower_lon = float(cell_data['longitude'].median())
+
+            # Get signal statistics
+            avg_rsrp = float(cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in cell_data.columns else -100
+            connection_count = len(cell_data)
+
+            # Create GeoJSON feature
+            tower_features.append({
+                'type': 'Feature',
+                'geometry': {
+                    'type': 'Point',
+                    'coordinates': [tower_lon, tower_lat, 50]  # lon, lat, altitude
+                },
+                'properties': {
+                    'cell_id': str(cell_id),
+                    'connection_count': connection_count,
+                    'avg_rsrp': avg_rsrp,
+                    'radio': 'LTE',
+                    'connected': True  # All towers are connected (we computed from actual connections)
+                }
+            })
+
+            print(f"  📍 Cell {cell_id}: ({tower_lat:.6f}, {tower_lon:.6f}) - {connection_count} connections, RSRP={avg_rsrp:.1f}dBm")
+
+        # Create GeoJSON FeatureCollection
+        geojson = {
+            'type': 'FeatureCollection',
+            'features': tower_features
+        }
+
+        print(f"✅ Computed {len(tower_features)} tower positions from GPS data")
 
         # Cache result (24 hours)
         if redis_client:
