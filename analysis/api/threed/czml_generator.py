@@ -1592,19 +1592,35 @@ class CZMLGenerator:
             radio='LTE'
         )
 
-        # Create a mapping of cell_id to tower location
-        tower_map = {}
+        # Create a list of towers with locations
+        # Note: We use location-based matching since OpenCellID cell IDs don't directly match our hex cell IDs
+        towers_with_location = []
         for tower in all_towers:
-            cell_id = tower.get('cell', '')
-            if cell_id:
-                # Convert hex cell ID to match format (if needed)
-                tower_map[str(cell_id).upper()] = {
-                    'lat': tower['lat'],
-                    'lon': tower['lon'],
-                    'alt': 50  # Approximate tower height
-                }
+            towers_with_location.append({
+                'lat': tower['lat'],
+                'lon': tower['lon'],
+                'alt': 50,  # Approximate tower height
+                'cellid': tower.get('cellid', 'unknown'),
+                'operator': tower.get('operator', 'unknown')
+            })
 
-        print(f"  🗺️ Found {len(tower_map)} unique cell towers in database", flush=True)
+        print(f"  🗺️ Found {len(towers_with_location)} cell towers in area", flush=True)
+
+        if not towers_with_location:
+            raise ValueError(f"❌ No LTE towers found in flight area from OpenCellID")
+
+        # Helper function to find nearest tower
+        def find_nearest_tower(lat, lon, towers):
+            """Find the nearest tower to a given position"""
+            min_dist = float('inf')
+            nearest = None
+            for tower in towers:
+                # Simple Euclidean distance (good enough for small areas)
+                dist = ((tower['lat'] - lat)**2 + (tower['lon'] - lon)**2)**0.5
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest = tower
+            return nearest
 
         # Process each connection segment
         segments = []
@@ -1619,12 +1635,14 @@ class CZMLGenerator:
             # Get average signal strength for this segment
             rsrp = group['lte_rsrp'].mean() if 'lte_rsrp' in group.columns else -100
 
-            # Find tower location
-            tower_loc = tower_map.get(cell_id)
+            # Find nearest tower based on segment's starting position
+            start_lat = group.iloc[0]['latitude']
+            start_lon = group.iloc[0]['longitude']
 
-            if tower_loc is None:
-                # Tower not in database - skip this segment
-                # print(f"  ⚠️ Tower {cell_id} not found in database, skipping", flush=True)
+            nearest_tower = find_nearest_tower(start_lat, start_lon, towers_with_location)
+
+            if nearest_tower is None:
+                # No tower found - skip this segment
                 continue
 
             # Apply sampling to reduce polyline count
@@ -1640,9 +1658,9 @@ class CZMLGenerator:
                 'end_time': end_time,
                 'duration': duration,
                 'drone_positions': group_sampled[['longitude', 'latitude', 'altitude']].values,
-                'tower_lon': tower_loc['lon'],
-                'tower_lat': tower_loc['lat'],
-                'tower_alt': tower_loc['alt'],
+                'tower_lon': nearest_tower['lon'],
+                'tower_lat': nearest_tower['lat'],
+                'tower_alt': nearest_tower['alt'],
                 'rsrp': rsrp,
                 'point_count': len(group_sampled)
             })
