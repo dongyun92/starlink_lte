@@ -121,7 +121,7 @@ class StarlinkDeepAnalyzer:
             if 'starlink_latency' in valid_data4.columns:
                 plt.colorbar(scatter4, ax=ax4, label='Latency (ms)')
 
-        plt.suptitle('🛰️ Starlink 품질 vs 비행 고도 종합 분석', fontsize=16, fontweight='bold')
+        plt.suptitle('Starlink 품질 vs 비행 고도 종합 분석', fontsize=16, fontweight='bold')
         plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.savefig(output_path, dpi=250, bbox_inches='tight')
         plt.close()
@@ -208,7 +208,7 @@ class StarlinkDeepAnalyzer:
             if 'altitude' in valid_data4.columns:
                 plt.colorbar(scatter4, ax=ax4, label='Altitude (m)')
 
-        plt.suptitle('🚁 Starlink 품질 vs 이동 속도 종합 분석', fontsize=16, fontweight='bold')
+        plt.suptitle('Starlink 품질 vs 이동 속도 종합 분석', fontsize=16, fontweight='bold')
         plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.savefig(output_path, dpi=250, bbox_inches='tight')
         plt.close()
@@ -301,7 +301,7 @@ class StarlinkDeepAnalyzer:
             if 'altitude' in valid_data4.columns:
                 plt.colorbar(scatter4, ax=ax4, label='Altitude (m)')
 
-        plt.suptitle('📍 Starlink 품질 vs 원점 거리 종합 분석', fontsize=16, fontweight='bold')
+        plt.suptitle('Starlink 품질 vs 원점 거리 종합 분석', fontsize=16, fontweight='bold')
         plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.savefig(output_path, dpi=250, bbox_inches='tight')
         plt.close()
@@ -371,7 +371,7 @@ class StarlinkDeepAnalyzer:
                        label='경고 (5%)', alpha=0.7)
             ax3.legend(fontsize=10)
 
-        plt.suptitle('⏱️ Starlink 품질 지표 시계열 분석', fontsize=16, fontweight='bold')
+        plt.suptitle('Starlink 품질 지표 시계열 분석', fontsize=16, fontweight='bold')
         plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.savefig(output_path, dpi=250, bbox_inches='tight')
         plt.close()
@@ -418,7 +418,7 @@ class StarlinkDeepAnalyzer:
 
     def generate_all_charts(self, output_folder: Path):
         """모든 Starlink 심층 분석 차트 생성"""
-        print("\n🛰️ Starlink 심층 분석 차트 생성 중...")
+        print("\nStarlink 심층 분석 차트 생성 중...")
 
         output_folder = Path(output_folder)
         output_folder.mkdir(exist_ok=True)

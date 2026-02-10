@@ -141,7 +141,7 @@ class SatelliteTrackingVisualizer:
                    label='Good (≥12 sats)')
         ax6.legend(fontsize=8)
 
-        plt.suptitle('🛰️ Starlink Satellite Tracking Analysis',
+        plt.suptitle('Starlink Satellite Tracking Analysis',
                     fontsize=16, fontweight='bold', y=0.98)
         plt.tight_layout(rect=[0, 0, 1, 0.96])
 
@@ -206,7 +206,7 @@ class SatelliteTrackingVisualizer:
                    linewidths=1, cbar_kws={'label': 'Correlation Coefficient'},
                    ax=ax)
 
-        ax.set_title('🛰️ Satellite Position vs Quality Metrics Correlation',
+        ax.set_title('Satellite Position vs Quality Metrics Correlation',
                     fontsize=14, fontweight='bold', pad=20)
 
         # 축 라벨 개선

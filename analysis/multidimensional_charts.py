@@ -125,7 +125,7 @@ class MultidimensionalChartGenerator:
                 verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
-        plt.suptitle('📊 핵심 발견: 이동 속도가 LTE 품질에 가장 큰 영향 (+0.592)',
+        plt.suptitle('핵심 발견: 이동 속도가 LTE 품질에 가장 큰 영향 (+0.592)',
                     fontsize=16, fontweight='bold', y=1.02)
         plt.tight_layout()
 
@@ -189,7 +189,7 @@ class MultidimensionalChartGenerator:
         ax2.grid(True, alpha=0.3)
         ax2.legend(loc='lower right', fontsize=9)
 
-        plt.suptitle('📍 핵심 발견: 원점에서 멀수록 LTE 품질 향상 (+0.533)',
+        plt.suptitle('핵심 발견: 원점에서 멀수록 LTE 품질 향상 (+0.533)',
                     fontsize=16, fontweight='bold', y=1.02)
         plt.tight_layout()
 
@@ -259,7 +259,7 @@ class MultidimensionalChartGenerator:
                 verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
-        plt.suptitle('⏱️ CRITICAL: 비행 시간 경과가 Starlink 지연에 가장 큰 영향 (+0.586)',
+        plt.suptitle('CRITICAL: 비행 시간 경과가 Starlink 지연에 가장 큰 영향 (+0.586)',
                     fontsize=16, fontweight='bold', y=1.02)
         plt.tight_layout()
 
@@ -431,7 +431,7 @@ class MultidimensionalChartGenerator:
         ax4.legend(loc='upper right')
         fig.colorbar(scatter4, ax=ax4, label='Speed (m/s)')
 
-        plt.suptitle('🗺️ 지리적 품질 분포: 위치별 통신 품질 및 비행 특성',
+        plt.suptitle('지리적 품질 분포: 위치별 통신 품질 및 비행 특성',
                     fontsize=16, fontweight='bold', y=0.995)
         plt.tight_layout(rect=[0, 0, 1, 0.99])
 
@@ -500,7 +500,7 @@ class MultidimensionalChartGenerator:
                 ha='center', fontsize=9,
                 bbox=dict(boxstyle='round', facecolor='#FFE6E6', alpha=0.8))
 
-        plt.title('⏱️ 시계열 복합 분석: LTE 품질 + 고도 + 속도 + 위치 (4개 요인 동시 비교)',
+        plt.title('시계열 복합 분석: LTE 품질 + 고도 + 속도 + 위치 (4개 요인 동시 비교)',
                  fontsize=15, fontweight='bold', pad=20)
 
         plt.tight_layout()

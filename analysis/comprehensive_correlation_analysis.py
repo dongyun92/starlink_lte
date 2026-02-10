@@ -346,7 +346,7 @@ class ComprehensiveCorrelationAnalyzer:
         plt.colorbar(scatter, ax=ax9, label='Altitude (m)')
         ax9.grid(True, alpha=0.3)
 
-        plt.suptitle('🔗 Comprehensive Correlation Analysis - All Parameters',
+        plt.suptitle('Comprehensive Correlation Analysis - All Parameters',
                     fontsize=18, fontweight='bold', y=0.995)
         plt.tight_layout(rect=[0, 0, 1, 0.99])
 
