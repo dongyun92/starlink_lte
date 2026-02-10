@@ -91,8 +91,19 @@ class HexagonalHeatmapGenerator:
         if df.empty:
             return self._create_empty_czml()
 
-        # Get quality column
+        # Get quality column with fallback
         quality_col = self._get_quality_column(mode)
+
+        # Fallback for starlink_snr → starlink_latency if SNR not available
+        if quality_col == 'starlink_snr' and quality_col not in df.columns:
+            print(f"⚠️ {quality_col} not available, falling back to starlink_latency")
+            quality_col = 'starlink_latency'
+            mode = 'starlink_latency'  # Update mode for normalization
+        elif quality_col == 'starlink_snr' and df[quality_col].isna().all():
+            print(f"⚠️ {quality_col} has no valid data, falling back to starlink_latency")
+            quality_col = 'starlink_latency'
+            mode = 'starlink_latency'
+
         if quality_col not in df.columns:
             raise ValueError(f"Column '{quality_col}' not found in DataFrame")
 

@@ -51,10 +51,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
   const [heatmapStyle, setHeatmapStyle] = useState<'point' | 'voxel' | 'hexagon'>('point');
 
-  // Hexagon heatmap parameters
-  const [hexagonResolution, setHexagonResolution] = useState<number>(8);
+  // Hexagon heatmap parameters (updated defaults for small flight paths)
+  const [hexagonResolution, setHexagonResolution] = useState<number>(9);  // 174m edge (better for <1km paths)
   const [hexagonAggregation, setHexagonAggregation] = useState<'mean' | 'max' | 'min' | 'median'>('mean');
-  const [hexagonExtrusionHeight, setHexagonExtrusionHeight] = useState<number>(200);
+  const [hexagonExtrusionHeight, setHexagonExtrusionHeight] = useState<number>(100);  // Lower default for clarity
 
   // Mutual exclusive heatmap toggle handlers
   const handleLteHeatmapToggle = (enabled: boolean) => {

@@ -490,18 +490,21 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 {/* Resolution Selector */}
                 <div>
                   <label className="block text-[10px] text-gray-700 mb-1">
-                    Resolution ({hexagonResolution === 7 ? '1.22km' : hexagonResolution === 8 ? '461m' : hexagonResolution === 9 ? '174m' : '66m'} edge)
+                    Cell Size ({hexagonResolution === 7 ? '1.22km' : hexagonResolution === 8 ? '461m' : hexagonResolution === 9 ? '174m' : '66m'} edge)
                   </label>
                   <select
                     value={hexagonResolution}
                     onChange={(e) => onHexagonResolutionChange(parseInt(e.target.value, 10))}
                     className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
                   >
-                    <option value={7}>7 - Coarse (1.22km)</option>
-                    <option value={8}>8 - Balanced (461m) ⭐</option>
-                    <option value={9}>9 - Fine (174m)</option>
-                    <option value={10}>10 - Very Fine (66m)</option>
+                    <option value={7}>7 - Very Large (1.22km)</option>
+                    <option value={8}>8 - Large (461m)</option>
+                    <option value={9}>9 - Medium (174m) ⭐</option>
+                    <option value={10}>10 - Small (66m)</option>
                   </select>
+                  <div className="text-[9px] text-gray-500 mt-1">
+                    Smaller = More cells, slower
+                  </div>
                 </div>
 
                 {/* Aggregation Selector */}
@@ -524,20 +527,23 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 {/* Extrusion Height Slider */}
                 <div>
                   <label className="block text-[10px] text-gray-700 mb-1">
-                    Extrusion Height: {hexagonExtrusionHeight}m
+                    Bar Height: {hexagonExtrusionHeight}m (Quality Visualization)
                   </label>
                   <input
                     type="range"
                     min={50}
-                    max={500}
-                    step={50}
+                    max={300}
+                    step={25}
                     value={hexagonExtrusionHeight}
                     onChange={(e) => onHexagonExtrusionHeightChange(parseInt(e.target.value, 10))}
                     className="w-full"
                   />
                   <div className="flex justify-between text-[9px] text-gray-500">
-                    <span>50m</span>
-                    <span>500m</span>
+                    <span>50m (Low)</span>
+                    <span>300m (High)</span>
+                  </div>
+                  <div className="text-[9px] text-blue-700 mt-1">
+                    ℹ️ Height shows quality, not altitude
                   </div>
                 </div>
               </div>
