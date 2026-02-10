@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getSessionCharts, retryAnalysis, getSessionStatus, type ChartInfo } from '@/services/api';
 
 interface AnalyticsPanelProps {
   sessionId: string | null;
   flightId: number | null;
   metric?: string;
+}
+
+interface Position {
+  x: number;
+  y: number;
 }
 
 interface ChartCategory {
@@ -24,6 +29,13 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['basic']));
   const [selectedChart, setSelectedChart] = useState<ChartInfo | null>(null);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  // Draggable state
+  const [position, setPosition] = useState<Position>({ x: window.innerWidth - 420, y: 16 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 });
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -50,7 +62,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
     const categories: ChartCategory[] = [
       {
         title: 'Basic Analysis',
-        icon: '📊',
+        icon: '',
         charts: charts.filter(c =>
           ['statistics_summary', 'quality_over_time', 'correlation_matrix',
            'correlation_heatmap', 'comprehensive_correlations', 'altitude_quality',
@@ -59,14 +71,14 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
       },
       {
         title: 'Starlink Satellite',
-        icon: '🛰️',
+        icon: '',
         charts: charts.filter(c =>
           ['satellite_position_polar', 'satellite_quality_correlation'].includes(c.name)
         )
       },
       {
         title: 'Deep Analysis',
-        icon: '🔬',
+        icon: '',
         charts: charts.filter(c =>
           ['starlink_altitude_analysis', 'starlink_speed_analysis',
            'starlink_distance_analysis', 'starlink_throughput_timeseries',
@@ -75,7 +87,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
       },
       {
         title: 'Advanced Charts',
-        icon: '📈',
+        icon: '',
         charts: charts.filter(c =>
           c.name.startsWith('chart')
         )
@@ -147,12 +159,60 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
 
   const categories = categorizeCharts();
 
+  // Drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (panelRef.current) {
+      const rect = panelRef.current.getBoundingClientRect();
+      setDragOffset({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
+      setIsDragging(true);
+    }
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        setPosition({
+          x: e.clientX - dragOffset.x,
+          y: e.clientY - dragOffset.y
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset]);
+
   return (
     <>
-      <div className="absolute top-4 right-4 bg-white rounded-lg shadow-xl z-10 w-[450px] max-h-[calc(100vh-100px)] flex flex-col">
+      <div
+        ref={panelRef}
+        className="absolute bg-white rounded-lg shadow-xl z-[100] w-[450px] max-h-[calc(100vh-120px)] flex flex-col"
+        style={{
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          cursor: isDragging ? 'grabbing' : 'default'
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b bg-gray-50 rounded-t-lg flex-shrink-0">
-          <h3 className="text-sm font-bold text-gray-800">📊 Analysis Charts</h3>
+        <div
+          className="flex items-center justify-between p-3 border-b bg-gray-50 rounded-t-lg flex-shrink-0 cursor-grab active:cursor-grabbing"
+          onMouseDown={handleMouseDown}
+        >
+          <h3 className="text-sm font-bold text-gray-800 select-none">Analysis Charts</h3>
           <div className="flex items-center gap-3">
             <div className="text-xs text-gray-600">
               {charts.length} chart{charts.length !== 1 ? 's' : ''}
@@ -160,16 +220,25 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
             <button
               onClick={handleReanalyze}
               disabled={isReanalyzing || !sessionId}
+              onMouseDown={(e) => e.stopPropagation()}
               className="px-3 py-1 text-xs font-semibold bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded transition-colors"
               title="재분석 (한글 폰트 적용)"
             >
               {isReanalyzing ? '분석중...' : '🔄 재분석'}
             </button>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="text-gray-600 hover:text-gray-800 text-sm font-bold"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {isExpanded ? '−' : '+'}
+            </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto flex-1">
+        {isExpanded && (
+          <div className="overflow-y-auto flex-1">
           {loading ? (
             <div className="text-center text-gray-500 text-sm py-8">Loading charts...</div>
           ) : error ? (
@@ -231,7 +300,8 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
               ))}
             </div>
           )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Chart Modal (Full Size View) */}

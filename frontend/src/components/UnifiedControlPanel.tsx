@@ -40,6 +40,7 @@ interface UnifiedControlPanelProps {
     'starlink_obstruction' | 'starlink_uptime') => void;
   onCustomMetricsChange: (metrics: Record<string, number> | null) => void;
   colorMetadata: {column: string; min: number; max: number; unit: string} | null;
+  heatmapMetadata: {lteColumn: string | null; starlinkColumn: string | null};
 
   // Cell tower controls
   showCellTowers: boolean;
@@ -48,6 +49,10 @@ interface UnifiedControlPanelProps {
   // Analytics controls
   showAnalytics: boolean;
   onAnalyticsToggle: (enabled: boolean) => void;
+
+  // KPI Dashboard controls
+  showKPIDashboard: boolean;
+  onKPIDashboardToggle: (enabled: boolean) => void;
 
   // Satellite direction controls
   showSatelliteDirection: boolean;
@@ -79,6 +84,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onPathColorModeChange,
   onCustomMetricsChange,
   colorMetadata,
+  heatmapMetadata,
   showCellTowers,
   onCellTowersToggle,
   showSatelliteDirection,
@@ -87,6 +93,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onTowerConnectionsToggle,
   showAnalytics,
   onAnalyticsToggle,
+  showKPIDashboard,
+  onKPIDashboardToggle,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showCustomBuilder, setShowCustomBuilder] = useState(false);
@@ -153,7 +161,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                   : 'bg-gray-800 hover:bg-gray-700 text-white'
               }`}
             >
-              {cameraMode === 'track' ? '📹 추적 모드' : '🎮 자유 시점'}
+              {cameraMode === 'track' ? '추적 모드' : '자유 시점'}
             </button>
           </div>
 
@@ -512,9 +520,22 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
             </p>
           </div>
 
-          {/* Analytics Panel */}
+          {/* KPI Dashboard */}
           <div className="space-y-2 pt-3 border-t">
-            <div className="text-xs font-bold text-gray-700 mb-2">📊 Analytics</div>
+            <div className="text-xs font-bold text-gray-700 mb-2">Dashboards</div>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showKPIDashboard}
+                onChange={(e) => onKPIDashboardToggle(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span className="text-xs">Show KPI Dashboard</span>
+            </label>
+            <p className="text-[10px] text-gray-500 ml-5">
+              Flight metrics, LTE/Starlink quality, signal loss summary
+            </p>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -529,6 +550,251 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
               Time series, distribution, and satellite direction charts
             </p>
           </div>
+
+          {/* Signal Quality Legend */}
+          {(lteHeatmap || starlinkHeatmap || combinedHeatmap) && (
+            <div className="space-y-2 pt-3 border-t">
+              <div className="text-xs font-bold text-gray-700 mb-2">Signal Quality Legend</div>
+
+              {/* LTE Heatmap Legend (Dynamic: RSRP or RSSI based on actual data) */}
+              {lteHeatmap && heatmapMetadata.lteColumn === 'lte_rsrp' && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold text-gray-600">LTE Signal Quality (RSRP)</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#1a9850' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Excellent</div>
+                        <div className="text-[9px] text-gray-500">-44 ~ -70 dBm</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#91cf60' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Good</div>
+                        <div className="text-[9px] text-gray-500">-70 ~ -85 dBm</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fee08b' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Fair</div>
+                        <div className="text-[9px] text-gray-500">-85 ~ -100 dBm</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fc8d59' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Poor</div>
+                        <div className="text-[9px] text-gray-500">-100 ~ -110 dBm</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#d73027' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Very Poor</div>
+                        <div className="text-[9px] text-gray-500">-110 ~ -120 dBm</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[9px] text-gray-500 mt-2 pt-2 border-t border-gray-200">
+                    LTE network quality (RSRP)
+                  </div>
+                </div>
+              )}
+
+              {lteHeatmap && heatmapMetadata.lteColumn === 'lte_rssi' && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold text-gray-600">LTE Signal Quality (RSSI)</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#1a9850' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Excellent</div>
+                        <div className="text-[9px] text-gray-500">-51 ~ -65 dBm</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#91cf60' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Good</div>
+                        <div className="text-[9px] text-gray-500">-65 ~ -75 dBm</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fee08b' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Fair</div>
+                        <div className="text-[9px] text-gray-500">-75 ~ -85 dBm</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fc8d59' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Poor</div>
+                        <div className="text-[9px] text-gray-500">-85 ~ -95 dBm</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#d73027' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Very Poor</div>
+                        <div className="text-[9px] text-gray-500">-95 ~ -113 dBm</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[9px] text-gray-500 mt-2 pt-2 border-t border-gray-200">
+                    LTE network quality (RSSI)
+                  </div>
+                </div>
+              )}
+
+              {/* Starlink Heatmap Legend (Dynamic: SNR or Latency based on actual data) */}
+              {starlinkHeatmap && heatmapMetadata.starlinkColumn === 'starlink_snr' && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold text-gray-600">Starlink Signal Quality (SNR)</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#1a9850' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Excellent</div>
+                        <div className="text-[9px] text-gray-500">10+ dB</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#91cf60' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Good</div>
+                        <div className="text-[9px] text-gray-500">7 - 10 dB</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fee08b' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Fair</div>
+                        <div className="text-[9px] text-gray-500">3 - 7 dB</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fc8d59' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Poor</div>
+                        <div className="text-[9px] text-gray-500">1 - 3 dB</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#d73027' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Very Poor</div>
+                        <div className="text-[9px] text-gray-500">0 - 1 dB</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[9px] text-gray-500 mt-2 pt-2 border-t border-gray-200">
+                    Starlink satellite quality (SNR)
+                  </div>
+                </div>
+              )}
+
+              {starlinkHeatmap && heatmapMetadata.starlinkColumn === 'starlink_latency' && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold text-gray-600">Starlink Signal Quality (Latency)</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#1a9850' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Excellent</div>
+                        <div className="text-[9px] text-gray-500">0 - 40 ms</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#91cf60' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Good</div>
+                        <div className="text-[9px] text-gray-500">40 - 80 ms</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fee08b' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Fair</div>
+                        <div className="text-[9px] text-gray-500">80 - 120 ms</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fc8d59' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Poor</div>
+                        <div className="text-[9px] text-gray-500">120 - 160 ms</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#d73027' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Very Poor</div>
+                        <div className="text-[9px] text-gray-500">160+ ms</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[9px] text-gray-500 mt-2 pt-2 border-t border-gray-200">
+                    Starlink satellite quality (Latency)
+                  </div>
+                </div>
+              )}
+
+              {/* Combined Heatmap Legend */}
+              {combinedHeatmap && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold text-gray-600">Combined Signal Quality</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#1a9850' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Excellent</div>
+                        <div className="text-[9px] text-gray-500">Best signal quality</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#91cf60' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Good</div>
+                        <div className="text-[9px] text-gray-500">Strong signal</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fee08b' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Fair</div>
+                        <div className="text-[9px] text-gray-500">Moderate signal</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fc8d59' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Poor</div>
+                        <div className="text-[9px] text-gray-500">Weak signal</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#d73027' }} />
+                      <div className="flex-1">
+                        <div className="text-[10px] font-semibold text-gray-800">Very Poor</div>
+                        <div className="text-[9px] text-gray-500">Very weak signal</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[9px] text-gray-500 mt-2 pt-2 border-t border-gray-200">
+                    Best available signal (LTE or Starlink)
+                    {heatmapMetadata.lteColumn && heatmapMetadata.starlinkColumn && (
+                      <div className="mt-1">
+                        Using: {heatmapMetadata.lteColumn.replace('lte_', '').toUpperCase()} + {heatmapMetadata.starlinkColumn.replace('starlink_', '').toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

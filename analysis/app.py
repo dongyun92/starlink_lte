@@ -15,6 +15,7 @@ if env_path.exists():
 from models import init_db
 from api import upload_bp, sessions_bp, results_bp, compare_bp, convert_csv_bp
 from api.threed import api_3d_bp
+from api.threed.kpi import kpi_bp
 from pathlib import Path
 
 # Flask 앱 생성
@@ -31,6 +32,7 @@ app.register_blueprint(results_bp)
 app.register_blueprint(compare_bp)
 app.register_blueprint(convert_csv_bp)
 app.register_blueprint(api_3d_bp)
+app.register_blueprint(kpi_bp)
 
 # 데이터베이스 초기화
 with app.app_context():

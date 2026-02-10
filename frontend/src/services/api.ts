@@ -219,14 +219,19 @@ export async function getCellTowers(
   options: {
     radio?: string;
     use_cache?: boolean;
+    flight_id?: number;
   } = {}
 ): Promise<any> {
-  const { radio = 'LTE', use_cache = true } = options;
+  const { radio = 'LTE', use_cache = true, flight_id } = options;
 
   const params = new URLSearchParams({
     radio,
     use_cache: use_cache.toString(),
   });
+
+  if (flight_id !== undefined) {
+    params.append('flight_id', flight_id.toString());
+  }
 
   const response = await fetch(`${API_BASE_URL}/api/3d/cell-towers/${sessionId}?${params}`);
 
@@ -299,6 +304,46 @@ export async function getSessionStatus(sessionId: string): Promise<SessionStatus
 
   if (!response.ok) {
     throw new Error(`Failed to fetch session status: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * KPI Summary interface
+ */
+export interface KPISummary {
+  flight: {
+    duration_seconds: number;
+    distance_km: number;
+    max_altitude_m: number;
+    avg_speed_kmh: number;
+  };
+  lte: {
+    avg_rsrp: number | null;
+    quality: string | null;
+    color: string;
+  };
+  starlink: {
+    avg_latency: number | null;
+    quality: string | null;
+    color: string;
+  };
+  signal_loss: {
+    percentage: number;
+    segment_count: number;
+    total_duration_seconds: number;
+  };
+}
+
+/**
+ * Get KPI summary for a specific session
+ */
+export async function getKPISummary(sessionId: string): Promise<KPISummary> {
+  const response = await fetch(`${API_BASE_URL}/api/3d/kpi/${sessionId}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch KPI summary: ${response.statusText}`);
   }
 
   return response.json();

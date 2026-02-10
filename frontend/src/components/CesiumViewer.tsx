@@ -3,6 +3,7 @@ import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSate
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
+import { KPIDashboard } from './KPIDashboard';
 
 interface CesiumViewerProps {
   className?: string;
@@ -45,6 +46,31 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
   const [heatmapStyle, setHeatmapStyle] = useState<'point' | 'voxel'>('point');
 
+  // Mutual exclusive heatmap toggle handlers
+  const handleLteHeatmapToggle = (enabled: boolean) => {
+    if (enabled) {
+      setStarlinkHeatmap(false);
+      setCombinedHeatmap(false);
+    }
+    setLteHeatmap(enabled);
+  };
+
+  const handleStarlinkHeatmapToggle = (enabled: boolean) => {
+    if (enabled) {
+      setLteHeatmap(false);
+      setCombinedHeatmap(false);
+    }
+    setStarlinkHeatmap(enabled);
+  };
+
+  const handleCombinedHeatmapToggle = (enabled: boolean) => {
+    if (enabled) {
+      setLteHeatmap(false);
+      setStarlinkHeatmap(false);
+    }
+    setCombinedHeatmap(enabled);
+  };
+
   // Flight scenario filtering
   const [flightScenarios, setFlightScenarios] = useState<FlightScenario[]>([]);
   const [selectedFlightId, setSelectedFlightId] = useState<number | null>(null);
@@ -59,12 +85,24 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [colorMetadata, setColorMetadata] = useState<{column: string; min: number; max: number; unit: string} | null>(null);
   const [customMetrics, setCustomMetrics] = useState<Record<string, number> | null>(null);
 
+  // Heatmap metadata (actual columns detected by backend)
+  const [heatmapMetadata, setHeatmapMetadata] = useState<{
+    lteColumn: string | null;
+    starlinkColumn: string | null;
+  }>({
+    lteColumn: null,
+    starlinkColumn: null
+  });
+
   // Cell tower states
   const [showCellTowers, setShowCellTowers] = useState<boolean>(false);
   const [cellTowerData, setCellTowerData] = useState<any>(null);
 
   // Analytics panel state
   const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
+
+  // KPI Dashboard state
+  const [showKPIDashboard, setShowKPIDashboard] = useState<boolean>(true);
 
   // Satellite direction state
   const [showSatelliteDirection, setShowSatelliteDirection] = useState<boolean>(false);
@@ -342,6 +380,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       return;
     }
 
+    // Don't load if all heatmaps are disabled (prevent re-triggering after cleanup)
+    const allHeatmapsDisabled = !lteHeatmap && !starlinkHeatmap && !combinedHeatmap;
+    if (allHeatmapsDisabled) {
+      return;
+    }
+
     const loadLTEHeatmap = async () => {
       if (!cesiumViewerRef.current) return;
 
@@ -360,6 +404,15 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             heatmapStyle,
             selectedFlightId !== null ? selectedFlightId : undefined
           );
+
+          // Extract heatmap metadata from CZML document header
+          if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
+            setHeatmapMetadata({
+              lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
+              starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
+            });
+            console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
+          }
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -406,6 +459,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       return;
     }
 
+    // Don't load if all heatmaps are disabled (prevent re-triggering after cleanup)
+    const allHeatmapsDisabled = !lteHeatmap && !starlinkHeatmap && !combinedHeatmap;
+    if (allHeatmapsDisabled) {
+      return;
+    }
+
     const loadStarlinkHeatmap = async () => {
       if (!cesiumViewerRef.current) return;
 
@@ -424,6 +483,15 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             heatmapStyle,
             selectedFlightId !== null ? selectedFlightId : undefined
           );
+
+          // Extract heatmap metadata from CZML document header
+          if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
+            setHeatmapMetadata({
+              lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
+              starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
+            });
+            console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
+          }
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -470,6 +538,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       return;
     }
 
+    // Don't load if all heatmaps are disabled (prevent re-triggering after cleanup)
+    const allHeatmapsDisabled = !lteHeatmap && !starlinkHeatmap && !combinedHeatmap;
+    if (allHeatmapsDisabled) {
+      return;
+    }
+
     const loadCombinedHeatmap = async () => {
       if (!cesiumViewerRef.current) return;
 
@@ -488,6 +562,15 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             heatmapStyle,
             selectedFlightId !== null ? selectedFlightId : undefined
           );
+
+          // Extract heatmap metadata from CZML document header
+          if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
+            setHeatmapMetadata({
+              lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
+              starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
+            });
+            console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
+          }
 
           const Cesium = window.Cesium;
           const dataSource = await Cesium.CzmlDataSource.load(czmlData);
@@ -528,6 +611,54 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
   }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId]);
 
+  // Cleanup all heatmaps when all are disabled (with delay to handle race conditions)
+  useEffect(() => {
+    if (!cesiumViewerRef.current) return;
+
+    const allHeatmapsDisabled = !lteHeatmap && !starlinkHeatmap && !combinedHeatmap;
+
+    if (allHeatmapsDisabled) {
+      // Use setTimeout to ensure async loading completes before cleanup
+      const cleanupTimer = setTimeout(() => {
+        if (!cesiumViewerRef.current) return;
+
+        console.log('🧹 Cleaning up all heatmap data sources...');
+
+        // Force remove ALL data sources that match heatmap pattern
+        const viewer = cesiumViewerRef.current;
+        const dataSources = viewer.dataSources;
+        const sourcesToRemove: any[] = [];
+
+        // Collect all heatmap data sources
+        for (let i = 0; i < dataSources.length; i++) {
+          const ds = dataSources.get(i);
+          if (ds && ds.name && ds.name.includes('heatmap')) {
+            sourcesToRemove.push(ds);
+          }
+        }
+
+        // Remove collected sources
+        sourcesToRemove.forEach((ds, index) => {
+          try {
+            dataSources.remove(ds);
+            console.log(`  ✅ Heatmap data source ${index + 1} removed (${ds.name})`);
+          } catch (error) {
+            console.error(`  ❌ Error removing heatmap ${index + 1}:`, error);
+          }
+        });
+
+        // Clear refs
+        lteHeatmapSourceRef.current = null;
+        starlinkHeatmapSourceRef.current = null;
+        combinedHeatmapSourceRef.current = null;
+
+        console.log(`✨ All heatmaps cleaned (${sourcesToRemove.length} sources removed)`);
+      }, 100); // 100ms delay to allow async operations to complete
+
+      return () => clearTimeout(cleanupTimer);
+    }
+  }, [lteHeatmap, starlinkHeatmap, combinedHeatmap]);
+
   // Cell Tower 데이터 로드
   useEffect(() => {
     if (!selectedSessionId || !showCellTowers) {
@@ -540,7 +671,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         console.log('📡 Loading cell tower data...');
         const data = await getCellTowers(selectedSessionId, {
           radio: 'LTE',
-          use_cache: true
+          use_cache: true,
+          flight_id: selectedFlightId !== null ? selectedFlightId : undefined
         });
         setCellTowerData(data);
         console.log(`✅ Cell tower data loaded: ${data.features?.length || 0} towers`);
@@ -551,7 +683,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadCellTowers();
-  }, [selectedSessionId, showCellTowers]);
+  }, [selectedSessionId, showCellTowers, selectedFlightId]);
 
   // Cell Tower 시각화
   useEffect(() => {
@@ -758,9 +890,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         starlinkHeatmap={starlinkHeatmap}
         combinedHeatmap={combinedHeatmap}
         heatmapStyle={heatmapStyle}
-        onLteHeatmapToggle={setLteHeatmap}
-        onStarlinkHeatmapToggle={setStarlinkHeatmap}
-        onCombinedHeatmapToggle={setCombinedHeatmap}
+        onLteHeatmapToggle={handleLteHeatmapToggle}
+        onStarlinkHeatmapToggle={handleStarlinkHeatmapToggle}
+        onCombinedHeatmapToggle={handleCombinedHeatmapToggle}
         onHeatmapStyleChange={setHeatmapStyle}
         scenarios={flightScenarios}
         selectedFlightId={selectedFlightId}
@@ -771,15 +903,23 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onPathColorModeChange={setPathColorMode}
         onCustomMetricsChange={setCustomMetrics}
         colorMetadata={colorMetadata}
+        heatmapMetadata={heatmapMetadata}
         showCellTowers={showCellTowers}
         onCellTowersToggle={setShowCellTowers}
         showSatelliteDirection={showSatelliteDirection}
         onSatelliteDirectionToggle={setShowSatelliteDirection}
         showTowerConnections={showTowerConnections}
         onTowerConnectionsToggle={setShowTowerConnections}
-        onAnalyticsToggle={setShowAnalytics}
         showAnalytics={showAnalytics}
+        onAnalyticsToggle={setShowAnalytics}
+        showKPIDashboard={showKPIDashboard}
+        onKPIDashboardToggle={setShowKPIDashboard}
       />
+
+      {/* KPI Dashboard */}
+      {showKPIDashboard && selectedSessionId && (
+        <KPIDashboard sessionId={selectedSessionId} />
+      )}
 
       {/* Analytics Panel */}
       {showAnalytics && selectedSessionId && (
