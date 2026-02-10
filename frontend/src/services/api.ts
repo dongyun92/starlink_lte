@@ -348,3 +348,40 @@ export async function getKPISummary(sessionId: string): Promise<KPISummary> {
 
   return response.json();
 }
+
+/**
+ * Signal Loss Segment interface
+ */
+export interface SignalLossSegment {
+  start_index: number;
+  end_index: number;
+  start_time: string;
+  end_time: string;
+  duration_seconds: number;
+  center_lat: number;
+  center_lon: number;
+  center_altitude: number;
+  lte_poor: boolean;
+  starlink_poor: boolean;
+  avg_lte_rsrp: number | null;
+  avg_starlink_latency: number | null;
+}
+
+export interface SignalLossData {
+  segments: SignalLossSegment[];
+  total_percentage: number;
+  total_segments: number;
+}
+
+/**
+ * Get signal loss segments for a specific session
+ */
+export async function getSignalLossSegments(sessionId: string): Promise<SignalLossData> {
+  const response = await fetch(`${API_BASE_URL}/api/3d/signal-loss/${sessionId}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch signal loss segments: ${response.statusText}`);
+  }
+
+  return response.json();
+}

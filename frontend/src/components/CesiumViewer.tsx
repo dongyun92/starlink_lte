@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML, getTowerConnectionsCZML } from '@/services/api';
+import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML, getTowerConnectionsCZML, getSignalLossSegments } from '@/services/api';
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
@@ -37,6 +37,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Tower connections ref
   const towerConnectionsSourceRef = useRef<any>(null);
+
+  // Signal loss segments ref
+  const signalLossEntitiesRef = useRef<any[]>([]);
 
   const [cameraMode, setCameraMode] = useState<CameraMode>('free');
 
@@ -109,6 +112,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Tower connections state
   const [showTowerConnections, setShowTowerConnections] = useState<boolean>(false);
+
+  // Signal loss state
+  const [showSignalLoss, setShowSignalLoss] = useState<boolean>(false);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -867,6 +873,113 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadTowerConnections();
   }, [selectedSessionId, selectedFlightId, showTowerConnections]);
 
+  // Load and render signal loss 3D cylinder markers
+  useEffect(() => {
+    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+
+    const Cesium = window.Cesium;
+
+    // Remove existing signal loss entities
+    signalLossEntitiesRef.current.forEach(entity => {
+      cesiumViewerRef.current.entities.remove(entity);
+    });
+    signalLossEntitiesRef.current = [];
+
+    // If signal loss visualization is disabled, exit
+    if (!showSignalLoss) {
+      return;
+    }
+
+    const loadSignalLossSegments = async () => {
+      try {
+        console.log('🔴 Loading signal loss segments...');
+        const data = await getSignalLossSegments(selectedSessionId);
+
+        if (!data.segments || data.segments.length === 0) {
+          console.log('✅ No signal loss segments detected');
+          return;
+        }
+
+        console.log(`🔴 Rendering ${data.segments.length} signal loss cylinder markers...`);
+
+        // Render each segment as a 3D cylinder
+        data.segments.forEach((segment, index) => {
+          const { center_lat, center_lon, center_altitude, duration_seconds, lte_poor, starlink_poor } = segment;
+
+          // Color coding: Red if both systems poor, Orange if only one system poor
+          let color: any;
+          let label: string;
+
+          if (lte_poor && starlink_poor) {
+            color = Cesium.Color.RED.withAlpha(0.6);
+            label = 'Both Systems Poor';
+          } else if (lte_poor) {
+            color = Cesium.Color.ORANGE.withAlpha(0.6);
+            label = 'LTE Poor';
+          } else if (starlink_poor) {
+            color = Cesium.Color.ORANGE.withAlpha(0.6);
+            label = 'Starlink Poor';
+          } else {
+            color = Cesium.Color.YELLOW.withAlpha(0.6);
+            label = 'Signal Quality Issue';
+          }
+
+          // Cylinder dimensions
+          const radius = 50; // 50m radius
+          const cylinderLength = 100; // 100m height
+
+          // Create cylinder entity
+          const cylinderEntity = cesiumViewerRef.current.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(center_lon, center_lat, center_altitude),
+            cylinder: {
+              length: cylinderLength,
+              topRadius: radius,
+              bottomRadius: radius,
+              material: color,
+              outline: true,
+              outlineColor: Cesium.Color.RED,
+              outlineWidth: 2,
+              heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+            },
+            label: {
+              text: `Signal Loss\n${duration_seconds.toFixed(1)}s`,
+              font: '14px monospace',
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: Cesium.Color.BLACK,
+              outlineWidth: 3,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              pixelOffset: new Cesium.Cartesian2(0, -60),
+              heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+            },
+            description: `
+              <div style="font-family: monospace; font-size: 12px;">
+                <b>🔴 Signal Loss Segment #${index + 1}</b><br/>
+                <b>Duration:</b> ${duration_seconds.toFixed(2)} seconds<br/>
+                <b>Status:</b> ${label}<br/>
+                <b>LTE Poor:</b> ${lte_poor ? 'Yes' : 'No'}${segment.avg_lte_rsrp !== null ? ` (${segment.avg_lte_rsrp.toFixed(1)} dBm)` : ''}<br/>
+                <b>Starlink Poor:</b> ${starlink_poor ? 'Yes' : 'No'}${segment.avg_starlink_latency !== null ? ` (${segment.avg_starlink_latency.toFixed(1)} ms)` : ''}<br/>
+                <b>Location:</b> ${center_lat.toFixed(5)}, ${center_lon.toFixed(5)}<br/>
+                <b>Altitude:</b> ${center_altitude.toFixed(2)} m
+              </div>
+            `
+          });
+
+          signalLossEntitiesRef.current.push(cylinderEntity);
+        });
+
+        console.log(`✅ ${signalLossEntitiesRef.current.length} signal loss cylinders rendered`);
+        console.log(`📊 Total signal loss: ${data.total_percentage.toFixed(2)}% (${data.total_segments} segments)`);
+      } catch (error) {
+        console.error('❌ Failed to load signal loss segments:', error);
+      }
+    };
+
+    loadSignalLossSegments();
+  }, [selectedSessionId, showSignalLoss]);
+
   // Auto-enable cell towers when tower connections are enabled
   useEffect(() => {
     if (showTowerConnections && !showCellTowers) {
@@ -910,6 +1023,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onSatelliteDirectionToggle={setShowSatelliteDirection}
         showTowerConnections={showTowerConnections}
         onTowerConnectionsToggle={setShowTowerConnections}
+        showSignalLoss={showSignalLoss}
+        onSignalLossToggle={setShowSignalLoss}
         showAnalytics={showAnalytics}
         onAnalyticsToggle={setShowAnalytics}
         showKPIDashboard={showKPIDashboard}
