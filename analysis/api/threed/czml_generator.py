@@ -1341,7 +1341,7 @@ class CZMLGenerator:
         print(f"✅ Created {len(entities)} voxel boxes for {mode.upper()} mode", flush=True)
         return entities
 
-    def generate_satellite_direction_arrows(self, sample_rate: int = 1, color_by: str = 'starlink_snr', flight_id: int = None, arrow_length: int = 1000) -> list:
+    def generate_satellite_direction_arrows(self, sample_rate: int = 1, color_by: str = 'starlink_snr', flight_id: int = None, arrow_length: int = 5000) -> list:
         """
         Generate CZML with 3D arrows showing satellite direction
 
@@ -1349,7 +1349,7 @@ class CZMLGenerator:
             sample_rate: Sampling rate in Hz (default: 1)
             color_by: What to color arrows by (default: 'starlink_snr')
             flight_id: Optional flight ID filter
-            arrow_length: Arrow length in meters (default: 1000)
+            arrow_length: Arrow length in meters (default: 5000)
 
         Returns:
             CZML data with polyline arrows
@@ -1584,16 +1584,16 @@ class CZMLGenerator:
             # Get all positions where drone was connected to this cell
             cell_data = df_valid[df_valid['lte_cell_id'] == cell_id]
 
-            # Filter to strongest signal positions (top 30% RSRP)
-            # Tower is closest where signal is strongest
+            # Filter to strongest signal positions (top 20% RSRP)
+            # Tower is closest where signal is strongest - avoids ocean/distant positions
             if 'lte_rsrp' in cell_data.columns and cell_data['lte_rsrp'].notna().sum() > 0:
-                rsrp_threshold = cell_data['lte_rsrp'].quantile(0.70)  # Top 30% strongest signals
+                rsrp_threshold = cell_data['lte_rsrp'].quantile(0.80)  # Top 20% strongest signals
                 cell_data_strong = cell_data[cell_data['lte_rsrp'] >= rsrp_threshold]
 
                 # Use at least 3 points for stability
                 if len(cell_data_strong) >= 3:
                     cell_data = cell_data_strong
-                    print(f"    🎯 Cell {cell_id}: Using top 30% signal strength ({len(cell_data)} points, RSRP≥{rsrp_threshold:.1f}dBm)", flush=True)
+                    print(f"    🎯 Cell {cell_id}: Using top 20% signal strength ({len(cell_data)} points, RSRP≥{rsrp_threshold:.1f}dBm)", flush=True)
 
             # Use median position (more robust than mean for GPS data)
             tower_lat = cell_data['latitude'].median()

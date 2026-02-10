@@ -476,16 +476,16 @@ def get_cell_towers(session_id):
             # Get all positions where drone was connected to this cell
             cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
 
-            # Filter to strongest signal positions (top 30% RSRP)
+            # Filter to strongest signal positions (top 20% RSRP)
             # Tower is closest where signal is strongest - avoids ocean/distant positions
             if 'lte_rsrp' in cell_data.columns and cell_data['lte_rsrp'].notna().sum() > 0:
-                rsrp_threshold = cell_data['lte_rsrp'].quantile(0.70)  # Top 30% strongest signals
+                rsrp_threshold = cell_data['lte_rsrp'].quantile(0.80)  # Top 20% strongest signals
                 cell_data_strong = cell_data[cell_data['lte_rsrp'] >= rsrp_threshold]
 
                 # Use at least 3 points for stability
                 if len(cell_data_strong) >= 3:
                     cell_data = cell_data_strong
-                    print(f"    🎯 Cell {cell_id}: Using top 30% signal strength ({len(cell_data)} points, RSRP≥{rsrp_threshold:.1f}dBm)")
+                    print(f"    🎯 Cell {cell_id}: Using top 20% signal strength ({len(cell_data)} points, RSRP≥{rsrp_threshold:.1f}dBm)")
 
             # Use median position (more robust than mean)
             tower_lat = float(cell_data['latitude'].median())
@@ -496,7 +496,7 @@ def get_cell_towers(session_id):
             avg_rsrp = float(all_cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in all_cell_data.columns else -100
             connection_count = len(all_cell_data)
 
-            # Create GeoJSON feature
+            # Create GeoJSON feature (matching OpenCellID format for frontend compatibility)
             tower_features.append({
                 'type': 'Feature',
                 'geometry': {
@@ -504,10 +504,15 @@ def get_cell_towers(session_id):
                     'coordinates': [tower_lon, tower_lat, 50]  # lon, lat, altitude
                 },
                 'properties': {
-                    'cell_id': str(cell_id),
-                    'connection_count': connection_count,
-                    'avg_rsrp': avg_rsrp,
+                    'id': f"GPS-COMPUTED-{cell_id}",  # Unique ID for frontend
                     'radio': 'LTE',
+                    'operator': 'GPS Computed',  # Indicate this is GPS-based
+                    'mcc': 450,  # Korea MCC
+                    'mnc': None,  # Unknown from GPS data
+                    'lac': None,  # Unknown from GPS data
+                    'cid': str(cell_id),  # Cell ID from LTE data
+                    'connection_count': connection_count,  # Additional info
+                    'avg_rsrp': avg_rsrp,  # Signal strength
                     'connected': True  # All towers are connected (we computed from actual connections)
                 }
             })
@@ -616,7 +621,7 @@ def get_satellite_direction_czml(session_id):
     Query Parameters:
         - sample_rate: Sampling rate in Hz (default: 0.2)
         - color_by: What to color arrows by ('starlink_snr' or 'starlink_latency') (default: 'starlink_snr')
-        - arrow_length: Arrow length in meters (default: 1000)
+        - arrow_length: Arrow length in meters (default: 5000)
         - flight_id: Optional flight ID to filter by (for multi-flight sessions)
 
     Returns:
@@ -626,7 +631,7 @@ def get_satellite_direction_czml(session_id):
         # Get query parameters
         sample_rate = request.args.get('sample_rate', 0.2, type=float)
         color_by = request.args.get('color_by', 'starlink_snr', type=str)
-        arrow_length = request.args.get('arrow_length', 1000, type=int)
+        arrow_length = request.args.get('arrow_length', 5000, type=int)
         flight_id = request.args.get('flight_id', None, type=int)
 
         # Validate color_by
