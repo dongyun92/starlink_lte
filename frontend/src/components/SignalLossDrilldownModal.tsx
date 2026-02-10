@@ -71,7 +71,7 @@ export const SignalLossDrilldownModal: React.FC<SignalLossDrilldownModalProps> =
       <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-red-500 to-orange-500 text-white px-6 py-4 rounded-t-lg flex justify-between items-center">
-          <h2 className="text-xl font-bold">🔴 Signal Loss Details</h2>
+          <h2 className="text-xl font-bold">Signal Loss Details</h2>
           <button
             onClick={onClose}
             className="text-white hover:text-gray-200 text-2xl font-bold leading-none"
@@ -187,7 +187,7 @@ export const SignalLossDrilldownModal: React.FC<SignalLossDrilldownModalProps> =
               onClick={() => onJumpToLocation(segment.center_lat, segment.center_lon, segment.center_altitude)}
               className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-4 rounded-lg transition-colors"
             >
-              📍 Jump to Location
+              Jump to Location
             </button>
             <button
               onClick={onClose}
