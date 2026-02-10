@@ -678,6 +678,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadTowerConnections();
   }, [selectedSessionId, selectedFlightId, showTowerConnections]);
 
+  // Auto-enable cell towers when tower connections are enabled
+  useEffect(() => {
+    if (showTowerConnections && !showCellTowers) {
+      console.log('📡 Auto-enabling cell towers for tower connections visualization');
+      setShowCellTowers(true);
+    }
+  }, [showTowerConnections]);
+
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
   };
