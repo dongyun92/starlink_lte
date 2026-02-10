@@ -613,7 +613,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           color_by: pathColorMode.startsWith('starlink') ?
             (pathColorMode === 'starlink_latency' ? 'starlink_latency' : 'starlink_snr') :
             'starlink_snr',
-          arrow_length: 1000,  // 1km arrows
+          arrow_length: 10,  // 10m arrows (just for direction indication)
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined
         });
 

@@ -1349,7 +1349,7 @@ class CZMLGenerator:
             sample_rate: Sampling rate in Hz (default: 1)
             color_by: What to color arrows by (default: 'starlink_snr')
             flight_id: Optional flight ID filter
-            arrow_length: Arrow length in meters (default: 5000)
+            arrow_length: Arrow length in meters (default: 10)
 
         Returns:
             CZML data with polyline arrows
