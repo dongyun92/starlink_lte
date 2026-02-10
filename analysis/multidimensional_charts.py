@@ -338,7 +338,7 @@ class MultidimensionalChartGenerator:
         ax4.grid(True, alpha=0.3)
         fig.colorbar(scatter4, ax=ax4, label='LTE RSSI (dBm)')
 
-        plt.suptitle('🎯 복합 요인 분석: 고도 + 속도 + 위치가 동시에 LTE 품질 결정',
+        plt.suptitle('복합 요인 분석: 고도 + 속도 + 위치가 동시에 LTE 품질 결정',
                     fontsize=16, fontweight='bold', y=0.98)
         plt.tight_layout(rect=[0, 0, 1, 0.96])
 

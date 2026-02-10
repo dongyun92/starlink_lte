@@ -218,7 +218,7 @@ class FlightQualityAnalyzer:
                 fontsize=8, family='monospace',
                 bbox=dict(boxstyle='round', facecolor='#f0f0f0', alpha=0.8))
 
-        plt.suptitle('🛫 Flight Altitude vs Communication Quality Analysis',
+        plt.suptitle('Flight Altitude vs Communication Quality Analysis',
                     fontsize=16, fontweight='bold', y=0.98)
         plt.tight_layout(rect=[0, 0, 1, 0.96])
 
