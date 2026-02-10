@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML } from '@/services/api';
+import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML, getTowerConnectionsCZML } from '@/services/api';
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
@@ -34,6 +34,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Satellite direction ref
   const satelliteDirectionSourceRef = useRef<any>(null);
 
+  // Tower connections ref
+  const towerConnectionsSourceRef = useRef<any>(null);
+
   const [cameraMode, setCameraMode] = useState<CameraMode>('free');
 
   // Heatmap layer states
@@ -65,6 +68,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Satellite direction state
   const [showSatelliteDirection, setShowSatelliteDirection] = useState<boolean>(false);
+
+  // Tower connections state
+  const [showTowerConnections, setShowTowerConnections] = useState<boolean>(false);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -627,6 +633,51 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadSatelliteDirection();
   }, [selectedSessionId, selectedFlightId, showSatelliteDirection, pathColorMode]);
 
+  // Load tower connections
+  useEffect(() => {
+    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined' || !showTowerConnections) {
+      // Remove tower connections data source if exists
+      if (towerConnectionsSourceRef.current) {
+        cesiumViewerRef.current.dataSources.remove(towerConnectionsSourceRef.current);
+        towerConnectionsSourceRef.current = null;
+      }
+      return;
+    }
+
+    const Cesium = window.Cesium;
+
+    const loadTowerConnections = async () => {
+      try {
+        console.log('📡 Loading tower connections...');
+
+        // Remove existing data source
+        if (towerConnectionsSourceRef.current) {
+          cesiumViewerRef.current.dataSources.remove(towerConnectionsSourceRef.current);
+          towerConnectionsSourceRef.current = null;
+        }
+
+        // Get CZML data
+        const czmlData = await getTowerConnectionsCZML(selectedSessionId, {
+          sample_rate: 0.2,  // 5 second intervals
+          flight_id: selectedFlightId !== null ? selectedFlightId : undefined
+        });
+
+        console.log('📦 Tower connections CZML data loaded');
+
+        // Load CZML into Cesium
+        const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+        cesiumViewerRef.current.dataSources.add(dataSource);
+        towerConnectionsSourceRef.current = dataSource;
+
+        console.log('✅ Tower connections rendered');
+      } catch (error) {
+        console.error('❌ Failed to load tower connections:', error);
+      }
+    };
+
+    loadTowerConnections();
+  }, [selectedSessionId, selectedFlightId, showTowerConnections]);
+
   const toggleCameraMode = () => {
     setCameraMode((prev) => (prev === 'free' ? 'track' : 'free'));
   };
@@ -659,6 +710,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onCellTowersToggle={setShowCellTowers}
         showSatelliteDirection={showSatelliteDirection}
         onSatelliteDirectionToggle={setShowSatelliteDirection}
+        showTowerConnections={showTowerConnections}
+        onTowerConnectionsToggle={setShowTowerConnections}
         onAnalyticsToggle={setShowAnalytics}
         showAnalytics={showAnalytics}
       />

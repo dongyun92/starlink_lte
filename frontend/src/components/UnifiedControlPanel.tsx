@@ -52,6 +52,10 @@ interface UnifiedControlPanelProps {
   // Satellite direction controls
   showSatelliteDirection: boolean;
   onSatelliteDirectionToggle: (enabled: boolean) => void;
+
+  // Tower connections controls
+  showTowerConnections: boolean;
+  onTowerConnectionsToggle: (enabled: boolean) => void;
 }
 
 export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
@@ -79,6 +83,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onCellTowersToggle,
   showSatelliteDirection,
   onSatelliteDirectionToggle,
+  showTowerConnections,
+  onTowerConnectionsToggle,
   showAnalytics,
   onAnalyticsToggle,
 }) => {
@@ -490,6 +496,19 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
             </label>
             <p className="text-[10px] text-gray-500 ml-5">
               3D arrows showing Starlink satellite direction with signal quality colors
+            </p>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showTowerConnections}
+                onChange={(e) => onTowerConnectionsToggle(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span className="text-xs">📡 LTE Tower Connections</span>
+            </label>
+            <p className="text-[10px] text-gray-500 ml-5">
+              Real-time connection lines to LTE towers, colored by signal strength
             </p>
           </div>
 

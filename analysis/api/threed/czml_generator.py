@@ -1517,3 +1517,203 @@ class CZMLGenerator:
 
         print(f"✅ Created {arrow_count} satellite direction arrows", flush=True)
         return czml_document
+
+    def generate_tower_connections(self, sample_rate: float = 0.2, flight_id: int = None) -> list:
+        """
+        Generate CZML data for LTE tower connections with time-dynamic polylines
+
+        Shows which LTE tower the drone is connected to at each point in time,
+        with lines colored by signal strength (RSRP).
+
+        Args:
+            sample_rate: Sampling rate in Hz (default: 0.2 = 1 point per 5 seconds)
+            flight_id: Optional flight ID to filter by
+
+        Returns:
+            CZML document with time-dynamic tower connection polylines
+        """
+        # Load merged data
+        results_dir = Path(__file__).parent.parent.parent / 'results' / self.session_id
+        merged_data_path = results_dir / 'merged_data.csv'
+
+        if not merged_data_path.exists():
+            raise ValueError(f"No merged data found for session {self.session_id}")
+
+        df = pd.read_csv(merged_data_path)
+        # Ensure timestamp is datetime (handle mixed formats)
+        df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
+
+        # Filter by flight_id if specified
+        if flight_id is not None and 'flight_id' in df.columns:
+            df = df[df['flight_id'] == flight_id].copy()
+            if df.empty:
+                raise ValueError(f"No data found for flight_id {flight_id}")
+
+        # Check required columns
+        required = ['latitude', 'longitude', 'altitude', 'lte_cell_id']
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            raise ValueError(f"❌ Tower connections require: {', '.join(missing)}")
+
+        # Filter out rows without LTE cell ID
+        df_valid = df.dropna(subset=['lte_cell_id']).copy()
+        if df_valid.empty:
+            raise ValueError(f"❌ No LTE cell connection data available")
+
+        print(f"📡 Processing {len(df_valid)} LTE connection points...", flush=True)
+
+        # Detect cell changes (handovers)
+        df_valid['cell_changed'] = df_valid['lte_cell_id'] != df_valid['lte_cell_id'].shift(1)
+        df_valid['connection_segment'] = df_valid['cell_changed'].cumsum()
+
+        # Get tower locations from existing cell tower data
+        from api.threed.cell_tower_loader import CellTowerLoader
+        tower_loader = CellTowerLoader()
+
+        # Get bounding box for session
+        lat_min, lat_max = df_valid['latitude'].min(), df_valid['latitude'].max()
+        lon_min, lon_max = df_valid['longitude'].min(), df_valid['longitude'].max()
+
+        print(f"  📍 Fetching cell towers in area: ({lat_min:.4f}, {lon_min:.4f}) to ({lat_max:.4f}, {lon_max:.4f})", flush=True)
+
+        # Fetch all towers in the area
+        all_towers = tower_loader.get_cell_towers_in_area(
+            lat_min=lat_min,
+            lat_max=lat_max,
+            lon_min=lon_min,
+            lon_max=lon_max
+        )
+
+        # Create a mapping of cell_id to tower location
+        tower_map = {}
+        for tower in all_towers:
+            cell_id = tower.get('cell', '')
+            if cell_id:
+                # Convert hex cell ID to match format (if needed)
+                tower_map[str(cell_id).upper()] = {
+                    'lat': tower['lat'],
+                    'lon': tower['lon'],
+                    'alt': 50  # Approximate tower height
+                }
+
+        print(f"  🗺️ Found {len(tower_map)} unique cell towers in database", flush=True)
+
+        # Process each connection segment
+        segments = []
+        handover_count = 0
+
+        for segment_id, group in df_valid.groupby('connection_segment'):
+            cell_id = str(group.iloc[0]['lte_cell_id']).upper()
+            start_time = group['timestamp'].min()
+            end_time = group['timestamp'].max()
+            duration = (end_time - start_time).total_seconds()
+
+            # Get average signal strength for this segment
+            rsrp = group['lte_rsrp'].mean() if 'lte_rsrp' in group.columns else -100
+
+            # Find tower location
+            tower_loc = tower_map.get(cell_id)
+
+            if tower_loc is None:
+                # Tower not in database - skip this segment
+                # print(f"  ⚠️ Tower {cell_id} not found in database, skipping", flush=True)
+                continue
+
+            # Apply sampling to reduce polyline count
+            if sample_rate < 1:
+                interval = max(1, int(1 / sample_rate))
+                group_sampled = group.iloc[::interval]
+            else:
+                group_sampled = group
+
+            segments.append({
+                'cell_id': cell_id,
+                'start_time': start_time,
+                'end_time': end_time,
+                'duration': duration,
+                'drone_positions': group_sampled[['longitude', 'latitude', 'altitude']].values,
+                'tower_lon': tower_loc['lon'],
+                'tower_lat': tower_loc['lat'],
+                'tower_alt': tower_loc['alt'],
+                'rsrp': rsrp,
+                'point_count': len(group_sampled)
+            })
+
+            if segment_id > 0:  # Count handovers (skip first segment)
+                handover_count += 1
+
+        print(f"  ✅ Detected {handover_count} handovers across {len(segments)} segments", flush=True)
+
+        if not segments:
+            raise ValueError(f"❌ No tower connections found (towers not in OpenCellID database)")
+
+        # Generate CZML document
+        first_time = segments[0]['start_time']
+        last_time = segments[-1]['end_time']
+
+        czml_document = [
+            {
+                "id": "document",
+                "name": f"LTE Tower Connections - {self.session_id}",
+                "version": "1.0",
+                "clock": {
+                    "interval": f"{first_time.isoformat()}/{last_time.isoformat()}",
+                    "currentTime": first_time.isoformat(),
+                    "multiplier": 1,
+                    "range": "LOOP_STOP",
+                    "step": "SYSTEM_CLOCK_MULTIPLIER"
+                }
+            }
+        ]
+
+        # Signal strength color mapping (RSRP-based)
+        def get_signal_color(rsrp):
+            """Get color based on RSRP value"""
+            if rsrp > -80:  # Strong signal
+                return [0, 255, 0, 180]  # Green
+            elif rsrp > -100:  # Medium signal
+                return [255, 255, 0, 180]  # Yellow
+            else:  # Weak signal
+                return [255, 0, 0, 180]  # Red
+
+        # Create connection polylines for each segment
+        polyline_count = 0
+        for idx, segment in enumerate(segments):
+            start_iso = segment['start_time'].isoformat()
+            end_iso = segment['end_time'].isoformat()
+            color = get_signal_color(segment['rsrp'])
+
+            # Create multiple polylines (one for each drone position in segment)
+            for pos_idx, drone_pos in enumerate(segment['drone_positions']):
+                drone_lon, drone_lat, drone_alt = drone_pos
+
+                entity = {
+                    "id": f"tower_conn_{idx}_{pos_idx}",
+                    "availability": f"{start_iso}/{end_iso}",
+                    "polyline": {
+                        "positions": {
+                            "cartographicDegrees": [
+                                drone_lon, drone_lat, drone_alt,
+                                segment['tower_lon'], segment['tower_lat'], segment['tower_alt']
+                            ]
+                        },
+                        "material": {
+                            "polylineOutline": {
+                                "color": {"rgba": color},
+                                "outlineColor": {"rgba": [0, 0, 0, 255]},
+                                "outlineWidth": 1
+                            }
+                        },
+                        "width": 3,
+                        "arcType": "NONE"  # Straight line
+                    }
+                }
+                czml_document.append(entity)
+                polyline_count += 1
+
+        print(f"✅ Created {polyline_count} tower connection polylines for {len(segments)} segments", flush=True)
+        print(f"  📊 Signal strength: Strong={sum(1 for s in segments if s['rsrp'] > -80)}, "
+              f"Medium={sum(1 for s in segments if -100 < s['rsrp'] <= -80)}, "
+              f"Weak={sum(1 for s in segments if s['rsrp'] <= -100)}", flush=True)
+
+        return czml_document

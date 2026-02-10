@@ -677,6 +677,89 @@ def get_satellite_direction_czml(session_id):
         return jsonify({'error': str(e)}), 500
 
 
+@api_3d_bp.route('/tower-connections/<session_id>', methods=['GET'])
+def get_tower_connections_czml(session_id):
+    """
+    Generate and return CZML data for LTE tower connections
+
+    Args:
+        session_id: Session identifier
+
+    Query Parameters:
+        - sample_rate: Sampling rate in Hz (default: 0.2)
+        - flight_id: Optional flight ID to filter by (for multi-flight sessions)
+
+    Returns:
+        CZML JSON data with time-dynamic tower connection polylines
+    """
+    try:
+        # Get query parameters
+        sample_rate = request.args.get('sample_rate', 0.2, type=float)
+        flight_id = request.args.get('flight_id', None, type=int)
+
+        # Create cache key
+        cache_key = f"tower_conn:{session_id}:{sample_rate}:{flight_id}"
+
+        # Try to get from cache
+        if redis_client:
+            try:
+                cached_json = redis_client.get(cache_key)
+                if cached_json:
+                    print(f"✅ Cache HIT: {cache_key}")
+                    response = make_response(cached_json)
+                    response.headers['Content-Type'] = 'application/json'
+                    response.headers['X-Cache'] = 'HIT'
+                    return response
+            except Exception as e:
+                print(f"⚠️ Cache read error: {e}")
+
+        # Validate session
+        session = Session.get_by_id(session_id)
+
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+
+        if session.status != 'completed':
+            return jsonify({'error': 'Session not completed'}), 400
+
+        # Generate tower connections CZML
+        start_time = time.time()
+        generator = CZMLGenerator(session_id)
+        czml_data = generator.generate_tower_connections(
+            sample_rate=sample_rate,
+            flight_id=flight_id
+        )
+        generation_time = (time.time() - start_time) * 1000
+        print(f"⏱️ Tower connections CZML generation time: {generation_time:.1f}ms")
+
+        # Convert to JSON
+        czml_json = json.dumps(czml_data)
+
+        # Cache the JSON data (5 minutes TTL)
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 300, czml_json)
+                print(f"💾 Cache MISS: {cache_key} saved ({len(czml_json)} bytes)")
+            except Exception as e:
+                print(f"⚠️ Cache write error: {e}")
+
+        # Return JSON response
+        response = make_response(czml_json)
+        response.headers['Content-Type'] = 'application/json'
+        response.headers['X-Cache'] = 'MISS'
+        return response
+
+    except ValueError as e:
+        error_msg = str(e)
+        print(f"⚠️ ValueError: {error_msg}")
+        return jsonify({'error': error_msg}), 400
+    except Exception as e:
+        print(f"❌ Error generating tower connections CZML: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @api_3d_bp.route('/health', methods=['GET'])
 def health_check():
     """
