@@ -1566,34 +1566,10 @@ class CZMLGenerator:
         df_valid['cell_changed'] = df_valid['lte_cell_id'] != df_valid['lte_cell_id'].shift(1)
         df_valid['connection_segment'] = df_valid['cell_changed'].cumsum()
 
-        # Get tower locations from OpenCellID
-        from api.threed.opencellid_client import OpenCellIDClient
-        import os
-
-        # Check if API key is available
-        api_key = os.getenv('OPENCELLID_API_KEY')
-        if not api_key:
-            raise ValueError("❌ OpenCellID API key not configured. Set OPENCELLID_API_KEY environment variable.")
-
-        opencellid_client = OpenCellIDClient(api_key)
-
-        # Get bounding box for session
-        lat_min, lat_max = df_valid['latitude'].min(), df_valid['latitude'].max()
-        lon_min, lon_max = df_valid['longitude'].min(), df_valid['longitude'].max()
-
-        print(f"  📍 Fetching cell towers in area: ({lat_min:.4f}, {lon_min:.4f}) to ({lat_max:.4f}, {lon_max:.4f})", flush=True)
-
-        # Fetch all towers in the area using grid search
-        all_towers = opencellid_client.get_cell_towers_grid_search(
-            min_lat=lat_min,
-            max_lat=lat_max,
-            min_lon=lon_min,
-            max_lon=lon_max,
-            radio='LTE'
-        )
-
-        # Strategy: Use drone's actual GPS positions when connected to each Cell ID
-        # This is more accurate than relying on incomplete OpenCellID database
+        # Compute tower locations from actual connection data
+        # Key insight: Drone connects to nearest tower, so median GPS position
+        # when connected to a Cell ID = that tower's approximate location
+        # This is MORE accurate than external databases and requires no API calls!
         print(f"  🎯 Computing tower locations from actual connection data...", flush=True)
 
         # Calculate average position for each unique Cell ID
