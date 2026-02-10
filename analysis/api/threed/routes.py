@@ -464,6 +464,37 @@ def get_cell_towers(session_id):
 
         print(f"📡 Computing tower positions from {len(df_lte)} LTE connection points...")
 
+        # Load original LTE CSV for detailed cell information
+        from pathlib import Path
+        uploads_dir = Path(__file__).parent.parent.parent / 'uploads' / session_id / 'lte_data'
+        lte_csv_files = list(uploads_dir.glob('*.csv')) if uploads_dir.exists() else []
+
+        # Operator mapping
+        OPERATORS = {
+            5: 'SK Telecom',
+            6: 'LG U+',
+            8: 'KT'
+        }
+
+        # Read original LTE data for cell details
+        lte_details = {}
+        if lte_csv_files:
+            lte_original = pd.read_csv(lte_csv_files[0])
+            for cell_id in lte_original['cell_id'].unique():
+                if pd.isna(cell_id) or cell_id in ['0', 'FFFFFFFF']:
+                    continue
+                cell_rows = lte_original[lte_original['cell_id'] == cell_id]
+                first_row = cell_rows.iloc[0]
+
+                lte_details[cell_id] = {
+                    'mcc': int(first_row['mcc']) if pd.notna(first_row.get('mcc')) else 450,
+                    'mnc': int(first_row['mnc']) if pd.notna(first_row.get('mnc')) else None,
+                    'lac': int(first_row['lac']) if pd.notna(first_row.get('lac')) else None,
+                    'pcid': int(first_row['pcid']) if pd.notna(first_row.get('pcid')) else None,
+                    'enodeb_id': int(first_row['enodeb_id']) if pd.notna(first_row.get('enodeb_id')) else None,
+                    'cell_sector_id': int(first_row['cell_sector_id']) if pd.notna(first_row.get('cell_sector_id')) else None,
+                }
+
         # Calculate tower positions from GPS data
         tower_features = []
         unique_cells = df_lte['lte_cell_id'].unique()
@@ -496,7 +527,23 @@ def get_cell_towers(session_id):
             avg_rsrp = float(all_cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in all_cell_data.columns else -100
             connection_count = len(all_cell_data)
 
-            # Create GeoJSON feature (matching OpenCellID format for frontend compatibility)
+            # Get detailed cell information from original LTE data
+            details = lte_details.get(cell_id, {})
+            mcc = details.get('mcc', 450)
+            mnc = details.get('mnc')
+            lac = details.get('lac')
+            pcid = details.get('pcid')
+            enodeb_id = details.get('enodeb_id')
+            sector_id = details.get('cell_sector_id')
+
+            # Generate meaningful name
+            operator_name = OPERATORS.get(mnc, 'Unknown') if mnc else 'GPS Computed'
+            if enodeb_id and sector_id is not None:
+                tower_name = f"{operator_name} - eNB {enodeb_id} - Sector {sector_id}"
+            else:
+                tower_name = f"{operator_name} - Cell {cell_id}"
+
+            # Create GeoJSON feature with complete LTE information
             tower_features.append({
                 'type': 'Feature',
                 'geometry': {
@@ -504,20 +551,37 @@ def get_cell_towers(session_id):
                     'coordinates': [tower_lon, tower_lat, 50]  # lon, lat, altitude
                 },
                 'properties': {
-                    'id': f"GPS-COMPUTED-{cell_id}",  # Unique ID for frontend
+                    'id': f"GPS-{mcc}-{mnc}-{lac}-{cell_id}",  # Unique ID
+                    'name': tower_name,  # Human-readable name
                     'radio': 'LTE',
-                    'operator': 'GPS Computed',  # Indicate this is GPS-based
-                    'mcc': 450,  # Korea MCC
-                    'mnc': None,  # Unknown from GPS data
-                    'lac': None,  # Unknown from GPS data
-                    'cid': str(cell_id),  # Cell ID from LTE data
-                    'connection_count': connection_count,  # Additional info
-                    'avg_rsrp': avg_rsrp,  # Signal strength
-                    'connected': True  # All towers are connected (we computed from actual connections)
+                    'operator': operator_name,
+                    'mcc': mcc,  # Mobile Country Code
+                    'mnc': mnc,  # Mobile Network Code
+                    'lac': lac,  # Location Area Code
+                    'cid': str(cell_id),  # Cell ID (hex)
+                    'pcid': pcid,  # Physical Cell ID
+                    'enodeb_id': enodeb_id,  # eNodeB ID (base station)
+                    'sector_id': sector_id,  # Sector ID (antenna direction)
+                    'connection_count': connection_count,  # Number of connections
+                    'avg_rsrp': avg_rsrp,  # Average signal strength
+                    'position_method': 'GPS-based (Top 20% signal)',  # How position was computed
+                    'connected': True  # This tower was connected during flight
                 }
             })
 
-            print(f"  📍 Cell {cell_id}: ({tower_lat:.6f}, {tower_lon:.6f}) - {connection_count} connections, RSRP={avg_rsrp:.1f}dBm")
+            # Print detailed tower info
+            info_parts = [f"Cell {cell_id}"]
+            if enodeb_id:
+                info_parts.append(f"eNB {enodeb_id}")
+            if sector_id is not None:
+                info_parts.append(f"Sector {sector_id}")
+            if pcid:
+                info_parts.append(f"PCID {pcid}")
+
+            print(f"  📍 {' | '.join(info_parts)}")
+            print(f"      Position: ({tower_lat:.6f}, {tower_lon:.6f})")
+            print(f"      Operator: {operator_name} (MCC:{mcc}, MNC:{mnc}, LAC:{lac})")
+            print(f"      Stats: {connection_count} connections, Avg RSRP={avg_rsrp:.1f}dBm")
 
         # Create GeoJSON FeatureCollection
         geojson = {
