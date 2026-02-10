@@ -67,16 +67,23 @@ echo ""
 echo "🚀 Step 4/6: Starting Flask server (port 5002)..."
 cd /Users/dykim/dev/starlink/analysis
 nohup python3 app.py > flask.log 2>&1 &
-sleep 3
 
-# Verify Flask started
-if lsof -ti:5002 > /dev/null 2>&1; then
-    echo "  └─ ✅ Flask server started successfully"
-else
-    echo "  └─ ❌ Flask server failed to start"
+# Wait for Flask to start (max 10 seconds)
+echo "  ├─ Waiting for Flask to start..."
+for i in {1..10}; do
+    if lsof -ti:5002 > /dev/null 2>&1; then
+        echo "  └─ ✅ Flask server started successfully (${i}s)"
+        break
+    fi
+    sleep 1
+done
+
+# Final verification
+if ! lsof -ti:5002 > /dev/null 2>&1; then
+    echo "  └─ ❌ Flask server failed to start after 10 seconds"
     echo ""
-    echo "Flask logs (last 20 lines):"
-    tail -20 flask.log
+    echo "Flask logs (last 30 lines):"
+    tail -30 flask.log
     exit 1
 fi
 echo ""
@@ -85,16 +92,23 @@ echo ""
 echo "🚀 Step 5/6: Starting Vite dev server (port 5173)..."
 cd /Users/dykim/dev/starlink/frontend
 nohup npm run dev -- --port 5173 --strictPort > /tmp/vite.log 2>&1 &
-sleep 3
 
-# Verify Vite started
-if lsof -ti:5173 > /dev/null 2>&1; then
-    echo "  └─ ✅ Vite dev server started successfully"
-else
-    echo "  └─ ❌ Vite dev server failed to start"
+# Wait for Vite to start (max 10 seconds)
+echo "  ├─ Waiting for Vite to start..."
+for i in {1..10}; do
+    if lsof -ti:5173 > /dev/null 2>&1; then
+        echo "  └─ ✅ Vite dev server started successfully (${i}s)"
+        break
+    fi
+    sleep 1
+done
+
+# Final verification
+if ! lsof -ti:5173 > /dev/null 2>&1; then
+    echo "  └─ ❌ Vite dev server failed to start after 10 seconds"
     echo ""
-    echo "Vite logs (last 20 lines):"
-    tail -20 /tmp/vite.log
+    echo "Vite logs (last 30 lines):"
+    tail -30 /tmp/vite.log
     exit 1
 fi
 echo ""
