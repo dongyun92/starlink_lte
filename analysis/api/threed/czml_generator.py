@@ -169,20 +169,13 @@ class CZMLGenerator:
             polyline_positions.extend([lon, lat, alt])
 
         # Create multiple polyline segments for gradient effect
-        # Performance optimization: Create segments every N points (not every point)
+        # Note: Data is already sampled by sample_rate, so use every point for path accuracy
         segment_entities = []
         num_points = len(polyline_positions) // 3
 
-        # Adaptive segment interval based on data size
-        # Small dataset (<500): every point
-        # Medium (500-2000): every 3 points
-        # Large (>2000): every 10 points
-        if num_points < 500:
-            segment_interval = 1
-        elif num_points < 2000:
-            segment_interval = 3
-        else:
-            segment_interval = 10
+        # Always use all sampled points to ensure path matches aircraft position
+        # (sampling already applied by sample_rate parameter)
+        segment_interval = 1
 
         print(f"🎨 Creating gradient segments: {num_points} points, interval={segment_interval}")
 
