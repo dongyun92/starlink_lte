@@ -1566,9 +1566,16 @@ class CZMLGenerator:
         df_valid['cell_changed'] = df_valid['lte_cell_id'] != df_valid['lte_cell_id'].shift(1)
         df_valid['connection_segment'] = df_valid['cell_changed'].cumsum()
 
-        # Get tower locations from existing cell tower data
-        from api.threed.cell_tower_loader import CellTowerLoader
-        tower_loader = CellTowerLoader()
+        # Get tower locations from OpenCellID
+        from api.threed.opencellid_client import OpenCellIDClient
+        import os
+
+        # Check if API key is available
+        api_key = os.getenv('OPENCELLID_API_KEY')
+        if not api_key:
+            raise ValueError("❌ OpenCellID API key not configured. Set OPENCELLID_API_KEY environment variable.")
+
+        opencellid_client = OpenCellIDClient(api_key)
 
         # Get bounding box for session
         lat_min, lat_max = df_valid['latitude'].min(), df_valid['latitude'].max()
@@ -1576,12 +1583,13 @@ class CZMLGenerator:
 
         print(f"  📍 Fetching cell towers in area: ({lat_min:.4f}, {lon_min:.4f}) to ({lat_max:.4f}, {lon_max:.4f})", flush=True)
 
-        # Fetch all towers in the area
-        all_towers = tower_loader.get_cell_towers_in_area(
-            lat_min=lat_min,
-            lat_max=lat_max,
-            lon_min=lon_min,
-            lon_max=lon_max
+        # Fetch all towers in the area using grid search
+        all_towers = opencellid_client.get_cell_towers_grid_search(
+            min_lat=lat_min,
+            max_lat=lat_max,
+            min_lon=lon_min,
+            max_lon=lon_max,
+            radio='LTE'
         )
 
         # Create a mapping of cell_id to tower location
