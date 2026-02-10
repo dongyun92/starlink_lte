@@ -65,6 +65,13 @@ interface UnifiedControlPanelProps {
   // Signal loss controls
   showSignalLoss: boolean;
   onSignalLossToggle: (enabled: boolean) => void;
+
+  // Timeline controls
+  isPlaying: boolean;
+  playbackSpeed: number;
+  currentTime: string;
+  onPlayPause: () => void;
+  onSpeedChange: (speed: number) => void;
 }
 
 export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
@@ -97,6 +104,11 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onTowerConnectionsToggle,
   showSignalLoss,
   onSignalLossToggle,
+  isPlaying,
+  playbackSpeed,
+  currentTime,
+  onPlayPause,
+  onSpeedChange,
   showAnalytics,
   onAnalyticsToggle,
   showKPIDashboard,
@@ -536,6 +548,50 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
             </label>
             <p className="text-[10px] text-gray-500 ml-5">
               3D cylinder markers highlighting poor signal quality segments
+            </p>
+          </div>
+
+          {/* Timeline Controls */}
+          <div className="space-y-2 pt-3 border-t">
+            <div className="text-xs font-bold text-gray-700 mb-2">⏱️ Timeline Controls</div>
+
+            {/* Current Time Display */}
+            <div className="text-xs text-gray-600 mb-2">
+              <span className="font-mono bg-gray-100 px-2 py-1 rounded">
+                {currentTime}
+              </span>
+            </div>
+
+            {/* Play/Pause Button */}
+            <button
+              onClick={onPlayPause}
+              className="w-full px-3 py-2 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors font-semibold"
+            >
+              {isPlaying ? '⏸️ Pause' : '▶️ Play'}
+            </button>
+
+            {/* Playback Speed Controls */}
+            <div className="space-y-1">
+              <label className="text-[10px] text-gray-600 block">Playback Speed:</label>
+              <div className="flex gap-1 flex-wrap">
+                {[1, 5, 10, 20, 50].map((speed) => (
+                  <button
+                    key={speed}
+                    onClick={() => onSpeedChange(speed)}
+                    className={`px-2 py-1 text-[10px] rounded transition-colors ${
+                      playbackSpeed === speed
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                    }`}
+                  >
+                    {speed}x
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <p className="text-[10px] text-gray-500">
+              Control flight path animation playback speed and progress
             </p>
           </div>
 

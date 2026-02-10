@@ -115,6 +115,54 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Signal loss state
   const [showSignalLoss, setShowSignalLoss] = useState<boolean>(false);
+  const [signalLossSegments, setSignalLossSegments] = useState<any[]>([]);
+
+  // Timeline control states
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(10);
+  const [currentTime, setCurrentTime] = useState<string>('00:00:00');
+
+  // Timeline control functions
+  const handlePlayPause = () => {
+    if (!cesiumViewerRef.current) return;
+
+    const shouldAnimate = !isPlaying;
+    cesiumViewerRef.current.clock.shouldAnimate = shouldAnimate;
+    setIsPlaying(shouldAnimate);
+  };
+
+  const handleSpeedChange = (speed: number) => {
+    if (!cesiumViewerRef.current) return;
+
+    cesiumViewerRef.current.clock.multiplier = speed;
+    setPlaybackSpeed(speed);
+  };
+
+  const formatTime = (julianDate: any): string => {
+    if (!julianDate || typeof window.Cesium === 'undefined') return '00:00:00';
+
+    const Cesium = window.Cesium;
+    const gregorianDate = Cesium.JulianDate.toGregorianDate(julianDate);
+    const hours = String(gregorianDate.hour).padStart(2, '0');
+    const minutes = String(gregorianDate.minute).padStart(2, '0');
+    const seconds = String(Math.floor(gregorianDate.second)).padStart(2, '0');
+
+    return `${hours}:${minutes}:${seconds}`;
+  };
+
+  // Track current time from clock
+  useEffect(() => {
+    if (!cesiumViewerRef.current) return;
+
+    const interval = setInterval(() => {
+      if (cesiumViewerRef.current && cesiumViewerRef.current.clock) {
+        const currentJulian = cesiumViewerRef.current.clock.currentTime;
+        setCurrentTime(formatTime(currentJulian));
+      }
+    }, 100); // Update every 100ms for smooth display
+
+    return () => clearInterval(interval);
+  }, [cesiumViewerRef.current]);
 
   // Cesium Viewer 초기화
   useEffect(() => {
@@ -899,10 +947,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
         if (!data.segments || data.segments.length === 0) {
           console.log('✅ No signal loss segments detected');
+          setSignalLossSegments([]);
           return;
         }
 
         console.log(`🔴 Rendering ${data.segments.length} signal loss cylinder markers...`);
+
+        // Store segments for timeline markers
+        setSignalLossSegments(data.segments);
 
         // Render each segment as a 3D cylinder
         data.segments.forEach((segment, index) => {
@@ -980,6 +1032,72 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadSignalLossSegments();
   }, [selectedSessionId, showSignalLoss]);
 
+  // Render signal loss markers on timeline
+  useEffect(() => {
+    if (!cesiumViewerRef.current || signalLossSegments.length === 0 || typeof window.Cesium === 'undefined') {
+      return;
+    }
+
+    const Cesium = window.Cesium;
+    const viewer = cesiumViewerRef.current;
+
+    // Find timeline container
+    const timelineContainer = document.querySelector('.cesium-viewer-timelineContainer');
+    if (!timelineContainer) {
+      console.warn('⚠️ Timeline container not found');
+      return;
+    }
+
+    // Remove existing markers
+    const existingMarkers = timelineContainer.querySelectorAll('.signal-loss-timeline-marker');
+    existingMarkers.forEach(marker => marker.remove());
+
+    if (!showSignalLoss) {
+      return;
+    }
+
+    // Get clock time range
+    const startTime = viewer.clock.startTime;
+    const stopTime = viewer.clock.stopTime;
+    const totalSeconds = Cesium.JulianDate.secondsDifference(stopTime, startTime);
+
+    if (totalSeconds <= 0) {
+      return;
+    }
+
+    console.log('📍 Adding signal loss markers to timeline...');
+
+    // Calculate timeline width (approximate)
+    const timelineRect = timelineContainer.getBoundingClientRect();
+    const timelineWidth = timelineRect.width;
+
+    // Add marker for each segment
+    signalLossSegments.forEach((segment, index) => {
+      const segmentStartTime = Cesium.JulianDate.fromIso8601(segment.start_time);
+      const secondsFromStart = Cesium.JulianDate.secondsDifference(segmentStartTime, startTime);
+      const positionRatio = secondsFromStart / totalSeconds;
+      const leftPosition = positionRatio * timelineWidth;
+
+      // Create marker element
+      const marker = document.createElement('div');
+      marker.className = 'signal-loss-timeline-marker';
+      marker.style.position = 'absolute';
+      marker.style.left = `${leftPosition}px`;
+      marker.style.top = '0';
+      marker.style.width = '3px';
+      marker.style.height = '100%';
+      marker.style.backgroundColor = segment.lte_poor && segment.starlink_poor ? '#ef4444' : '#f97316';
+      marker.style.opacity = '0.8';
+      marker.style.zIndex = '1000';
+      marker.style.pointerEvents = 'none';
+      marker.title = `Signal Loss: ${segment.duration_seconds.toFixed(1)}s`;
+
+      timelineContainer.appendChild(marker);
+    });
+
+    console.log(`✅ Added ${signalLossSegments.length} timeline markers`);
+  }, [signalLossSegments, showSignalLoss]);
+
   // Auto-enable cell towers when tower connections are enabled
   useEffect(() => {
     if (showTowerConnections && !showCellTowers) {
@@ -1025,6 +1143,11 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onTowerConnectionsToggle={setShowTowerConnections}
         showSignalLoss={showSignalLoss}
         onSignalLossToggle={setShowSignalLoss}
+        isPlaying={isPlaying}
+        playbackSpeed={playbackSpeed}
+        currentTime={currentTime}
+        onPlayPause={handlePlayPause}
+        onSpeedChange={handleSpeedChange}
         showAnalytics={showAnalytics}
         onAnalyticsToggle={setShowAnalytics}
         showKPIDashboard={showKPIDashboard}
