@@ -286,3 +286,20 @@ export async function retryAnalysis(sessionId: string): Promise<void> {
     throw new Error(`Failed to retry analysis: ${response.statusText}`);
   }
 }
+
+export interface SessionStatus {
+  session_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  current_step: string;
+}
+
+export async function getSessionStatus(sessionId: string): Promise<SessionStatus> {
+  const response = await fetch(`${API_BASE_URL}/api/session/${sessionId}/status`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch session status: ${response.statusText}`);
+  }
+
+  return response.json();
+}

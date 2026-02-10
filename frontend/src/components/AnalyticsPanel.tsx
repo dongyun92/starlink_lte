@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSessionCharts, retryAnalysis, type ChartInfo } from '@/services/api';
+import { getSessionCharts, retryAnalysis, getSessionStatus, type ChartInfo } from '@/services/api';
 
 interface AnalyticsPanelProps {
   sessionId: string | null;
@@ -110,10 +110,26 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
       // Poll for updates every 3 seconds
       const pollInterval = setInterval(async () => {
         try {
-          const chartList = await getSessionCharts(sessionId);
-          setCharts(chartList);
+          // Check session status first
+          const status = await getSessionStatus(sessionId);
+
+          if (status.status === 'completed') {
+            // Analysis complete - fetch charts
+            const chartList = await getSessionCharts(sessionId);
+            setCharts(chartList);
+            clearInterval(pollInterval);
+            setIsReanalyzing(false);
+            alert('재분석이 완료되었습니다! 차트가 업데이트되었습니다.');
+          } else if (status.status === 'failed') {
+            // Analysis failed
+            clearInterval(pollInterval);
+            setIsReanalyzing(false);
+            setError('재분석에 실패했습니다');
+          }
+          // Otherwise keep polling (processing state)
         } catch (err) {
-          // Charts not ready yet, continue polling
+          // Status check failed, continue polling
+          console.log('Polling status check:', err);
         }
       }, 3000);
 
