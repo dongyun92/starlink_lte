@@ -476,13 +476,25 @@ def get_cell_towers(session_id):
             # Get all positions where drone was connected to this cell
             cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
 
+            # Filter to strongest signal positions (top 30% RSRP)
+            # Tower is closest where signal is strongest - avoids ocean/distant positions
+            if 'lte_rsrp' in cell_data.columns and cell_data['lte_rsrp'].notna().sum() > 0:
+                rsrp_threshold = cell_data['lte_rsrp'].quantile(0.70)  # Top 30% strongest signals
+                cell_data_strong = cell_data[cell_data['lte_rsrp'] >= rsrp_threshold]
+
+                # Use at least 3 points for stability
+                if len(cell_data_strong) >= 3:
+                    cell_data = cell_data_strong
+                    print(f"    🎯 Cell {cell_id}: Using top 30% signal strength ({len(cell_data)} points, RSRP≥{rsrp_threshold:.1f}dBm)")
+
             # Use median position (more robust than mean)
             tower_lat = float(cell_data['latitude'].median())
             tower_lon = float(cell_data['longitude'].median())
 
-            # Get signal statistics
-            avg_rsrp = float(cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in cell_data.columns else -100
-            connection_count = len(cell_data)
+            # Get signal statistics (from original data, not filtered)
+            all_cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
+            avg_rsrp = float(all_cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in all_cell_data.columns else -100
+            connection_count = len(all_cell_data)
 
             # Create GeoJSON feature
             tower_features.append({

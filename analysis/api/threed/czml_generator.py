@@ -1584,6 +1584,17 @@ class CZMLGenerator:
             # Get all positions where drone was connected to this cell
             cell_data = df_valid[df_valid['lte_cell_id'] == cell_id]
 
+            # Filter to strongest signal positions (top 30% RSRP)
+            # Tower is closest where signal is strongest
+            if 'lte_rsrp' in cell_data.columns and cell_data['lte_rsrp'].notna().sum() > 0:
+                rsrp_threshold = cell_data['lte_rsrp'].quantile(0.70)  # Top 30% strongest signals
+                cell_data_strong = cell_data[cell_data['lte_rsrp'] >= rsrp_threshold]
+
+                # Use at least 3 points for stability
+                if len(cell_data_strong) >= 3:
+                    cell_data = cell_data_strong
+                    print(f"    🎯 Cell {cell_id}: Using top 30% signal strength ({len(cell_data)} points, RSRP≥{rsrp_threshold:.1f}dBm)", flush=True)
+
             # Use median position (more robust than mean for GPS data)
             tower_lat = cell_data['latitude'].median()
             tower_lon = cell_data['longitude'].median()
