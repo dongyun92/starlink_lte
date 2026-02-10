@@ -22,6 +22,11 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+# 한글 폰트 설정 (Korean font configuration for macOS)
+matplotlib.rc('font', family='AppleGothic')
+# 마이너스 기호 깨짐 방지
+matplotlib.rc('axes', unicode_minus=False)
+
 class AnalysisPipeline:
     """비행 통신 품질 분석 파이프라인"""
 
