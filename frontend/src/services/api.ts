@@ -236,3 +236,43 @@ export async function getCellTowers(
 
   return response.json();
 }
+
+/**
+ * Chart information interface
+ */
+export interface ChartInfo {
+  name: string;
+  title: string;
+  url: string;
+}
+
+/**
+ * Session results interface
+ */
+export interface SessionResults {
+  session_id: string;
+  metadata: any;
+  key_findings: any[];
+  statistics: any;
+  analysis_results: any;
+  charts: ChartInfo[];
+  downloads: {
+    report: string;
+    charts_zip: string;
+    map_data: string;
+  };
+}
+
+/**
+ * Get all charts for a specific session
+ */
+export async function getSessionCharts(sessionId: string): Promise<ChartInfo[]> {
+  const response = await fetch(`${API_BASE_URL}/api/session/${sessionId}/results`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch session charts: ${response.statusText}`);
+  }
+
+  const results: SessionResults = await response.json();
+  return results.charts;
+}

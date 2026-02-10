@@ -1,39 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import {
-  LineChart,
-  Line,
-  ScatterChart,
-  Scatter,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell
-} from 'recharts';
+import { getSessionCharts, type ChartInfo } from '@/services/api';
 
 interface AnalyticsPanelProps {
   sessionId: string | null;
   flightId: number | null;
-  metric: string;
+  metric?: string;
 }
 
-interface DataPoint {
-  timestamp: string;
-  value: number;
-  azimuth?: number;
-  elevation?: number;
-}
-
-interface Stats {
-  mean: number;
-  min: number;
-  max: number;
-  std: number;
-  coverage: number;
+interface ChartCategory {
+  title: string;
+  icon: string;
+  charts: ChartInfo[];
 }
 
 export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
@@ -41,229 +18,189 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
   flightId,
   metric
 }) => {
-  const [timeSeriesData, setTimeSeriesData] = useState<DataPoint[]>([]);
-  const [scatterData, setScatterData] = useState<Array<{azimuth: number; elevation: number; quality: number}>>([]);
-  const [distributionData, setDistributionData] = useState<Array<{range: string; count: number}>>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [charts, setCharts] = useState<ChartInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['basic']));
+  const [selectedChart, setSelectedChart] = useState<ChartInfo | null>(null);
 
   useEffect(() => {
-    if (!sessionId || !metric) return;
+    if (!sessionId) return;
 
-    const loadAnalyticsData = async () => {
+    const loadCharts = async () => {
       setLoading(true);
+      setError(null);
       try {
-        // For now, generate mock data
-        // In production, this would fetch from API endpoint
-        generateMockData();
-      } catch (error) {
-        console.error('Failed to load analytics data:', error);
+        const chartList = await getSessionCharts(sessionId);
+        setCharts(chartList);
+        console.log(`📊 Loaded ${chartList.length} charts for session ${sessionId}`);
+      } catch (err) {
+        console.error('Failed to load charts:', err);
+        setError('Failed to load analysis charts');
       } finally {
         setLoading(false);
       }
     };
 
-    loadAnalyticsData();
-  }, [sessionId, flightId, metric]);
+    loadCharts();
+  }, [sessionId]);
 
-  const generateMockData = () => {
-    // Generate mock time series data (100 points)
-    const timeSeries: DataPoint[] = [];
-    const scatter: Array<{azimuth: number; elevation: number; quality: number}> = [];
-    const values: number[] = [];
+  const categorizeCharts = (): ChartCategory[] => {
+    const categories: ChartCategory[] = [
+      {
+        title: 'Basic Analysis',
+        icon: '📊',
+        charts: charts.filter(c =>
+          ['statistics_summary', 'quality_over_time', 'correlation_matrix',
+           'correlation_heatmap', 'comprehensive_correlations', 'altitude_quality',
+           'quality_distribution'].includes(c.name)
+        )
+      },
+      {
+        title: 'Starlink Satellite',
+        icon: '🛰️',
+        charts: charts.filter(c =>
+          ['satellite_position_polar', 'satellite_quality_correlation'].includes(c.name)
+        )
+      },
+      {
+        title: 'Deep Analysis',
+        icon: '🔬',
+        charts: charts.filter(c =>
+          ['starlink_altitude_analysis', 'starlink_speed_analysis',
+           'starlink_distance_analysis', 'starlink_throughput_timeseries',
+           'starlink_3d_altitude_speed'].includes(c.name)
+        )
+      },
+      {
+        title: 'Advanced Charts',
+        icon: '📈',
+        charts: charts.filter(c =>
+          c.name.startsWith('chart')
+        )
+      }
+    ];
 
-    for (let i = 0; i < 100; i++) {
-      const timestamp = new Date(Date.now() - (100 - i) * 60000).toISOString();
-      const value = Math.random() * 100;
-      const azimuth = Math.random() * 360;
-      const elevation = Math.random() * 90;
-
-      timeSeries.push({ timestamp, value, azimuth, elevation });
-      scatter.push({ azimuth, elevation, quality: value });
-      values.push(value);
-    }
-
-    setTimeSeriesData(timeSeries);
-    setScatterData(scatter);
-
-    // Generate distribution (10 bins)
-    const bins = 10;
-    const distribution: Array<{range: string; count: number}> = [];
-    const binSize = 100 / bins;
-
-    for (let i = 0; i < bins; i++) {
-      const min = i * binSize;
-      const max = (i + 1) * binSize;
-      const count = values.filter(v => v >= min && v < max).length;
-      distribution.push({ range: `${min.toFixed(0)}-${max.toFixed(0)}`, count });
-    }
-
-    setDistributionData(distribution);
-
-    // Calculate statistics
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
-    const std = Math.sqrt(variance);
-    const coverage = 100; // Mock 100% coverage
-
-    setStats({ mean, min, max, std, coverage });
+    return categories.filter(cat => cat.charts.length > 0);
   };
 
-  const getMetricLabel = (metricKey: string): string => {
-    const labels: Record<string, string> = {
-      'altitude': 'Altitude',
-      'speed': 'Speed',
-      'lte_quality_combined': 'LTE Quality',
-      'lte_rsrp': 'LTE RSRP',
-      'lte_sinr': 'LTE SINR',
-      'lte_rsrq': 'LTE RSRQ',
-      'starlink_quality_combined': 'Starlink Quality',
-      'starlink_snr': 'Starlink SNR',
-      'starlink_latency': 'Starlink Latency',
-      'starlink_packet_loss': 'Packet Loss',
-      'starlink_throughput_down': 'Download Speed',
-      'starlink_throughput_up': 'Upload Speed',
-      'starlink_obstruction': 'Obstruction',
-      'starlink_uptime': 'Uptime'
-    };
-    return labels[metricKey] || metricKey;
+  const toggleCategory = (categoryTitle: string) => {
+    setExpandedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(categoryTitle)) {
+        newSet.delete(categoryTitle);
+      } else {
+        newSet.add(categoryTitle);
+      }
+      return newSet;
+    });
   };
 
-  const getMetricUnit = (metricKey: string): string => {
-    const units: Record<string, string> = {
-      'altitude': 'm',
-      'speed': 'm/s',
-      'lte_rsrp': 'dBm',
-      'lte_sinr': 'dB',
-      'lte_rsrq': 'dB',
-      'starlink_snr': 'dB',
-      'starlink_latency': 'ms',
-      'starlink_packet_loss': '%',
-      'starlink_throughput_down': 'Mbps',
-      'starlink_throughput_up': 'Mbps',
-      'starlink_obstruction': 'ratio',
-      'starlink_uptime': 'hours'
-    };
-    return units[metricKey] || '';
-  };
-
-  const isStarlinkMetric = metric.startsWith('starlink_');
+  const categories = categorizeCharts();
 
   return (
-    <div className="absolute top-4 right-4 bg-white rounded-lg shadow-xl z-10 max-w-[500px]">
-      {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b bg-gray-50 rounded-t-lg">
-        <h3 className="text-sm font-bold text-gray-800">📊 Analytics: {getMetricLabel(metric)}</h3>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="text-gray-600 hover:text-gray-800 text-sm font-bold"
-        >
-          {isExpanded ? '−' : '+'}
-        </button>
-      </div>
+    <>
+      <div className="absolute top-4 right-4 bg-white rounded-lg shadow-xl z-10 w-[450px] max-h-[calc(100vh-100px)] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-3 border-b bg-gray-50 rounded-t-lg flex-shrink-0">
+          <h3 className="text-sm font-bold text-gray-800">📊 Analysis Charts</h3>
+          <div className="text-xs text-gray-600">
+            {charts.length} chart{charts.length !== 1 ? 's' : ''}
+          </div>
+        </div>
 
-      {isExpanded && (
-        <div className="p-4 space-y-4 max-h-[calc(100vh-120px)] overflow-y-auto">
+        {/* Content */}
+        <div className="overflow-y-auto flex-1">
           {loading ? (
-            <div className="text-center text-gray-500 text-sm py-8">Loading analytics...</div>
+            <div className="text-center text-gray-500 text-sm py-8">Loading charts...</div>
+          ) : error ? (
+            <div className="text-center text-red-500 text-sm py-8">{error}</div>
+          ) : charts.length === 0 ? (
+            <div className="text-center text-gray-500 text-sm py-8">
+              No analysis charts available
+            </div>
           ) : (
-            <>
-              {/* Statistics Summary */}
-              {stats && (
-                <div className="bg-blue-50 p-3 rounded border border-blue-200">
-                  <h4 className="text-xs font-bold text-gray-700 mb-2">Statistics</h4>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div><span className="font-semibold">Mean:</span> {stats.mean.toFixed(2)} {getMetricUnit(metric)}</div>
-                    <div><span className="font-semibold">Std Dev:</span> {stats.std.toFixed(2)}</div>
-                    <div><span className="font-semibold">Min:</span> {stats.min.toFixed(2)} {getMetricUnit(metric)}</div>
-                    <div><span className="font-semibold">Max:</span> {stats.max.toFixed(2)} {getMetricUnit(metric)}</div>
-                    <div className="col-span-2"><span className="font-semibold">Coverage:</span> {stats.coverage.toFixed(1)}%</div>
-                  </div>
+            <div className="p-4 space-y-3">
+              {categories.map((category) => (
+                <div key={category.title} className="border rounded-lg overflow-hidden">
+                  {/* Category Header */}
+                  <button
+                    onClick={() => toggleCategory(category.title)}
+                    className="w-full flex items-center justify-between p-2 bg-gray-50 hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{category.icon}</span>
+                      <span className="text-xs font-semibold text-gray-800">
+                        {category.title}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        ({category.charts.length})
+                      </span>
+                    </div>
+                    <span className="text-gray-600 text-sm">
+                      {expandedCategories.has(category.title) ? '−' : '+'}
+                    </span>
+                  </button>
+
+                  {/* Category Content */}
+                  {expandedCategories.has(category.title) && (
+                    <div className="p-3 space-y-3 bg-white">
+                      {category.charts.map((chart) => (
+                        <div
+                          key={chart.name}
+                          className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                          onClick={() => setSelectedChart(chart)}
+                        >
+                          <div className="p-2 bg-gray-50 border-b">
+                            <p className="text-xs font-semibold text-gray-800">
+                              {chart.title}
+                            </p>
+                          </div>
+                          <div className="p-2">
+                            <img
+                              src={chart.url}
+                              alt={chart.title}
+                              className="w-full h-auto rounded"
+                              loading="lazy"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {/* Time Series Chart */}
-              <div>
-                <h4 className="text-xs font-bold text-gray-700 mb-2">Time Series</h4>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={timeSeriesData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="timestamp"
-                      tick={{ fontSize: 10 }}
-                      tickFormatter={(value) => new Date(value).toLocaleTimeString()}
-                    />
-                    <YAxis tick={{ fontSize: 10 }} />
-                    <Tooltip
-                      labelFormatter={(value) => new Date(value).toLocaleString()}
-                      formatter={(value: number) => [`${value.toFixed(2)} ${getMetricUnit(metric)}`, getMetricLabel(metric)]}
-                    />
-                    <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Distribution Chart */}
-              <div>
-                <h4 className="text-xs font-bold text-gray-700 mb-2">Distribution</h4>
-                <ResponsiveContainer width="100%" height={150}>
-                  <BarChart data={distributionData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="range" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#3b82f6" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Azimuth/Elevation Scatter (Starlink only) */}
-              {isStarlinkMetric && scatterData.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-bold text-gray-700 mb-2">Satellite Direction vs Quality</h4>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <ScatterChart>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="azimuth"
-                        name="Azimuth"
-                        unit="°"
-                        tick={{ fontSize: 10 }}
-                        domain={[0, 360]}
-                      />
-                      <YAxis
-                        dataKey="elevation"
-                        name="Elevation"
-                        unit="°"
-                        tick={{ fontSize: 10 }}
-                        domain={[0, 90]}
-                      />
-                      <Tooltip
-                        cursor={{ strokeDasharray: '3 3' }}
-                        formatter={(value: number, name: string) => {
-                          if (name === 'quality') return [`${value.toFixed(2)} ${getMetricUnit(metric)}`, 'Quality'];
-                          return [value.toFixed(1) + '°', name];
-                        }}
-                      />
-                      <Scatter
-                        data={scatterData}
-                        fill="#8b5cf6"
-                        fillOpacity={0.6}
-                      />
-                    </ScatterChart>
-                  </ResponsiveContainer>
-                  <p className="text-xs text-gray-600 mt-1">
-                    Shows relationship between satellite position (azimuth/elevation) and signal quality
-                  </p>
-                </div>
-              )}
-            </>
+              ))}
+            </div>
           )}
         </div>
+      </div>
+
+      {/* Chart Modal (Full Size View) */}
+      {selectedChart && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedChart(null)}
+        >
+          <div className="relative max-w-6xl max-h-[90vh] bg-white rounded-lg overflow-hidden">
+            <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-800">{selectedChart.title}</h3>
+              <button
+                onClick={() => setSelectedChart(null)}
+                className="text-gray-600 hover:text-gray-800 text-lg font-bold px-3"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 overflow-auto max-h-[calc(90vh-64px)]">
+              <img
+                src={selectedChart.url}
+                alt={selectedChart.title}
+                className="w-full h-auto"
+              />
+            </div>
+          </div>
+        </div>
       )}
-    </div>
+    </>
   );
 };
