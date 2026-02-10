@@ -268,6 +268,22 @@ section h2 {
     background: #5568d3;
 }
 
+.btn-reanalyze {
+    padding: 10px 20px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-left: 10px;
+    transition: background 0.3s ease;
+    font-size: 0.95em;
+}
+
+.btn-reanalyze:hover {
+    background: #218838;
+}
+
 .btn-delete {
     padding: 10px 20px;
     background: #dc3545;

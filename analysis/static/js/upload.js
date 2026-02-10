@@ -247,6 +247,30 @@ async function checkStatus(sessionId) {
     }
 }
 
+async function retryAnalysis(sessionId) {
+    if (!confirm('이 세션을 재분석하시겠습니까? (한글 폰트가 적용된 차트가 생성됩니다)')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/retry/${sessionId}`, {
+            method: 'POST'
+        });
+
+        if (!response.ok) {
+            throw new Error('재분석 요청 실패');
+        }
+
+        const data = await response.json();
+        alert(data.message || '재분석이 시작되었습니다. 완료되면 결과 페이지에서 확인하세요.');
+
+        // Reload sessions list to show updated status
+        loadSessions();
+    } catch (error) {
+        alert('재분석 실패: ' + error.message);
+    }
+}
+
 async function deleteSession(sessionId) {
     if (!confirm('이 세션을 삭제하시겠습니까?')) {
         return;
@@ -308,7 +332,11 @@ function displayFilteredSessions() {
                 </div>
                 <div class="session-actions">
                     ${session.status === 'completed' ?
-                        `<a href="/session/${session.id}" class="btn-view">결과 보기</a>` :
+                        `<a href="/session/${session.id}" class="btn-view">결과 보기</a>
+                         <button class="btn-reanalyze" onclick="retryAnalysis('${session.id}')">🔄 재분석</button>` :
+                        session.status === 'failed' ?
+                        `<button class="btn-view" onclick="checkStatus('${session.id}')">상태 확인</button>
+                         <button class="btn-reanalyze" onclick="retryAnalysis('${session.id}')">🔄 재분석</button>` :
                         `<button class="btn-view" onclick="checkStatus('${session.id}')">상태 확인</button>`
                     }
                     <button class="btn-delete" onclick="deleteSession('${session.id}')">삭제</button>
