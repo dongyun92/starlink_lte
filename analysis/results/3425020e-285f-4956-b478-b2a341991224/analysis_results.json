@@ -1,6 +1,6 @@
 {
   "session_id": "3425020e-285f-4956-b478-b2a341991224",
-  "start_time": "2026-02-10T12:27:21.051772",
+  "start_time": "2026-02-10T12:35:51.808258",
   "steps": [
     {
       "status": "success",
@@ -114,7 +114,7 @@
     }
   ],
   "overall_status": "success",
-  "end_time": "2026-02-10T12:28:00.184962",
+  "end_time": "2026-02-10T12:36:25.033393",
   "analysis_results": {
     "time_ranges": {
       "flight": {

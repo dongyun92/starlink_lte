@@ -63,29 +63,29 @@ def get_results(session_id: str):
     if charts_dir.exists():
         chart_files = {
             # 기본 차트
-            'statistics_summary': '📊 통계 요약',
-            'quality_over_time': '📈 시간대별 통신 품질',
-            'comprehensive_correlations': '🔬 종합 상관관계 분석 (28개 변수)',
-            'correlation_matrix': '🔗 상관관계 매트릭스',
-            'correlation_heatmap': '🗺️ 상관관계 히트맵',
-            'altitude_quality': '✈️ 고도별 통신 품질',
-            'quality_distribution': '📦 품질 등급 분포',
+            'statistics_summary': '통계 요약',
+            'quality_over_time': '시간대별 통신 품질',
+            'comprehensive_correlations': '종합 상관관계 분석 (28개 변수)',
+            'correlation_matrix': '상관관계 매트릭스',
+            'correlation_heatmap': '상관관계 히트맵',
+            'altitude_quality': '고도별 통신 품질',
+            'quality_distribution': '품질 등급 분포',
             # Starlink 위성 분석 차트
-            'satellite_position_polar': '🛰️ Starlink 위성 위치 추적 (극좌표)',
-            'satellite_quality_correlation': '📡 위성 각도-품질 상관관계',
+            'satellite_position_polar': 'Starlink 위성 위치 추적 (극좌표)',
+            'satellite_quality_correlation': '위성 각도-품질 상관관계',
             # Starlink 심층 분석 (비행 데이터 연동)
-            'starlink_altitude_analysis': '🛰️ Starlink 품질 vs 고도 (4개 지표)',
-            'starlink_speed_analysis': '🚁 Starlink 품질 vs 이동 속도',
-            'starlink_distance_analysis': '📍 Starlink 품질 vs 원점 거리',
-            'starlink_throughput_timeseries': '⏱️ Starlink 처리량 시계열',
-            'starlink_3d_altitude_speed': '🎲 3D: 고도-속도-Starlink 지연',
+            'starlink_altitude_analysis': 'Starlink 품질 vs 고도 (4개 지표)',
+            'starlink_speed_analysis': 'Starlink 품질 vs 이동 속도',
+            'starlink_distance_analysis': 'Starlink 품질 vs 원점 거리',
+            'starlink_throughput_timeseries': 'Starlink 처리량 시계열',
+            'starlink_3d_altitude_speed': '3D: 고도-속도-Starlink 지연',
             # 고급 차트
-            'chart1_speed_vs_lte': '🚀 이동 속도 vs LTE 품질',
-            'chart2_distance_vs_lte': '📍 원점 거리 vs LTE 품질',
-            'chart3_time_vs_starlink': '⏱️ 비행 시간 vs Starlink 지연',
-            'chart4_3d_multidimensional': '🎲 3D 복합 분석',
-            'chart5_flight_path_quality_map': '🗺️ 비행 경로 품질 맵',
-            'chart6_timeseries_multiaxis': '📉 시계열 4축 복합 분석'
+            'chart1_speed_vs_lte': '이동 속도 vs LTE 품질',
+            'chart2_distance_vs_lte': '원점 거리 vs LTE 품질',
+            'chart3_time_vs_starlink': '비행 시간 vs Starlink 지연',
+            'chart4_3d_multidimensional': '3D 복합 분석',
+            'chart5_flight_path_quality_map': '비행 경로 품질 맵',
+            'chart6_timeseries_multiaxis': '시계열 4축 복합 분석'
         }
 
         for chart_name, chart_title in chart_files.items():
