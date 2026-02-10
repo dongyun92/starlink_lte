@@ -343,6 +343,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     }
 
     const loadLTEHeatmap = async () => {
+      if (!cesiumViewerRef.current) return;
+
       try {
         if (lteHeatmap) {
           // Remove existing heatmap if present
@@ -368,9 +370,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         } else {
           // Remove heatmap when disabled
           if (lteHeatmapSourceRef.current) {
-            cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
-            lteHeatmapSourceRef.current = null;
-            console.log('🗺️ LTE heatmap removed');
+            try {
+              cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
+              lteHeatmapSourceRef.current = null;
+              console.log('🗺️ LTE heatmap removed');
+            } catch (removeError) {
+              console.error('❌ Error removing LTE heatmap:', removeError);
+              lteHeatmapSourceRef.current = null;
+            }
           }
         }
       } catch (error) {
@@ -379,6 +386,18 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadLTEHeatmap();
+
+    // Cleanup function
+    return () => {
+      if (lteHeatmapSourceRef.current && cesiumViewerRef.current) {
+        try {
+          cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
+          lteHeatmapSourceRef.current = null;
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
+    };
   }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId]);
 
   // Starlink Heatmap 로드 및 토글
@@ -388,6 +407,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     }
 
     const loadStarlinkHeatmap = async () => {
+      if (!cesiumViewerRef.current) return;
+
       try {
         if (starlinkHeatmap) {
           // Remove existing heatmap if present
@@ -413,9 +434,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         } else {
           // Remove heatmap when disabled
           if (starlinkHeatmapSourceRef.current) {
-            cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
-            starlinkHeatmapSourceRef.current = null;
-            console.log('🗺️ Starlink heatmap removed');
+            try {
+              cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
+              starlinkHeatmapSourceRef.current = null;
+              console.log('🗺️ Starlink heatmap removed');
+            } catch (removeError) {
+              console.error('❌ Error removing Starlink heatmap:', removeError);
+              starlinkHeatmapSourceRef.current = null;
+            }
           }
         }
       } catch (error) {
@@ -424,6 +450,18 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadStarlinkHeatmap();
+
+    // Cleanup function
+    return () => {
+      if (starlinkHeatmapSourceRef.current && cesiumViewerRef.current) {
+        try {
+          cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
+          starlinkHeatmapSourceRef.current = null;
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
+    };
   }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId]);
 
   // Combined Heatmap 로드 및 토글
@@ -433,6 +471,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     }
 
     const loadCombinedHeatmap = async () => {
+      if (!cesiumViewerRef.current) return;
+
       try {
         if (combinedHeatmap) {
           // Remove existing heatmap if present
@@ -458,9 +498,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         } else {
           // Remove heatmap when disabled
           if (combinedHeatmapSourceRef.current) {
-            cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
-            combinedHeatmapSourceRef.current = null;
-            console.log('🗺️ Combined heatmap removed');
+            try {
+              cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
+              combinedHeatmapSourceRef.current = null;
+              console.log('🗺️ Combined heatmap removed');
+            } catch (removeError) {
+              console.error('❌ Error removing Combined heatmap:', removeError);
+              combinedHeatmapSourceRef.current = null;
+            }
           }
         }
       } catch (error) {
@@ -469,6 +514,18 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadCombinedHeatmap();
+
+    // Cleanup function
+    return () => {
+      if (combinedHeatmapSourceRef.current && cesiumViewerRef.current) {
+        try {
+          cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
+          combinedHeatmapSourceRef.current = null;
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
+    };
   }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId]);
 
   // Cell Tower 데이터 로드
