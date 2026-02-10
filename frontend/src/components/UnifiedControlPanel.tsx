@@ -12,11 +12,19 @@ interface UnifiedControlPanelProps {
   lteHeatmap: boolean;
   starlinkHeatmap: boolean;
   combinedHeatmap: boolean;
-  heatmapStyle: 'point' | 'voxel';
+  heatmapStyle: 'point' | 'voxel' | 'hexagon';
   onLteHeatmapToggle: (enabled: boolean) => void;
   onStarlinkHeatmapToggle: (enabled: boolean) => void;
   onCombinedHeatmapToggle: (enabled: boolean) => void;
-  onHeatmapStyleChange: (style: 'point' | 'voxel') => void;
+  onHeatmapStyleChange: (style: 'point' | 'voxel' | 'hexagon') => void;
+
+  // Hexagon heatmap controls
+  hexagonResolution: number;
+  hexagonAggregation: 'mean' | 'max' | 'min' | 'median';
+  hexagonExtrusionHeight: number;
+  onHexagonResolutionChange: (resolution: number) => void;
+  onHexagonAggregationChange: (aggregation: 'mean' | 'max' | 'min' | 'median') => void;
+  onHexagonExtrusionHeightChange: (height: number) => void;
 
   // Flight scenario controls
   scenarios: FlightScenario[];
@@ -90,6 +98,12 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onStarlinkHeatmapToggle,
   onCombinedHeatmapToggle,
   onHeatmapStyleChange,
+  hexagonResolution,
+  hexagonAggregation,
+  hexagonExtrusionHeight,
+  onHexagonResolutionChange,
+  onHexagonAggregationChange,
+  onHexagonExtrusionHeightChange,
   scenarios,
   selectedFlightId,
   onFlightSelect,
@@ -456,7 +470,78 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 />
                 <span>Voxels</span>
               </label>
+              <label className="flex items-center gap-1 cursor-pointer text-xs">
+                <input
+                  type="radio"
+                  value="hexagon"
+                  checked={heatmapStyle === 'hexagon'}
+                  onChange={() => onHeatmapStyleChange('hexagon')}
+                  className="w-3 h-3"
+                />
+                <span>Hexagons</span>
+              </label>
             </div>
+
+            {/* Hexagon-specific controls */}
+            {heatmapStyle === 'hexagon' && (
+              <div className="bg-blue-50 p-2 rounded border border-blue-200 space-y-2">
+                <div className="text-xs font-semibold text-blue-900">Hexagon Settings</div>
+
+                {/* Resolution Selector */}
+                <div>
+                  <label className="block text-[10px] text-gray-700 mb-1">
+                    Resolution ({hexagonResolution === 7 ? '1.22km' : hexagonResolution === 8 ? '461m' : hexagonResolution === 9 ? '174m' : '66m'} edge)
+                  </label>
+                  <select
+                    value={hexagonResolution}
+                    onChange={(e) => onHexagonResolutionChange(parseInt(e.target.value, 10))}
+                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                  >
+                    <option value={7}>7 - Coarse (1.22km)</option>
+                    <option value={8}>8 - Balanced (461m) ⭐</option>
+                    <option value={9}>9 - Fine (174m)</option>
+                    <option value={10}>10 - Very Fine (66m)</option>
+                  </select>
+                </div>
+
+                {/* Aggregation Selector */}
+                <div>
+                  <label className="block text-[10px] text-gray-700 mb-1">
+                    Aggregation Method
+                  </label>
+                  <select
+                    value={hexagonAggregation}
+                    onChange={(e) => onHexagonAggregationChange(e.target.value as 'mean' | 'max' | 'min' | 'median')}
+                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                  >
+                    <option value="mean">Mean (Average) ⭐</option>
+                    <option value="max">Max (Best Quality)</option>
+                    <option value="min">Min (Worst Quality)</option>
+                    <option value="median">Median (Middle Value)</option>
+                  </select>
+                </div>
+
+                {/* Extrusion Height Slider */}
+                <div>
+                  <label className="block text-[10px] text-gray-700 mb-1">
+                    Extrusion Height: {hexagonExtrusionHeight}m
+                  </label>
+                  <input
+                    type="range"
+                    min={50}
+                    max={500}
+                    step={50}
+                    value={hexagonExtrusionHeight}
+                    onChange={(e) => onHexagonExtrusionHeightChange(parseInt(e.target.value, 10))}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-[9px] text-gray-500">
+                    <span>50m</span>
+                    <span>500m</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input

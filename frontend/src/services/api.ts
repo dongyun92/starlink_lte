@@ -101,13 +101,32 @@ export async function getCZMLData(
 export async function getHeatmapCZML(
   sessionId: string,
   mode: 'lte' | 'starlink' | 'combined',
-  style: 'point' | 'voxel' = 'point',
-  flight_id?: number
+  style: 'point' | 'voxel' | 'hexagon' = 'point',
+  flight_id?: number,
+  hexagonOptions?: {
+    resolution?: number;
+    aggregation?: 'mean' | 'max' | 'min' | 'median';
+    extrusion_height?: number;
+  }
 ): Promise<CZMLDocument> {
   const params = new URLSearchParams({ mode, style });
   if (flight_id !== undefined) {
     params.append('flight_id', flight_id.toString());
   }
+
+  // Add hexagon-specific parameters if style is hexagon
+  if (style === 'hexagon' && hexagonOptions) {
+    if (hexagonOptions.resolution !== undefined) {
+      params.append('resolution', hexagonOptions.resolution.toString());
+    }
+    if (hexagonOptions.aggregation) {
+      params.append('aggregation', hexagonOptions.aggregation);
+    }
+    if (hexagonOptions.extrusion_height !== undefined) {
+      params.append('extrusion_height', hexagonOptions.extrusion_height.toString());
+    }
+  }
+
   const url = `${API_BASE_URL}/api/3d/heatmap/${sessionId}?${params.toString()}`;
   const response = await fetch(url);
 

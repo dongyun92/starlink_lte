@@ -49,7 +49,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [lteHeatmap, setLteHeatmap] = useState<boolean>(false);
   const [starlinkHeatmap, setStarlinkHeatmap] = useState<boolean>(false);
   const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
-  const [heatmapStyle, setHeatmapStyle] = useState<'point' | 'voxel'>('point');
+  const [heatmapStyle, setHeatmapStyle] = useState<'point' | 'voxel' | 'hexagon'>('point');
+
+  // Hexagon heatmap parameters
+  const [hexagonResolution, setHexagonResolution] = useState<number>(8);
+  const [hexagonAggregation, setHexagonAggregation] = useState<'mean' | 'max' | 'min' | 'median'>('mean');
+  const [hexagonExtrusionHeight, setHexagonExtrusionHeight] = useState<number>(200);
 
   // Mutual exclusive heatmap toggle handlers
   const handleLteHeatmapToggle = (enabled: boolean) => {
@@ -487,7 +492,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             selectedSessionId,
             'lte',
             heatmapStyle,
-            selectedFlightId !== null ? selectedFlightId : undefined
+            selectedFlightId !== null ? selectedFlightId : undefined,
+            heatmapStyle === 'hexagon' ? {
+              resolution: hexagonResolution,
+              aggregation: hexagonAggregation,
+              extrusion_height: hexagonExtrusionHeight
+            } : undefined
           );
 
           // Extract heatmap metadata from CZML document header
@@ -536,7 +546,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId]);
+  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonExtrusionHeight]);
 
   // Starlink Heatmap 로드 및 토글
   useEffect(() => {
@@ -566,7 +576,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             selectedSessionId,
             'starlink',
             heatmapStyle,
-            selectedFlightId !== null ? selectedFlightId : undefined
+            selectedFlightId !== null ? selectedFlightId : undefined,
+            heatmapStyle === 'hexagon' ? {
+              resolution: hexagonResolution,
+              aggregation: hexagonAggregation,
+              extrusion_height: hexagonExtrusionHeight
+            } : undefined
           );
 
           // Extract heatmap metadata from CZML document header
@@ -615,7 +630,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId]);
+  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonExtrusionHeight]);
 
   // Combined Heatmap 로드 및 토글
   useEffect(() => {
@@ -645,7 +660,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             selectedSessionId,
             'combined',
             heatmapStyle,
-            selectedFlightId !== null ? selectedFlightId : undefined
+            selectedFlightId !== null ? selectedFlightId : undefined,
+            heatmapStyle === 'hexagon' ? {
+              resolution: hexagonResolution,
+              aggregation: hexagonAggregation,
+              extrusion_height: hexagonExtrusionHeight
+            } : undefined
           );
 
           // Extract heatmap metadata from CZML document header
@@ -694,7 +714,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId]);
+  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonExtrusionHeight]);
 
   // Cleanup all heatmaps when all are disabled (with delay to handle race conditions)
   useEffect(() => {
@@ -1198,6 +1218,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onStarlinkHeatmapToggle={handleStarlinkHeatmapToggle}
         onCombinedHeatmapToggle={handleCombinedHeatmapToggle}
         onHeatmapStyleChange={setHeatmapStyle}
+        hexagonResolution={hexagonResolution}
+        hexagonAggregation={hexagonAggregation}
+        hexagonExtrusionHeight={hexagonExtrusionHeight}
+        onHexagonResolutionChange={setHexagonResolution}
+        onHexagonAggregationChange={setHexagonAggregation}
+        onHexagonExtrusionHeightChange={setHexagonExtrusionHeight}
         scenarios={flightScenarios}
         selectedFlightId={selectedFlightId}
         onFlightSelect={setSelectedFlightId}
