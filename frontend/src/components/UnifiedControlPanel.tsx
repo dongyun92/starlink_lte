@@ -175,20 +175,6 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
             </label>
           </div>
 
-          {/* Camera Mode */}
-          <div className="pb-3 border-b">
-            <button
-              onClick={onCameraModeToggle}
-              className={`w-full px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                cameraMode === 'track'
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                  : 'bg-gray-800 hover:bg-gray-700 text-white'
-              }`}
-            >
-              {cameraMode === 'track' ? '추적 모드' : '자유 시점'}
-            </button>
-          </div>
-
           {/* Flight Scenario Selection */}
           {scenarios.length > 1 && (
             <div className="pb-3 border-b">
@@ -561,6 +547,18 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
           <div className="space-y-2 pt-3 border-t">
             <div className="text-xs font-bold text-gray-700 mb-2">⏱️ Timeline Controls</div>
 
+            {/* Camera Mode Toggle */}
+            <button
+              onClick={onCameraModeToggle}
+              className={`w-full px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                cameraMode === 'track'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-gray-800 hover:bg-gray-700 text-white'
+              }`}
+            >
+              {cameraMode === 'track' ? '추적 모드' : '자유 시점'}
+            </button>
+
             {/* Current Time Display */}
             <div className="text-xs text-gray-600 mb-2">
               <span className="font-mono bg-gray-100 px-2 py-1 rounded">
@@ -573,7 +571,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
               onClick={onPlayPause}
               className="w-full px-3 py-2 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors font-semibold"
             >
-              {isPlaying ? '⏸️ Pause' : '▶️ Play'}
+              {isPlaying ? 'Pause' : 'Play'}
             </button>
 
             {/* Playback Speed Controls */}
