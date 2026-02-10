@@ -1341,7 +1341,7 @@ class CZMLGenerator:
         print(f"✅ Created {len(entities)} voxel boxes for {mode.upper()} mode", flush=True)
         return entities
 
-    def generate_satellite_direction_arrows(self, sample_rate: int = 1, color_by: str = 'starlink_snr', flight_id: int = None, arrow_length: int = 5000) -> list:
+    def generate_satellite_direction_arrows(self, sample_rate: int = 1, color_by: str = 'starlink_snr', flight_id: int = None, arrow_length: int = 10) -> list:
         """
         Generate CZML with 3D arrows showing satellite direction
 

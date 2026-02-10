@@ -684,7 +684,7 @@ def get_satellite_direction_czml(session_id):
     Query Parameters:
         - sample_rate: Sampling rate in Hz (default: 0.2)
         - color_by: What to color arrows by ('starlink_snr' or 'starlink_latency') (default: 'starlink_snr')
-        - arrow_length: Arrow length in meters (default: 5000)
+        - arrow_length: Arrow length in meters (default: 10)
         - flight_id: Optional flight ID to filter by (for multi-flight sessions)
 
     Returns:
@@ -694,7 +694,7 @@ def get_satellite_direction_czml(session_id):
         # Get query parameters
         sample_rate = request.args.get('sample_rate', 0.2, type=float)
         color_by = request.args.get('color_by', 'starlink_snr', type=str)
-        arrow_length = request.args.get('arrow_length', 5000, type=int)
+        arrow_length = request.args.get('arrow_length', 10, type=int)
         flight_id = request.args.get('flight_id', None, type=int)
 
         # Validate color_by
