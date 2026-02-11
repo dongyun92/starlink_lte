@@ -38,12 +38,12 @@ interface UnifiedControlPanelProps {
   // Path color controls
   pathColorMode: 'altitude' | 'speed' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
-    'starlink_quality_combined' | 'starlink_snr' | 'starlink_latency' |
+    'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime';
   onPathColorModeChange: (mode: 'altitude' | 'speed' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
-    'starlink_quality_combined' | 'starlink_snr' | 'starlink_latency' |
+    'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime') => void;
   onCustomMetricsChange: (metrics: Record<string, number> | null) => void;
@@ -337,15 +337,6 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                         className="w-2.5 h-2.5"
                       />
                       <span className="text-xs">Combined (Auto) ⭐</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        checked={pathColorMode === 'starlink_snr'}
-                        onChange={() => onPathColorModeChange('starlink_snr')}
-                        className="w-2.5 h-2.5"
-                      />
-                      <span className="text-xs">SNR (Signal to Noise)</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -838,53 +829,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 </div>
               )}
 
-              {/* Starlink Heatmap Legend (Dynamic: SNR or Latency based on actual data) */}
-              {starlinkHeatmap && heatmapMetadata.starlinkColumn === 'starlink_snr' && (
-                <div className="space-y-1.5">
-                  <div className="text-[10px] font-semibold text-gray-600">Starlink Signal Quality (SNR)</div>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#1a9850' }} />
-                      <div className="flex-1">
-                        <div className="text-[10px] font-semibold text-gray-800">Excellent</div>
-                        <div className="text-[9px] text-gray-500">10+ dB</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#91cf60' }} />
-                      <div className="flex-1">
-                        <div className="text-[10px] font-semibold text-gray-800">Good</div>
-                        <div className="text-[9px] text-gray-500">7 - 10 dB</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fee08b' }} />
-                      <div className="flex-1">
-                        <div className="text-[10px] font-semibold text-gray-800">Fair</div>
-                        <div className="text-[9px] text-gray-500">3 - 7 dB</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#fc8d59' }} />
-                      <div className="flex-1">
-                        <div className="text-[10px] font-semibold text-gray-800">Poor</div>
-                        <div className="text-[9px] text-gray-500">1 - 3 dB</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded border border-gray-600" style={{ backgroundColor: '#d73027' }} />
-                      <div className="flex-1">
-                        <div className="text-[10px] font-semibold text-gray-800">Very Poor</div>
-                        <div className="text-[9px] text-gray-500">0 - 1 dB</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-[9px] text-gray-500 mt-2 pt-2 border-t border-gray-200">
-                    Starlink satellite quality (SNR)
-                  </div>
-                </div>
-              )}
-
+              {/* Starlink Heatmap Legend (Latency based) */}
               {starlinkHeatmap && heatmapMetadata.starlinkColumn === 'starlink_latency' && (
                 <div className="space-y-1.5">
                   <div className="text-[10px] font-semibold text-gray-600">Starlink Signal Quality (Latency)</div>

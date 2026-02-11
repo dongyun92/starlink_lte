@@ -51,7 +51,6 @@ class HexagonalHeatmapGenerator:
         'lte_rssi': (-120, -20),      # dBm (higher = better)
         'lte_sinr': (-20, 30),        # dB (higher = better)
         'lte_rsrq': (-20, -3),        # dB (higher = better)
-        'starlink_snr': (0, 15),      # dB (higher = better)
         'starlink_latency': (0, 200), # ms (lower = better) - NORMAL RANGE, inverted in normalize
         'altitude': None,             # Use actual min/max
         'speed': None,                # Use actual min/max
@@ -82,7 +81,7 @@ class HexagonalHeatmapGenerator:
 
         Args:
             df: DataFrame with columns: latitude, longitude, [quality_column]
-            mode: Quality metric ('lte_rsrp', 'starlink_snr', 'altitude', etc.)
+            mode: Quality metric ('lte_rsrp', 'starlink_latency', 'altitude', etc.)
             aggregation: Aggregation method ('mean', 'max', 'min', 'median')
             extrusion_height: Maximum extrusion height in meters (default 200)
 
@@ -93,18 +92,8 @@ class HexagonalHeatmapGenerator:
         if df.empty:
             return self._create_empty_czml()
 
-        # Get quality column with fallback
+        # Get quality column
         quality_col = self._get_quality_column(mode)
-
-        # Fallback for starlink_snr → starlink_latency if SNR not available
-        if quality_col == 'starlink_snr' and quality_col not in df.columns:
-            print(f"⚠️ {quality_col} not available, falling back to starlink_latency")
-            quality_col = 'starlink_latency'
-            mode = 'starlink_latency'  # Update mode for normalization
-        elif quality_col == 'starlink_snr' and df[quality_col].isna().all():
-            print(f"⚠️ {quality_col} has no valid data, falling back to starlink_latency")
-            quality_col = 'starlink_latency'
-            mode = 'starlink_latency'
 
         if quality_col not in df.columns:
             raise ValueError(f"Column '{quality_col}' not found in DataFrame")
@@ -212,7 +201,6 @@ class HexagonalHeatmapGenerator:
             'lte_rssi': 'lte_rssi',
             'lte_sinr': 'lte_sinr',
             'lte_rsrq': 'lte_rsrq',
-            'starlink_snr': 'starlink_snr',
             'starlink_latency': 'starlink_latency',
             'altitude': 'altitude',
             'speed': 'speed_mps',

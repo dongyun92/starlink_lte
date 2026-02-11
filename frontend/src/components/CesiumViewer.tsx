@@ -88,7 +88,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Path color mode
   type PathColorMode = 'altitude' | 'speed' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
-    'starlink_quality_combined' | 'starlink_snr' | 'starlink_latency' |
+    'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime';
   const [pathColorMode, setPathColorMode] = useState<PathColorMode>('altitude');
@@ -847,9 +847,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         // Get CZML data
         const czmlData = await getSatelliteDirectionCZML(selectedSessionId, {
           sample_rate: 0.2,  // 5 second intervals
-          color_by: pathColorMode.startsWith('starlink') ?
-            (pathColorMode === 'starlink_latency' ? 'starlink_latency' : 'starlink_snr') :
-            'starlink_snr',
+          color_by: 'starlink_latency',  // Always use latency (SNR no longer provided by Starlink API)
           arrow_length: 10,  // 10m arrows (just for direction indication)
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined
         });

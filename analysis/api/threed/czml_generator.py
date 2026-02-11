@@ -282,11 +282,9 @@ class CZMLGenerator:
         elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
             lte_column = 'lte_rssi'
 
-        # Auto-detect available Starlink column (prefer starlink_snr, fallback to starlink_latency)
+        # Auto-detect available Starlink column (latency only)
         starlink_column = None
-        if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
-            starlink_column = 'starlink_snr'
-        elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
+        if 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
             starlink_column = 'starlink_latency'
 
         print(f"📊 Auto-detected data columns: LTE={lte_column}, Starlink={starlink_column}", flush=True)
@@ -466,7 +464,6 @@ class CZMLGenerator:
         if hasattr(self, 'custom_metrics') and self.custom_metrics:
             # Map custom metric names to column names
             metric_map = {
-                'snr': 'starlink_snr',
                 'latency': 'starlink_latency',
                 'packet_loss': 'starlink_ping_drop_rate',
                 'obstruction': 'starlink_raw_status.fraction_obstructed',
@@ -530,46 +527,23 @@ class CZMLGenerator:
             print(f"📊 Starlink Custom Quality: {' + '.join(weights_used)}")
             return combined
 
-        # Default: Check available columns
-        has_snr = 'starlink_snr' in df.columns
+        # Default: Use latency only (SNR no longer provided by Starlink API)
         has_latency = 'starlink_latency' in df.columns
 
-        if not has_snr and not has_latency:
-            raise ValueError(f"❌ Starlink combined quality requires at least one of: starlink_snr, starlink_latency")
+        if not has_latency:
+            raise ValueError(f"❌ Starlink combined quality requires starlink_latency")
 
         # Check data availability (not just column existence)
-        snr_valid = has_snr and not df['starlink_snr'].isna().all()
         latency_valid = has_latency and not df['starlink_latency'].isna().all()
 
-        if not snr_valid and not latency_valid:
-            raise ValueError(f"❌ Starlink data is all NaN. Choose a different color mode.")
+        if not latency_valid:
+            raise ValueError(f"❌ Starlink latency data is all NaN. Choose a different color mode.")
 
-        # Case 1: Both SNR and Latency available
-        if snr_valid and latency_valid:
-            snr = df['starlink_snr'].values
-            latency = df['starlink_latency'].values
-
-            # Normalize each parameter to 0-1 range
-            snr_norm = np.clip((snr - 0) / (15 - 0), 0, 1)
-            latency_norm = np.clip((latency - 200) / (0 - 200), 0, 1)
-
-            # Weighted combination: SNR 60% + Latency 40%
-            combined = 0.60 * snr_norm + 0.40 * latency_norm
-            print(f"📊 Starlink Combined Quality: SNR(60%) + Latency(40%)")
-
-        # Case 2: Only SNR available
-        elif snr_valid:
-            snr = df['starlink_snr'].values
-            snr_norm = np.clip((snr - 0) / (15 - 0), 0, 1)
-            combined = snr_norm
-            print(f"📊 Starlink Combined Quality: SNR only (100%) - Latency not available")
-
-        # Case 3: Only Latency available
-        else:  # latency_valid
-            latency = df['starlink_latency'].values
-            latency_norm = np.clip((latency - 200) / (0 - 200), 0, 1)
-            combined = latency_norm
-            print(f"📊 Starlink Combined Quality: Latency only (100%) - SNR not available")
+        # Use latency (100%)
+        latency = df['starlink_latency'].values
+        latency_norm = np.clip((latency - 200) / (0 - 200), 0, 1)
+        combined = latency_norm
+        print(f"📊 Starlink Combined Quality: Latency (100%)")
 
         return combined
 
@@ -579,7 +553,7 @@ class CZMLGenerator:
 
         Args:
             df: Flight data DataFrame
-            color_by: What to color by ('altitude', 'speed', 'lte_rsrp', 'lte_sinr', 'starlink_snr', etc.)
+            color_by: What to color by ('altitude', 'speed', 'lte_rsrp', 'lte_sinr', 'starlink_latency', etc.)
 
         Returns:
             Array of RGBA color values (0-255)
@@ -619,10 +593,6 @@ class CZMLGenerator:
         elif color_by == 'starlink_quality_combined':
             values = self._calculate_starlink_quality_combined(df)
             column_name = 'starlink_quality_combined'
-        elif color_by == 'starlink_snr':
-            if 'starlink_snr' not in df.columns:
-                raise ValueError(f"❌ Starlink SNR data not available in this session")
-            values = df['starlink_snr'].values
         elif color_by == 'starlink_latency':
             if 'starlink_latency' not in df.columns:
                 raise ValueError(f"❌ Starlink latency data not available in this session")
@@ -703,10 +673,6 @@ class CZMLGenerator:
         elif column_name == 'lte_rsrq':
             # RSRQ: -20 ~ -3 dB (higher is better)
             vmin, vmax = -20, -3
-            normalized = (values - vmin) / (vmax - vmin)
-        elif column_name == 'starlink_snr':
-            # SNR: 0 ~ 15 dB (higher is better)
-            vmin, vmax = 0, 15
             normalized = (values - vmin) / (vmax - vmin)
         elif column_name == 'starlink_latency':
             # Latency: 200 ~ 0 ms (lower is better, INVERTED!)
@@ -875,35 +841,6 @@ class CZMLGenerator:
 
         return colors
 
-    def _calculate_starlink_colors(self, df) -> np.ndarray:
-        """
-        Calculate colors based on Starlink SNR values with smooth gradient
-
-        SNR range: -5 dB (worst) to 20 dB (best)
-        Color gradient: Dark blue → Blue → Cyan → Green → Yellow → Red
-
-        Args:
-            df: Flight data DataFrame with 'starlink_snr' column
-
-        Returns:
-            Array of RGBA color values (0-255)
-        """
-        if 'starlink_snr' not in df.columns:
-            # Return gray if no Starlink data
-            n = len(df)
-            return np.full((n, 4), [128, 128, 128, 255], dtype=np.uint8)
-
-        snr_values = df['starlink_snr'].values
-
-        # Normalize SNR to 0-1 range (-5 to 20 dB)
-        snr_min, snr_max = -5, 20
-        normalized = np.clip((snr_values - snr_min) / (snr_max - snr_min), 0, 1)
-
-        # Apply jet colormap for smooth gradient
-        colors = self._viridis_colormap(normalized)
-
-        return colors
-
     def _build_position_samples(self, df) -> list:
         """
         Build time-tagged position samples for CZML
@@ -1046,9 +983,7 @@ class CZMLGenerator:
             lte_column = 'lte_rssi'
 
         starlink_column = None
-        if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
-            starlink_column = 'starlink_snr'
-        elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
+        if 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
             starlink_column = 'starlink_latency'
 
         print(f"🗺️ Generating {mode.upper()} heatmap: LTE={lte_column}, Starlink={starlink_column}", flush=True)
@@ -1143,7 +1078,7 @@ class CZMLGenerator:
 
         Args:
             value: Signal value
-            column_name: 'starlink_snr' or 'starlink_latency'
+            column_name: 'starlink_latency'
 
         Returns:
             Quality score (0-100)
@@ -1151,11 +1086,7 @@ class CZMLGenerator:
         if np.isnan(value):
             return np.nan
 
-        if column_name == 'starlink_snr':
-            # SNR: 0 ~ 15+ dB (higher is better)
-            vmin, vmax = 0, 15
-            score = ((value - vmin) / (vmax - vmin)) * 100
-        elif column_name == 'starlink_latency':
+        if column_name == 'starlink_latency':
             # Latency: 0 ~ 200 ms (lower is better, invert)
             vmin, vmax = 200, 0  # Inverted range
             score = ((value - vmin) / (vmax - vmin)) * 100
@@ -1217,9 +1148,7 @@ class CZMLGenerator:
             lte_column = 'lte_rssi'
 
         starlink_column = None
-        if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
-            starlink_column = 'starlink_snr'
-        elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
+        if 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
             starlink_column = 'starlink_latency'
 
         print(f"🔲 Generating {mode.upper()} voxel heatmap: LTE={lte_column}, Starlink={starlink_column}", flush=True)
@@ -1336,13 +1265,13 @@ class CZMLGenerator:
         print(f"✅ Created {len(entities)} voxel boxes for {mode.upper()} mode", flush=True)
         return entities
 
-    def generate_satellite_direction_arrows(self, sample_rate: int = 1, color_by: str = 'starlink_snr', flight_id: int = None, arrow_length: int = 10) -> list:
+    def generate_satellite_direction_arrows(self, sample_rate: int = 1, color_by: str = 'starlink_latency', flight_id: int = None, arrow_length: int = 10) -> list:
         """
         Generate CZML with 3D arrows showing satellite direction
 
         Args:
             sample_rate: Sampling rate in Hz (default: 1)
-            color_by: What to color arrows by (default: 'starlink_snr')
+            color_by: What to color arrows by (default: 'starlink_latency')
             flight_id: Optional flight ID filter
             arrow_length: Arrow length in meters (default: 10)
 
@@ -1377,39 +1306,13 @@ class CZMLGenerator:
         if df_valid.empty:
             raise ValueError(f"❌ No valid satellite direction data available")
 
-        # Also filter out NaN values in the quality column we'll be using
-        # Auto-fallback from SNR to latency if SNR is not available
-        if color_by == 'starlink_snr':
-            if 'starlink_snr' in df_valid.columns and df_valid['starlink_snr'].notna().sum() > 0:
-                df_valid = df_valid.dropna(subset=['starlink_snr'])
-                quality_column = 'starlink_snr'
-                vmin, vmax = 0, 15
-                print(f"✅ Using starlink_snr for coloring ({len(df_valid)} points)")
-            elif 'starlink_latency' in df_valid.columns and df_valid['starlink_latency'].notna().sum() > 0:
-                # Fallback to latency if SNR not available
-                df_valid = df_valid.dropna(subset=['starlink_latency'])
-                quality_column = 'starlink_latency'
-                vmin, vmax = 200, 0  # INVERTED
-                print(f"⚠️ starlink_snr not available, falling back to starlink_latency ({len(df_valid)} points)")
-            else:
-                raise ValueError(f"❌ Neither Starlink SNR nor latency data available")
-        elif color_by == 'starlink_latency':
-            if 'starlink_latency' not in df_valid.columns:
-                raise ValueError(f"❌ Starlink latency data not available")
-            df_valid = df_valid.dropna(subset=['starlink_latency'])
-            quality_column = 'starlink_latency'
-            vmin, vmax = 200, 0  # INVERTED
-            print(f"✅ Using starlink_latency for coloring ({len(df_valid)} points)")
-        else:
-            # Default to SNR with fallback
-            if 'starlink_snr' in df_valid.columns and df_valid['starlink_snr'].notna().sum() > 0:
-                quality_column = 'starlink_snr'
-                vmin, vmax = 0, 15
-            elif 'starlink_latency' in df_valid.columns and df_valid['starlink_latency'].notna().sum() > 0:
-                quality_column = 'starlink_latency'
-                vmin, vmax = 200, 0  # INVERTED
-            else:
-                raise ValueError(f"❌ No Starlink quality data available")
+        # Use latency for coloring (SNR no longer provided by Starlink API)
+        if 'starlink_latency' not in df_valid.columns:
+            raise ValueError(f"❌ Starlink latency data not available")
+        df_valid = df_valid.dropna(subset=['starlink_latency'])
+        quality_column = 'starlink_latency'
+        vmin, vmax = 200, 0  # INVERTED
+        print(f"✅ Using starlink_latency for coloring ({len(df_valid)} points)")
 
         if df_valid.empty:
             raise ValueError(f"❌ No valid satellite direction data with quality values")

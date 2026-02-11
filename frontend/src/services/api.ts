@@ -54,7 +54,7 @@ export async function getCZMLData(
     sample_rate?: number;
     color_by?: 'altitude' | 'speed' |
                 'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' |
-                'starlink_quality_combined' | 'starlink_snr' | 'starlink_latency' |
+                'starlink_quality_combined' | 'starlink_latency' |
                 'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
                 'starlink_obstruction' | 'starlink_uptime';
     flight_id?: number;
@@ -148,7 +148,7 @@ export async function getSatelliteDirectionCZML(
   sessionId: string,
   options: {
     sample_rate?: number;
-    color_by?: 'starlink_snr' | 'starlink_latency';
+    color_by?: 'starlink_latency';
     arrow_length?: number;
     flight_id?: number;
   } = {}

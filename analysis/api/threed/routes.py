@@ -324,7 +324,7 @@ def get_heatmap_czml(session_id):
         - flight_id: Optional flight ID to filter by (for multi-flight sessions)
         - resolution: H3 resolution for hexagon style (7-10) (default: 8)
         - aggregation: Aggregation method for hexagon style ('mean', 'max', 'min', 'median') (default: 'mean')
-        - extrusion_height: Maximum extrusion height in meters for hexagon style (default: 200)
+        - altitude_bin_size: Altitude bin size in meters for 3D voxel layers (default: 25)
 
     Returns:
         CZML JSON data with heatmap entities
@@ -336,7 +336,7 @@ def get_heatmap_czml(session_id):
         flight_id = request.args.get('flight_id', None, type=int)
         resolution = request.args.get('resolution', 8, type=int)
         aggregation = request.args.get('aggregation', 'mean', type=str)
-        extrusion_height = request.args.get('extrusion_height', 200.0, type=float)
+        altitude_bin_size = request.args.get('altitude_bin_size', 25.0, type=float)
 
         # Validate mode
         if mode not in ['lte', 'starlink', 'combined']:
@@ -352,9 +352,11 @@ def get_heatmap_czml(session_id):
                 return jsonify({'error': 'Invalid resolution. Must be between 7 and 10'}), 400
             if aggregation not in ['mean', 'max', 'min', 'median']:
                 return jsonify({'error': 'Invalid aggregation. Must be mean, max, min, or median'}), 400
+            if not 10 <= altitude_bin_size <= 100:
+                return jsonify({'error': 'Invalid altitude_bin_size. Must be between 10 and 100'}), 400
 
         # Create cache key (include hexagon parameters)
-        cache_key = f"heatmap:{session_id}:{mode}:{style}:{flight_id}:{resolution}:{aggregation}:{extrusion_height}"
+        cache_key = f"heatmap:{session_id}:{mode}:{style}:{flight_id}:{resolution}:{aggregation}:{altitude_bin_size}"
 
         # Try to get from cache
         if redis_client:
@@ -405,30 +407,34 @@ def get_heatmap_czml(session_id):
             # Map mode to quality metric
             mode_map = {
                 'lte': 'lte_rsrp',
-                'starlink': 'starlink_snr',
+                'starlink': 'starlink_latency',
                 'combined': 'lte_rsrp'  # Default to LTE for combined
             }
             quality_mode = mode_map.get(mode, 'lte_rsrp')
 
-            # Generate hexagonal heatmap
-            hex_generator = HexagonalHeatmapGenerator(resolution=resolution)
+            # Generate 3D hexagonal voxel grid
+            hex_generator = HexagonalHeatmapGenerator(
+                resolution=resolution,
+                altitude_bin_size=altitude_bin_size
+            )
             czml_data = hex_generator.generate_czml(
                 df=df,
                 mode=quality_mode,
                 aggregation=aggregation,
-                extrusion_height=extrusion_height
+                extrusion_height=0  # Not used in 3D voxel mode
             )
 
             generation_time = (time.time() - start_time) * 1000
-            cell_count = len(czml_data) - 1  # Exclude document header
-            print(f"⏱️ Hexagonal heatmap generation time: {generation_time:.1f}ms")
-            print(f"   Resolution: {resolution}, Cells: {cell_count}, Mode: {quality_mode}, Aggregation: {aggregation}")
+            voxel_count = len(czml_data) - 1  # Exclude document header
+            print(f"⏱️ 3D Hexagonal Voxel Grid generation time: {generation_time:.1f}ms")
+            print(f"   Resolution: {resolution}, Voxels: {voxel_count}, Altitude Bins: {altitude_bin_size}m")
+            print(f"   Mode: {quality_mode}, Aggregation: {aggregation}")
         else:
             # Use existing CZMLGenerator for point/voxel styles
             generator = CZMLGenerator(session_id)
-            czml_data = generator.create_heatmap_czml(mode=mode, style=style, flight_id=flight_id)
+            czml_data = generator.create_heatmap_czml(mode=mode, style=style, flight_id=flight_id, altitude_bin_size=altitude_bin_size)
             generation_time = (time.time() - start_time) * 1000
-            print(f"⏱️ Heatmap generation time: {generation_time:.1f}ms (mode={mode}, style={style})")
+            print(f"⏱️ Heatmap generation time: {generation_time:.1f}ms (mode={mode}, style={style}, altitude_bin_size={altitude_bin_size}m)")
 
         # Convert to JSON
         czml_json = json.dumps(czml_data)
@@ -741,7 +747,7 @@ def get_satellite_direction_czml(session_id):
 
     Query Parameters:
         - sample_rate: Sampling rate in Hz (default: 0.2)
-        - color_by: What to color arrows by ('starlink_snr' or 'starlink_latency') (default: 'starlink_snr')
+        - color_by: What to color arrows by ('starlink_latency') (default: 'starlink_latency')
         - arrow_length: Arrow length in meters (default: 10)
         - flight_id: Optional flight ID to filter by (for multi-flight sessions)
 
@@ -751,13 +757,13 @@ def get_satellite_direction_czml(session_id):
     try:
         # Get query parameters
         sample_rate = request.args.get('sample_rate', 0.2, type=float)
-        color_by = request.args.get('color_by', 'starlink_snr', type=str)
+        color_by = request.args.get('color_by', 'starlink_latency', type=str)
         arrow_length = request.args.get('arrow_length', 10, type=int)
         flight_id = request.args.get('flight_id', None, type=int)
 
         # Validate color_by
-        if color_by not in ['starlink_snr', 'starlink_latency']:
-            return jsonify({'error': 'Invalid color_by. Must be starlink_snr or starlink_latency'}), 400
+        if color_by not in ['starlink_latency']:
+            return jsonify({'error': 'Invalid color_by. Must be starlink_latency'}), 400
 
         # Create cache key
         cache_key = f"sat_dir:{session_id}:{sample_rate}:{color_by}:{arrow_length}:{flight_id}"

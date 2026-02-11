@@ -44,19 +44,7 @@ export const HeatmapLegend: React.FC<HeatmapLegendProps> = ({
     }
 
     if (mode === 'starlink' || mode === 'combined') {
-      if (starlinkColumn === 'starlink_snr') {
-        return {
-          title: 'Starlink Signal Quality (SNR)',
-          unit: 'dB',
-          ranges: [
-            { color: '#1a9850', label: 'Excellent', range: '10+ dB' },
-            { color: '#91cf60', label: 'Good', range: '7 - 10 dB' },
-            { color: '#fee08b', label: 'Fair', range: '3 - 7 dB' },
-            { color: '#fc8d59', label: 'Poor', range: '1 - 3 dB' },
-            { color: '#d73027', label: 'Very Poor', range: '0 - 1 dB' }
-          ]
-        };
-      } else if (starlinkColumn === 'starlink_latency') {
+      if (starlinkColumn === 'starlink_latency') {
         return {
           title: 'Starlink Signal Quality (Latency)',
           unit: 'ms',

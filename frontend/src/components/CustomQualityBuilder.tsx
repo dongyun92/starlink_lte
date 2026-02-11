@@ -31,10 +31,9 @@ export const CustomQualityBuilder: React.FC<CustomQualityBuilderProps> = ({
       ];
     } else {
       return [
-        { id: 'snr', label: 'SNR', enabled: true, weight: 30, description: 'Signal to Noise Ratio' },
-        { id: 'latency', label: 'Latency', enabled: true, weight: 20, description: 'Round-trip Delay' },
-        { id: 'packet_loss', label: 'Packet Loss', enabled: true, weight: 20, description: 'Drop Rate' },
-        { id: 'obstruction', label: 'Obstruction', enabled: true, weight: 15, description: 'Blocked Signal' },
+        { id: 'latency', label: 'Latency', enabled: true, weight: 40, description: 'Round-trip Delay' },
+        { id: 'packet_loss', label: 'Packet Loss', enabled: true, weight: 30, description: 'Drop Rate' },
+        { id: 'obstruction', label: 'Obstruction', enabled: true, weight: 30, description: 'Blocked Signal' },
         { id: 'throughput_down', label: 'Download', enabled: false, weight: 0, description: 'Downlink Speed' },
         { id: 'throughput_up', label: 'Upload', enabled: false, weight: 0, description: 'Uplink Speed' },
         { id: 'uptime', label: 'Uptime', enabled: false, weight: 0, description: 'Connection Time' },
