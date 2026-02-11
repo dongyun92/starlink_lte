@@ -45,28 +45,30 @@ class HexagonalHeatmapGenerator:
         ColorPoint(1.0, (255, 0, 0)),      # Red
     ]
 
-    # Domain-specific value ranges for normalization
+    # Domain-specific value ranges for normalization (UNIFIED with czml_generator.py)
     DOMAIN_RANGES = {
-        'lte_rsrp': (-140, -40),      # dBm (higher = better)
+        'lte_rsrp': (-140, -40),      # dBm (higher = better) - TELECOM STANDARD
         'lte_rssi': (-120, -20),      # dBm (higher = better)
         'lte_sinr': (-20, 30),        # dB (higher = better)
         'lte_rsrq': (-20, -3),        # dB (higher = better)
         'starlink_snr': (0, 15),      # dB (higher = better)
-        'starlink_latency': (200, 0), # ms (lower = better, INVERTED!)
+        'starlink_latency': (0, 200), # ms (lower = better) - NORMAL RANGE, inverted in normalize
         'altitude': None,             # Use actual min/max
         'speed': None,                # Use actual min/max
     }
 
-    def __init__(self, resolution: int = 8):
+    def __init__(self, resolution: int = 8, altitude_bin_size: float = 25.0):
         """
         Initialize hexagonal heatmap generator.
 
         Args:
             resolution: H3 resolution level (7-10). Default 8 (461m edge).
+            altitude_bin_size: Altitude bin size in meters for 3D voxel layers (default 25m).
         """
         if not 7 <= resolution <= 10:
             raise ValueError("Resolution must be between 7 and 10")
         self.resolution = resolution
+        self.altitude_bin_size = altitude_bin_size
 
     def generate_czml(
         self,
@@ -107,32 +109,71 @@ class HexagonalHeatmapGenerator:
         if quality_col not in df.columns:
             raise ValueError(f"Column '{quality_col}' not found in DataFrame")
 
-        # Filter out NaN values
-        df_clean = df[['latitude', 'longitude', quality_col]].dropna()
+        # Check if altitude column exists
+        if 'altitude' not in df.columns:
+            raise ValueError("altitude column required for 3D hexagonal voxel grid")
+
+        # Filter out NaN values (include altitude)
+        df_clean = df[['latitude', 'longitude', 'altitude', quality_col]].dropna()
         if df_clean.empty:
             return self._create_empty_czml()
 
-        # Step 1: Convert GPS coordinates to H3 cells
+        # Step 1: Create altitude bins for 3D voxel layers
         df_clean = df_clean.copy()
+        altitude_min = df_clean['altitude'].min()
+        altitude_max = df_clean['altitude'].max()
+
+        # Create bins from altitude_min to altitude_max with altitude_bin_size steps
+        num_bins = int(np.ceil((altitude_max - altitude_min) / self.altitude_bin_size))
+        bins = [altitude_min + i * self.altitude_bin_size for i in range(num_bins + 1)]
+
+        # Assign altitude bins
+        df_clean['altitude_bin'] = pd.cut(
+            df_clean['altitude'],
+            bins=bins,
+            labels=[i for i in range(num_bins)],
+            include_lowest=True
+        )
+
+        # Calculate midpoint altitude for each bin
+        df_clean['altitude_mid'] = df_clean['altitude_bin'].apply(
+            lambda x: altitude_min + (float(x) + 0.5) * self.altitude_bin_size if pd.notna(x) else np.nan
+        )
+
+        # Remove rows where altitude_bin assignment failed
+        df_clean = df_clean.dropna(subset=['altitude_bin', 'altitude_mid'])
+        if df_clean.empty:
+            return self._create_empty_czml()
+
+        print(f"📊 3D Voxel Grid: {num_bins} altitude layers ({altitude_min:.1f}m - {altitude_max:.1f}m, {self.altitude_bin_size}m bins)")
+
+        # Step 2: Convert GPS coordinates to H3 cells
         df_clean['h3_cell'] = df_clean.apply(
             lambda row: h3.latlng_to_cell(row['latitude'], row['longitude'], self.resolution),
             axis=1
         )
 
-        # Step 2: Aggregate quality metrics per H3 cell
+        # Step 3: Aggregate quality metrics per (H3 cell, altitude_bin)
         agg_func = self._get_aggregation_function(aggregation)
-        grouped = df_clean.groupby('h3_cell')[quality_col].agg(agg_func).reset_index()
-        grouped.columns = ['h3_cell', 'quality_value']
+        grouped = df_clean.groupby(['h3_cell', 'altitude_bin', 'altitude_mid'], observed=True)[quality_col].agg(agg_func).reset_index()
+        grouped.columns = ['h3_cell', 'altitude_bin', 'altitude_mid', 'quality_value']
 
-        # Step 3: Normalize quality values (0-1)
+        # Remove NaN quality values (can occur if no data in some groups)
+        grouped = grouped.dropna(subset=['quality_value'])
+        if grouped.empty:
+            return self._create_empty_czml()
+
+        # Step 4: Normalize quality values (0-1)
         normalized_values = self._normalize_values(grouped['quality_value'], mode)
         grouped['normalized'] = normalized_values
 
-        # Step 4: Generate CZML polygons
+        # Step 5: Generate CZML polygons (3D voxel layers)
         czml_packets = [self._create_czml_document()]
 
         for _, row in grouped.iterrows():
             h3_cell = row['h3_cell']
+            altitude_bin = int(row['altitude_bin'])
+            altitude_mid = row['altitude_mid']
             quality = row['quality_value']
             normalized = row['normalized']
 
@@ -143,18 +184,21 @@ class HexagonalHeatmapGenerator:
             polygon_coords = [[lon, lat] for lat, lon in boundary]
             polygon_coords.append(polygon_coords[0])  # Close polygon
 
-            # Get color from Jet colormap
-            color = self._get_jet_color(normalized)
+            # Get color from RdYlGn_r colormap (Red=bad, Green=good)
+            color = self._get_quality_color(normalized)
 
-            # Calculate extrusion height (proportional to quality)
-            height = normalized * extrusion_height
+            # For 3D voxel: place hexagon at altitude_mid, with thickness = altitude_bin_size
+            base_altitude = altitude_mid - self.altitude_bin_size / 2
+            top_altitude = altitude_mid + self.altitude_bin_size / 2
 
-            # Create CZML polygon packet
-            czml_packet = self._create_polygon_packet(
+            # Create CZML polygon packet (3D voxel layer)
+            czml_packet = self._create_polygon_packet_3d(
                 h3_cell=h3_cell,
+                altitude_bin=altitude_bin,
                 polygon_coords=polygon_coords,
                 color=color,
-                height=height,
+                base_altitude=base_altitude,
+                top_altitude=top_altitude,
                 quality_value=quality
             )
             czml_packets.append(czml_packet)
@@ -189,12 +233,16 @@ class HexagonalHeatmapGenerator:
         """
         Normalize values to 0-1 range using domain-specific ranges.
 
+        UNIFIED normalization (consistent with czml_generator.py):
+        - For most metrics: higher value = better quality = 1
+        - For latency: lower value = better quality = 1 (INVERTED)
+
         Args:
             values: Series of quality values
             mode: Quality metric name
 
         Returns:
-            Normalized values (0-1)
+            Normalized values (0-1) where 1 = best quality
         """
         if mode in self.DOMAIN_RANGES and self.DOMAIN_RANGES[mode] is not None:
             vmin, vmax = self.DOMAIN_RANGES[mode]
@@ -206,38 +254,46 @@ class HexagonalHeatmapGenerator:
         normalized = (values - vmin) / (vmax - vmin)
         normalized = np.clip(normalized, 0, 1)
 
+        # Invert for latency (lower latency = better quality)
+        if 'latency' in mode:
+            normalized = 1 - normalized
+
         return normalized.values
 
-    def _get_jet_color(self, normalized_value: float) -> Tuple[int, int, int, int]:
+    def _get_quality_color(self, normalized_value: float) -> Tuple[int, int, int, int]:
         """
-        Get RGBA color from Jet colormap for normalized value (0-1).
+        Get RGBA color from RdYlGn_r colormap for normalized value (0-1).
+
+        UNIFIED Color mapping (consistent with Voxel and Path colors):
+        - 0 (bad quality) → Red
+        - 0.5 (medium quality) → Yellow
+        - 1 (good quality) → Green
+
+        Uses industry-standard traffic light colormap (Red-Yellow-Green reversed)
 
         Args:
-            normalized_value: Value between 0 and 1
+            normalized_value: Value between 0 and 1 (0=bad, 1=good)
 
         Returns:
             RGBA tuple (R, G, B, A) where each is 0-255
         """
+        from matplotlib import cm
+
         # Clamp value to [0, 1]
         value = np.clip(normalized_value, 0, 1)
 
-        # Find two closest control points
-        for i in range(len(self.JET_COLORMAP) - 1):
-            cp1 = self.JET_COLORMAP[i]
-            cp2 = self.JET_COLORMAP[i + 1]
+        # Use RdYlGn colormap (Traffic light standard: Red=bad, Green=good)
+        # Note: RdYlGn (NOT reversed) because our normalization gives high values for good quality
+        cmap = cm.RdYlGn
+        rgba = cmap(value)
 
-            if cp1.value <= value <= cp2.value:
-                # Linear interpolation between two control points
-                t = (value - cp1.value) / (cp2.value - cp1.value)
+        # Convert to 0-255 range
+        r = int(rgba[0] * 255)
+        g = int(rgba[1] * 255)
+        b = int(rgba[2] * 255)
+        a = 200  # 78% opacity
 
-                r = int(cp1.rgb[0] + t * (cp2.rgb[0] - cp1.rgb[0]))
-                g = int(cp1.rgb[1] + t * (cp2.rgb[1] - cp1.rgb[1]))
-                b = int(cp1.rgb[2] + t * (cp2.rgb[2] - cp1.rgb[2]))
-
-                return (r, g, b, 200)  # 200 = 78% opacity
-
-        # Fallback (shouldn't happen with proper clamping)
-        return (255, 0, 0, 200)  # Red
+        return (r, g, b, a)
 
     def _create_czml_document(self) -> Dict:
         """Create CZML document header"""
@@ -252,36 +308,40 @@ class HexagonalHeatmapGenerator:
             }
         }
 
-    def _create_polygon_packet(
+    def _create_polygon_packet_3d(
         self,
         h3_cell: str,
+        altitude_bin: int,
         polygon_coords: List[List[float]],
         color: Tuple[int, int, int, int],
-        height: float,
+        base_altitude: float,
+        top_altitude: float,
         quality_value: float
     ) -> Dict:
         """
-        Create CZML polygon packet for a single H3 cell.
+        Create CZML polygon packet for a 3D voxel hexagon layer.
 
         Args:
             h3_cell: H3 cell ID
+            altitude_bin: Altitude bin index
             polygon_coords: List of [lon, lat] coordinates
             color: RGBA color tuple (R, G, B, A)
-            height: Extrusion height in meters
+            base_altitude: Base altitude of voxel layer in meters
+            top_altitude: Top altitude of voxel layer in meters
             quality_value: Original quality metric value
 
         Returns:
             CZML polygon packet
         """
-        # Flatten coordinates for CZML format
+        # Flatten coordinates with base altitude
         flat_coords = []
         for lon, lat in polygon_coords:
-            flat_coords.extend([lon, lat, 0])  # Ground level
+            flat_coords.extend([lon, lat, base_altitude])
 
         return {
-            "id": f"hexagon_{h3_cell}",
-            "name": f"H3 Cell {h3_cell}",
-            "description": f"Quality: {quality_value:.2f}",
+            "id": f"hexagon_{h3_cell}_alt{altitude_bin}",
+            "name": f"H3 Cell {h3_cell} @ {base_altitude:.0f}-{top_altitude:.0f}m",
+            "description": f"Altitude: {base_altitude:.0f}-{top_altitude:.0f}m\nQuality: {quality_value:.2f}",
             "polygon": {
                 "positions": {
                     "cartographicDegrees": flat_coords
@@ -295,11 +355,11 @@ class HexagonalHeatmapGenerator:
                 },
                 "outline": True,
                 "outlineColor": {
-                    "rgba": [255, 255, 255, 100]  # White outline with 40% opacity
+                    "rgba": [255, 255, 255, 80]  # White outline with 31% opacity (reduced for clarity)
                 },
                 "outlineWidth": 1.0,
-                "extrudedHeight": height,
-                "perPositionHeight": False,
+                "extrudedHeight": top_altitude,  # Top of the voxel layer
+                "perPositionHeight": True,  # Use altitude from positions
                 "closeTop": True,
                 "closeBottom": True
             }

@@ -21,10 +21,10 @@ interface UnifiedControlPanelProps {
   // Hexagon heatmap controls
   hexagonResolution: number;
   hexagonAggregation: 'mean' | 'max' | 'min' | 'median';
-  hexagonExtrusionHeight: number;
+  hexagonAltitudeBinSize: number;
   onHexagonResolutionChange: (resolution: number) => void;
   onHexagonAggregationChange: (aggregation: 'mean' | 'max' | 'min' | 'median') => void;
-  onHexagonExtrusionHeightChange: (height: number) => void;
+  onHexagonAltitudeBinSizeChange: (size: number) => void;
 
   // Flight scenario controls
   scenarios: FlightScenario[];
@@ -100,10 +100,10 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onHeatmapStyleChange,
   hexagonResolution,
   hexagonAggregation,
-  hexagonExtrusionHeight,
+  hexagonAltitudeBinSize,
   onHexagonResolutionChange,
   onHexagonAggregationChange,
-  onHexagonExtrusionHeightChange,
+  onHexagonAltitudeBinSizeChange,
   scenarios,
   selectedFlightId,
   onFlightSelect,
@@ -482,68 +482,74 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
               </label>
             </div>
 
-            {/* Hexagon-specific controls */}
-            {heatmapStyle === 'hexagon' && (
+            {/* Voxel & Hexagon controls */}
+            {(heatmapStyle === 'voxel' || heatmapStyle === 'hexagon') && (
               <div className="bg-blue-50 p-2 rounded border border-blue-200 space-y-2">
-                <div className="text-xs font-semibold text-blue-900">Hexagon Settings</div>
+                <div className="text-xs font-semibold text-blue-900">
+                  {heatmapStyle === 'voxel' ? 'Voxel Settings' : 'Hexagon Settings'}
+                </div>
 
-                {/* Resolution Selector */}
-                <div>
-                  <label className="block text-[10px] text-gray-700 mb-1">
-                    Cell Size ({hexagonResolution === 7 ? '1.22km' : hexagonResolution === 8 ? '461m' : hexagonResolution === 9 ? '174m' : '66m'} edge)
-                  </label>
-                  <select
-                    value={hexagonResolution}
-                    onChange={(e) => onHexagonResolutionChange(parseInt(e.target.value, 10))}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-                  >
-                    <option value={7}>7 - Very Large (1.22km)</option>
-                    <option value={8}>8 - Large (461m)</option>
-                    <option value={9}>9 - Medium (174m) ⭐</option>
-                    <option value={10}>10 - Small (66m)</option>
-                  </select>
-                  <div className="text-[9px] text-gray-500 mt-1">
-                    Smaller = More cells, slower
+                {/* Hexagon-only: Resolution Selector */}
+                {heatmapStyle === 'hexagon' && (
+                  <div>
+                    <label className="block text-[10px] text-gray-700 mb-1">
+                      Cell Size ({hexagonResolution === 7 ? '1.22km' : hexagonResolution === 8 ? '461m' : hexagonResolution === 9 ? '174m' : '66m'} edge)
+                    </label>
+                    <select
+                      value={hexagonResolution}
+                      onChange={(e) => onHexagonResolutionChange(parseInt(e.target.value, 10))}
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    >
+                      <option value={7}>7 - Very Large (1.22km)</option>
+                      <option value={8}>8 - Large (461m)</option>
+                      <option value={9}>9 - Medium (174m) ⭐</option>
+                      <option value={10}>10 - Small (66m)</option>
+                    </select>
+                    <div className="text-[9px] text-gray-500 mt-1">
+                      Smaller = More cells, slower
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {/* Aggregation Selector */}
+                {/* Hexagon-only: Aggregation Selector */}
+                {heatmapStyle === 'hexagon' && (
+                  <div>
+                    <label className="block text-[10px] text-gray-700 mb-1">
+                      Aggregation Method
+                    </label>
+                    <select
+                      value={hexagonAggregation}
+                      onChange={(e) => onHexagonAggregationChange(e.target.value as 'mean' | 'max' | 'min' | 'median')}
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    >
+                      <option value="mean">Mean (Average) ⭐</option>
+                      <option value="max">Max (Best Quality)</option>
+                      <option value="min">Min (Worst Quality)</option>
+                      <option value="median">Median (Middle Value)</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Shared: Altitude Bin Size Slider */}
                 <div>
                   <label className="block text-[10px] text-gray-700 mb-1">
-                    Aggregation Method
-                  </label>
-                  <select
-                    value={hexagonAggregation}
-                    onChange={(e) => onHexagonAggregationChange(e.target.value as 'mean' | 'max' | 'min' | 'median')}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-                  >
-                    <option value="mean">Mean (Average) ⭐</option>
-                    <option value="max">Max (Best Quality)</option>
-                    <option value="min">Min (Worst Quality)</option>
-                    <option value="median">Median (Middle Value)</option>
-                  </select>
-                </div>
-
-                {/* Extrusion Height Slider */}
-                <div>
-                  <label className="block text-[10px] text-gray-700 mb-1">
-                    Bar Height: {hexagonExtrusionHeight}m (Quality Visualization)
+                    Altitude Bin Size: {hexagonAltitudeBinSize}m (3D Voxel Layers)
                   </label>
                   <input
                     type="range"
-                    min={50}
-                    max={300}
-                    step={25}
-                    value={hexagonExtrusionHeight}
-                    onChange={(e) => onHexagonExtrusionHeightChange(parseInt(e.target.value, 10))}
+                    min={10}
+                    max={100}
+                    step={5}
+                    value={hexagonAltitudeBinSize}
+                    onChange={(e) => onHexagonAltitudeBinSizeChange(parseInt(e.target.value, 10))}
                     className="w-full"
                   />
                   <div className="flex justify-between text-[9px] text-gray-500">
-                    <span>50m (Low)</span>
-                    <span>300m (High)</span>
+                    <span>10m (Fine)</span>
+                    <span>100m (Coarse)</span>
                   </div>
                   <div className="text-[9px] text-blue-700 mt-1">
-                    ℹ️ Height shows quality, not altitude
+                    ℹ️ Creates altitude layers (e.g., 0-25m, 25-50m, etc.)
                   </div>
                 </div>
               </div>

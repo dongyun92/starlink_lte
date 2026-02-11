@@ -106,7 +106,7 @@ export async function getHeatmapCZML(
   hexagonOptions?: {
     resolution?: number;
     aggregation?: 'mean' | 'max' | 'min' | 'median';
-    extrusion_height?: number;
+    altitude_bin_size?: number;
   }
 ): Promise<CZMLDocument> {
   const params = new URLSearchParams({ mode, style });
@@ -114,16 +114,20 @@ export async function getHeatmapCZML(
     params.append('flight_id', flight_id.toString());
   }
 
-  // Add hexagon-specific parameters if style is hexagon
-  if (style === 'hexagon' && hexagonOptions) {
-    if (hexagonOptions.resolution !== undefined) {
-      params.append('resolution', hexagonOptions.resolution.toString());
+  // Add hexagon/voxel-specific parameters
+  if ((style === 'hexagon' || style === 'voxel') && hexagonOptions) {
+    // Hexagon-only parameters
+    if (style === 'hexagon') {
+      if (hexagonOptions.resolution !== undefined) {
+        params.append('resolution', hexagonOptions.resolution.toString());
+      }
+      if (hexagonOptions.aggregation) {
+        params.append('aggregation', hexagonOptions.aggregation);
+      }
     }
-    if (hexagonOptions.aggregation) {
-      params.append('aggregation', hexagonOptions.aggregation);
-    }
-    if (hexagonOptions.extrusion_height !== undefined) {
-      params.append('extrusion_height', hexagonOptions.extrusion_height.toString());
+    // Shared parameter for both hexagon and voxel
+    if (hexagonOptions.altitude_bin_size !== undefined) {
+      params.append('altitude_bin_size', hexagonOptions.altitude_bin_size.toString());
     }
   }
 

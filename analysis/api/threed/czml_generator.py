@@ -810,7 +810,7 @@ class CZMLGenerator:
                                                    'packet_loss', 'throughput', 'obstruction', 'uptime']):
             # Traffic light colormap: 빨강(약함) → 노랑(보통) → 초록(강함)
             # LTE/Telecom industry standard (reversed for low=bad, high=good)
-            cmap = cm.RdYlGn_r  # Red-Yellow-Green reversed
+            cmap = cm.RdYlGn  # Red-Yellow-Green reversed
             print(f"🎨 Using TRAFFIC LIGHT colormap (Red→Yellow→Green) for {column_name}")
 
         elif 'speed' in column_name:
@@ -967,7 +967,7 @@ class CZMLGenerator:
             }
         }
 
-    def create_heatmap_czml(self, mode: str = 'lte', style: str = 'point', flight_id: int = None) -> list:
+    def create_heatmap_czml(self, mode: str = 'lte', style: str = 'point', flight_id: int = None, altitude_bin_size: float = 25.0) -> list:
         """
         Generate heatmap CZML for data quality visualization
 
@@ -975,6 +975,7 @@ class CZMLGenerator:
             mode: 'lte', 'starlink', or 'combined'
             style: 'point' or 'voxel' (default: 'point')
             flight_id: Optional flight ID to filter by (for multi-flight sessions)
+            altitude_bin_size: Altitude bin size in meters for 3D voxel layers (default: 25.0)
 
         Returns:
             CZML data as list of dictionaries
@@ -1016,7 +1017,7 @@ class CZMLGenerator:
 
         # Generate heatmap entities based on style
         if style == 'voxel':
-            heatmap_entities = self._create_voxel_heatmap_entities(df, mode)
+            heatmap_entities = self._create_voxel_heatmap_entities(df, mode, altitude_bin_size)
         else:  # point (default)
             heatmap_entities = self._create_heatmap_point_entities(df, mode)
 
@@ -1183,7 +1184,7 @@ class CZMLGenerator:
         normalized = np.clip(quality_score / 100.0, 0, 1)
 
         # Use RdYlGn_r colormap (Traffic light standard: Red=bad, Green=good)
-        cmap = cm.RdYlGn_r
+        cmap = cm.RdYlGn
         rgba = cmap(normalized)
 
         # Convert to 0-255 range
@@ -1194,13 +1195,14 @@ class CZMLGenerator:
             255                   # A (fully opaque)
         ]
 
-    def _create_voxel_heatmap_entities(self, df, mode: str) -> list:
+    def _create_voxel_heatmap_entities(self, df, mode: str, altitude_bin_size: float = 25.0) -> list:
         """
         Create voxel (3D grid box) entities for heatmap visualization
 
         Args:
             df: Flight data DataFrame
             mode: 'lte', 'starlink', or 'combined'
+            altitude_bin_size: Altitude bin size in meters for 3D voxel layers (default: 25.0)
 
         Returns:
             List of CZML box entities
@@ -1228,9 +1230,9 @@ class CZMLGenerator:
         alt_min, alt_max = df['altitude'].min(), df['altitude'].max()
 
         # Voxel size configuration (in meters, converted to degrees for lat/lon)
-        # Aviation visualization standard: 50m horizontal, 15m vertical for clean grid
+        # Aviation visualization standard: 50m horizontal, altitude_bin_size vertical
         voxel_size_horizontal = 50  # 50 meters
-        voxel_size_vertical = 15    # 15 meters
+        voxel_size_vertical = altitude_bin_size  # Use altitude_bin_size parameter (consistent with hexagon)
 
         # Approximate conversion: 1 degree latitude ≈ 111,000 meters
         # Longitude varies by latitude, but use average for simplicity

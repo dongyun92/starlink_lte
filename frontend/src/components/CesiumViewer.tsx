@@ -51,10 +51,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
   const [heatmapStyle, setHeatmapStyle] = useState<'point' | 'voxel' | 'hexagon'>('point');
 
-  // Hexagon heatmap parameters (updated defaults for small flight paths)
+  // Hexagon heatmap parameters (updated defaults for 3D voxel grid)
   const [hexagonResolution, setHexagonResolution] = useState<number>(9);  // 174m edge (better for <1km paths)
   const [hexagonAggregation, setHexagonAggregation] = useState<'mean' | 'max' | 'min' | 'median'>('mean');
-  const [hexagonExtrusionHeight, setHexagonExtrusionHeight] = useState<number>(100);  // Lower default for clarity
+  const [hexagonAltitudeBinSize, setHexagonAltitudeBinSize] = useState<number>(25);  // 25m altitude bins
 
   // Mutual exclusive heatmap toggle handlers
   const handleLteHeatmapToggle = (enabled: boolean) => {
@@ -470,64 +470,61 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       return;
     }
 
-    // Don't load if all heatmaps are disabled (prevent re-triggering after cleanup)
-    const allHeatmapsDisabled = !lteHeatmap && !starlinkHeatmap && !combinedHeatmap;
-    if (allHeatmapsDisabled) {
-      return;
+    // 체크 해제 시 즉시 cleanup (동기적으로)
+    if (!lteHeatmap) {
+      if (lteHeatmapSourceRef.current && cesiumViewerRef.current) {
+        try {
+          cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
+          lteHeatmapSourceRef.current = null;
+          console.log('🗑️ LTE heatmap removed (unchecked)');
+        } catch (error) {
+          console.error('❌ Error removing LTE heatmap:', error);
+          lteHeatmapSourceRef.current = null;
+        }
+      }
+      return; // 로딩하지 않음
     }
 
+    // 체크 활성화 시: 기존 제거 후 새로 로딩
     const loadLTEHeatmap = async () => {
       if (!cesiumViewerRef.current) return;
 
       try {
-        if (lteHeatmap) {
-          // Remove existing heatmap if present
-          if (lteHeatmapSourceRef.current) {
-            cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
-            lteHeatmapSourceRef.current = null;
-          }
-
-          console.log(`🗺️ Loading LTE quality heatmap (${heatmapStyle})...`);
-          const czmlData = await getHeatmapCZML(
-            selectedSessionId,
-            'lte',
-            heatmapStyle,
-            selectedFlightId !== null ? selectedFlightId : undefined,
-            heatmapStyle === 'hexagon' ? {
-              resolution: hexagonResolution,
-              aggregation: hexagonAggregation,
-              extrusion_height: hexagonExtrusionHeight
-            } : undefined
-          );
-
-          // Extract heatmap metadata from CZML document header
-          if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
-            setHeatmapMetadata({
-              lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
-              starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
-            });
-            console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
-          }
-
-          const Cesium = window.Cesium;
-          const dataSource = await Cesium.CzmlDataSource.load(czmlData);
-          lteHeatmapSourceRef.current = dataSource;
-
-          await cesiumViewerRef.current.dataSources.add(dataSource);
-          console.log('✅ LTE heatmap loaded');
-        } else {
-          // Remove heatmap when disabled
-          if (lteHeatmapSourceRef.current) {
-            try {
-              cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
-              lteHeatmapSourceRef.current = null;
-              console.log('🗺️ LTE heatmap removed');
-            } catch (removeError) {
-              console.error('❌ Error removing LTE heatmap:', removeError);
-              lteHeatmapSourceRef.current = null;
-            }
-          }
+        // CRITICAL: Remove existing heatmap BEFORE loading new style (synchronous removal)
+        if (lteHeatmapSourceRef.current) {
+          cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
+          lteHeatmapSourceRef.current = null;
+          console.log('🗑️ LTE heatmap removed (style change)');
         }
+
+        console.log(`🗺️ Loading LTE quality heatmap (${heatmapStyle})...`);
+        const czmlData = await getHeatmapCZML(
+          selectedSessionId,
+          'lte',
+          heatmapStyle,
+          selectedFlightId !== null ? selectedFlightId : undefined,
+          (heatmapStyle === 'hexagon' || heatmapStyle === 'voxel') ? {
+            resolution: hexagonResolution,
+            aggregation: hexagonAggregation,
+            altitude_bin_size: hexagonAltitudeBinSize
+          } : undefined
+        );
+
+        // Extract heatmap metadata from CZML document header
+        if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
+          setHeatmapMetadata({
+            lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
+            starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
+          });
+          console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
+        }
+
+        const Cesium = window.Cesium;
+        const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+        lteHeatmapSourceRef.current = dataSource;
+
+        await cesiumViewerRef.current.dataSources.add(dataSource);
+        console.log('✅ LTE heatmap loaded');
       } catch (error) {
         console.error('❌ Failed to load LTE heatmap:', error);
       }
@@ -535,7 +532,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
     loadLTEHeatmap();
 
-    // Cleanup function
+    // Cleanup function (컴포넌트 unmount 또는 dependency 변경 시)
     return () => {
       if (lteHeatmapSourceRef.current && cesiumViewerRef.current) {
         try {
@@ -546,7 +543,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonExtrusionHeight]);
+  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize]);
 
   // Starlink Heatmap 로드 및 토글
   useEffect(() => {
@@ -554,64 +551,61 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       return;
     }
 
-    // Don't load if all heatmaps are disabled (prevent re-triggering after cleanup)
-    const allHeatmapsDisabled = !lteHeatmap && !starlinkHeatmap && !combinedHeatmap;
-    if (allHeatmapsDisabled) {
-      return;
+    // 체크 해제 시 즉시 cleanup (동기적으로)
+    if (!starlinkHeatmap) {
+      if (starlinkHeatmapSourceRef.current && cesiumViewerRef.current) {
+        try {
+          cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
+          starlinkHeatmapSourceRef.current = null;
+          console.log('🗑️ Starlink heatmap removed (unchecked)');
+        } catch (error) {
+          console.error('❌ Error removing Starlink heatmap:', error);
+          starlinkHeatmapSourceRef.current = null;
+        }
+      }
+      return; // 로딩하지 않음
     }
 
+    // 체크 활성화 시: 기존 제거 후 새로 로딩
     const loadStarlinkHeatmap = async () => {
       if (!cesiumViewerRef.current) return;
 
       try {
-        if (starlinkHeatmap) {
-          // Remove existing heatmap if present
-          if (starlinkHeatmapSourceRef.current) {
-            cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
-            starlinkHeatmapSourceRef.current = null;
-          }
-
-          console.log(`🗺️ Loading Starlink quality heatmap (${heatmapStyle})...`);
-          const czmlData = await getHeatmapCZML(
-            selectedSessionId,
-            'starlink',
-            heatmapStyle,
-            selectedFlightId !== null ? selectedFlightId : undefined,
-            heatmapStyle === 'hexagon' ? {
-              resolution: hexagonResolution,
-              aggregation: hexagonAggregation,
-              extrusion_height: hexagonExtrusionHeight
-            } : undefined
-          );
-
-          // Extract heatmap metadata from CZML document header
-          if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
-            setHeatmapMetadata({
-              lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
-              starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
-            });
-            console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
-          }
-
-          const Cesium = window.Cesium;
-          const dataSource = await Cesium.CzmlDataSource.load(czmlData);
-          starlinkHeatmapSourceRef.current = dataSource;
-
-          await cesiumViewerRef.current.dataSources.add(dataSource);
-          console.log('✅ Starlink heatmap loaded');
-        } else {
-          // Remove heatmap when disabled
-          if (starlinkHeatmapSourceRef.current) {
-            try {
-              cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
-              starlinkHeatmapSourceRef.current = null;
-              console.log('🗺️ Starlink heatmap removed');
-            } catch (removeError) {
-              console.error('❌ Error removing Starlink heatmap:', removeError);
-              starlinkHeatmapSourceRef.current = null;
-            }
-          }
+        // CRITICAL: Remove existing heatmap BEFORE loading new style (synchronous removal)
+        if (starlinkHeatmapSourceRef.current) {
+          cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
+          starlinkHeatmapSourceRef.current = null;
+          console.log('🗑️ Starlink heatmap removed (style change)');
         }
+
+        console.log(`🗺️ Loading Starlink quality heatmap (${heatmapStyle})...`);
+        const czmlData = await getHeatmapCZML(
+          selectedSessionId,
+          'starlink',
+          heatmapStyle,
+          selectedFlightId !== null ? selectedFlightId : undefined,
+          (heatmapStyle === 'hexagon' || heatmapStyle === 'voxel') ? {
+            resolution: hexagonResolution,
+            aggregation: hexagonAggregation,
+            altitude_bin_size: hexagonAltitudeBinSize
+          } : undefined
+        );
+
+        // Extract heatmap metadata from CZML document header
+        if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
+          setHeatmapMetadata({
+            lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
+            starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
+          });
+          console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
+        }
+
+        const Cesium = window.Cesium;
+        const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+        starlinkHeatmapSourceRef.current = dataSource;
+
+        await cesiumViewerRef.current.dataSources.add(dataSource);
+        console.log('✅ Starlink heatmap loaded');
       } catch (error) {
         console.error('❌ Failed to load Starlink heatmap:', error);
       }
@@ -619,7 +613,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
     loadStarlinkHeatmap();
 
-    // Cleanup function
+    // Cleanup function (컴포넌트 unmount 또는 dependency 변경 시)
     return () => {
       if (starlinkHeatmapSourceRef.current && cesiumViewerRef.current) {
         try {
@@ -630,7 +624,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonExtrusionHeight]);
+  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize]);
 
   // Combined Heatmap 로드 및 토글
   useEffect(() => {
@@ -638,64 +632,61 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       return;
     }
 
-    // Don't load if all heatmaps are disabled (prevent re-triggering after cleanup)
-    const allHeatmapsDisabled = !lteHeatmap && !starlinkHeatmap && !combinedHeatmap;
-    if (allHeatmapsDisabled) {
-      return;
+    // 체크 해제 시 즉시 cleanup (동기적으로)
+    if (!combinedHeatmap) {
+      if (combinedHeatmapSourceRef.current && cesiumViewerRef.current) {
+        try {
+          cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
+          combinedHeatmapSourceRef.current = null;
+          console.log('🗑️ Combined heatmap removed (unchecked)');
+        } catch (error) {
+          console.error('❌ Error removing Combined heatmap:', error);
+          combinedHeatmapSourceRef.current = null;
+        }
+      }
+      return; // 로딩하지 않음
     }
 
+    // 체크 활성화 시: 기존 제거 후 새로 로딩
     const loadCombinedHeatmap = async () => {
       if (!cesiumViewerRef.current) return;
 
       try {
-        if (combinedHeatmap) {
-          // Remove existing heatmap if present
-          if (combinedHeatmapSourceRef.current) {
-            cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
-            combinedHeatmapSourceRef.current = null;
-          }
-
-          console.log(`🗺️ Loading Combined quality heatmap (${heatmapStyle})...`);
-          const czmlData = await getHeatmapCZML(
-            selectedSessionId,
-            'combined',
-            heatmapStyle,
-            selectedFlightId !== null ? selectedFlightId : undefined,
-            heatmapStyle === 'hexagon' ? {
-              resolution: hexagonResolution,
-              aggregation: hexagonAggregation,
-              extrusion_height: hexagonExtrusionHeight
-            } : undefined
-          );
-
-          // Extract heatmap metadata from CZML document header
-          if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
-            setHeatmapMetadata({
-              lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
-              starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
-            });
-            console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
-          }
-
-          const Cesium = window.Cesium;
-          const dataSource = await Cesium.CzmlDataSource.load(czmlData);
-          combinedHeatmapSourceRef.current = dataSource;
-
-          await cesiumViewerRef.current.dataSources.add(dataSource);
-          console.log('✅ Combined heatmap loaded');
-        } else {
-          // Remove heatmap when disabled
-          if (combinedHeatmapSourceRef.current) {
-            try {
-              cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
-              combinedHeatmapSourceRef.current = null;
-              console.log('🗺️ Combined heatmap removed');
-            } catch (removeError) {
-              console.error('❌ Error removing Combined heatmap:', removeError);
-              combinedHeatmapSourceRef.current = null;
-            }
-          }
+        // CRITICAL: Remove existing heatmap BEFORE loading new style (synchronous removal)
+        if (combinedHeatmapSourceRef.current) {
+          cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
+          combinedHeatmapSourceRef.current = null;
+          console.log('🗑️ Combined heatmap removed (style change)');
         }
+
+        console.log(`🗺️ Loading Combined quality heatmap (${heatmapStyle})...`);
+        const czmlData = await getHeatmapCZML(
+          selectedSessionId,
+          'combined',
+          heatmapStyle,
+          selectedFlightId !== null ? selectedFlightId : undefined,
+          (heatmapStyle === 'hexagon' || heatmapStyle === 'voxel') ? {
+            resolution: hexagonResolution,
+            aggregation: hexagonAggregation,
+            altitude_bin_size: hexagonAltitudeBinSize
+          } : undefined
+        );
+
+        // Extract heatmap metadata from CZML document header
+        if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
+          setHeatmapMetadata({
+            lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
+            starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
+          });
+          console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
+        }
+
+        const Cesium = window.Cesium;
+        const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+        combinedHeatmapSourceRef.current = dataSource;
+
+        await cesiumViewerRef.current.dataSources.add(dataSource);
+        console.log('✅ Combined heatmap loaded');
       } catch (error) {
         console.error('❌ Failed to load Combined heatmap:', error);
       }
@@ -703,7 +694,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
     loadCombinedHeatmap();
 
-    // Cleanup function
+    // Cleanup function (컴포넌트 unmount 또는 dependency 변경 시)
     return () => {
       if (combinedHeatmapSourceRef.current && cesiumViewerRef.current) {
         try {
@@ -714,55 +705,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonExtrusionHeight]);
-
-  // Cleanup all heatmaps when all are disabled (with delay to handle race conditions)
-  useEffect(() => {
-    if (!cesiumViewerRef.current) return;
-
-    const allHeatmapsDisabled = !lteHeatmap && !starlinkHeatmap && !combinedHeatmap;
-
-    if (allHeatmapsDisabled) {
-      // Use setTimeout to ensure async loading completes before cleanup
-      const cleanupTimer = setTimeout(() => {
-        if (!cesiumViewerRef.current) return;
-
-        console.log('🧹 Cleaning up all heatmap data sources...');
-
-        // Force remove ALL data sources that match heatmap pattern
-        const viewer = cesiumViewerRef.current;
-        const dataSources = viewer.dataSources;
-        const sourcesToRemove: any[] = [];
-
-        // Collect all heatmap data sources
-        for (let i = 0; i < dataSources.length; i++) {
-          const ds = dataSources.get(i);
-          if (ds && ds.name && ds.name.includes('heatmap')) {
-            sourcesToRemove.push(ds);
-          }
-        }
-
-        // Remove collected sources
-        sourcesToRemove.forEach((ds, index) => {
-          try {
-            dataSources.remove(ds);
-            console.log(`  ✅ Heatmap data source ${index + 1} removed (${ds.name})`);
-          } catch (error) {
-            console.error(`  ❌ Error removing heatmap ${index + 1}:`, error);
-          }
-        });
-
-        // Clear refs
-        lteHeatmapSourceRef.current = null;
-        starlinkHeatmapSourceRef.current = null;
-        combinedHeatmapSourceRef.current = null;
-
-        console.log(`✨ All heatmaps cleaned (${sourcesToRemove.length} sources removed)`);
-      }, 100); // 100ms delay to allow async operations to complete
-
-      return () => clearTimeout(cleanupTimer);
-    }
-  }, [lteHeatmap, starlinkHeatmap, combinedHeatmap]);
+  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize]);
 
   // Cell Tower 데이터 로드
   useEffect(() => {
@@ -1220,10 +1163,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onHeatmapStyleChange={setHeatmapStyle}
         hexagonResolution={hexagonResolution}
         hexagonAggregation={hexagonAggregation}
-        hexagonExtrusionHeight={hexagonExtrusionHeight}
+        hexagonAltitudeBinSize={hexagonAltitudeBinSize}
         onHexagonResolutionChange={setHexagonResolution}
         onHexagonAggregationChange={setHexagonAggregation}
-        onHexagonExtrusionHeightChange={setHexagonExtrusionHeight}
+        onHexagonAltitudeBinSizeChange={setHexagonAltitudeBinSize}
         scenarios={flightScenarios}
         selectedFlightId={selectedFlightId}
         onFlightSelect={setSelectedFlightId}
