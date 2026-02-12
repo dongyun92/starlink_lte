@@ -1584,12 +1584,29 @@ class CZMLGenerator:
         # Process each connection segment
         segments = []
         handover_count = 0
+        skipped_segments = 0
+        skipped_reasons = {}
+
+        total_segments = len(df_valid.groupby('connection_segment'))
+        unique_cell_ids_in_data = df_valid['lte_cell_id'].unique()
+        print(f"  📊 Total connection segments to process: {total_segments}", flush=True)
+        print(f"  📊 Unique cell_ids in flight data: {len(unique_cell_ids_in_data)}", flush=True)
+        print(f"      Cell IDs: {[str(c).upper() for c in unique_cell_ids_in_data[:20]]}", flush=True)
+        print(f"  📊 Cell IDs in tower positions dict: {len(cell_tower_positions)}", flush=True)
+        print(f"      Dict keys: {list(cell_tower_positions.keys())[:20]}", flush=True)
 
         for segment_id, group in df_valid.groupby('connection_segment'):
             cell_id = str(group.iloc[0]['lte_cell_id']).upper()
 
             # Skip invalid cell IDs
-            if cell_id in ['0', 'FFFFFFFF', 'NAN'] or cell_id not in cell_tower_positions:
+            if cell_id in ['0', 'FFFFFFFF', 'NAN']:
+                skipped_segments += 1
+                skipped_reasons[cell_id] = skipped_reasons.get(cell_id, 0) + 1
+                continue
+
+            if cell_id not in cell_tower_positions:
+                skipped_segments += 1
+                skipped_reasons[f"NOT_FOUND:{cell_id}"] = skipped_reasons.get(f"NOT_FOUND:{cell_id}", 0) + 1
                 continue
 
             start_time = group['timestamp'].min()
@@ -1625,7 +1642,12 @@ class CZMLGenerator:
             if segment_id > 0:  # Count handovers (skip first segment)
                 handover_count += 1
 
-        print(f"  ✅ Detected {handover_count} handovers across {len(segments)} segments", flush=True)
+        print(f"  ✅ Created {len(segments)} valid segments, skipped {skipped_segments} segments", flush=True)
+        if skipped_reasons:
+            print(f"  📋 Skip reasons:", flush=True)
+            for reason, count in sorted(skipped_reasons.items(), key=lambda x: x[1], reverse=True)[:10]:
+                print(f"      - {reason}: {count} segments", flush=True)
+        print(f"  🔄 Detected {handover_count} handovers", flush=True)
 
         if not segments:
             raise ValueError(f"❌ No valid tower connection segments found in data")

@@ -125,7 +125,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [showSatelliteDirection, setShowSatelliteDirection] = useState<boolean>(false);
 
   // Tower connections state
-  const [showTowerConnections, setShowTowerConnections] = useState<boolean>(false);
+  const [showTowerConnections, setShowTowerConnections] = useState<boolean>(true);
 
   // Signal loss state
   const [showSignalLoss, setShowSignalLoss] = useState<boolean>(false);
@@ -878,7 +878,22 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Load tower connections
   useEffect(() => {
+    // 🚨 DEBUG: Check why useEffect is not loading tower connections
+    console.log('🔍 Tower connections useEffect triggered:', {
+      selectedSessionId,
+      hasCesiumViewer: !!cesiumViewerRef.current,
+      hasCesiumGlobal: typeof window.Cesium !== 'undefined',
+      showTowerConnections
+    });
+
     if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined' || !showTowerConnections) {
+      console.warn('⚠️ Tower connections skipped due to conditions:', {
+        noSessionId: !selectedSessionId,
+        noCesiumViewer: !cesiumViewerRef.current,
+        noCesiumGlobal: typeof window.Cesium === 'undefined',
+        toggleOff: !showTowerConnections
+      });
+
       // Remove tower connections data source if exists
       if (towerConnectionsSourceRef.current) {
         cesiumViewerRef.current.dataSources.remove(towerConnectionsSourceRef.current);
@@ -905,17 +920,29 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined
         });
 
-        console.log('📦 Tower connections CZML data loaded');
+        console.log('📦 Tower connections CZML data loaded:', czmlData ? `${czmlData.length} items` : 'empty');
+
+        if (!czmlData || czmlData.length === 0) {
+          console.warn('⚠️ No tower connections data returned from API');
+          return;
+        }
 
         // Load CZML into Cesium
+        console.log('🔄 Loading CZML into Cesium...');
         const dataSource = await Cesium.CzmlDataSource.load(czmlData);
+        console.log('✅ CZML loaded, adding to data sources...');
+
         cesiumViewerRef.current.dataSources.add(dataSource);
         towerConnectionsSourceRef.current = dataSource;
 
-        console.log('✅ Tower connections rendered');
+        console.log('✅ Tower connections rendered successfully');
       } catch (error) {
-        // 🛡️ Silently ignore tower connection errors
-        console.error('❌ Failed to load tower connections (silently ignored):', error);
+        // 🛡️ CRITICAL: Show detailed error for debugging
+        console.error('❌ Failed to load tower connections:', error);
+        console.error('Error details:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined
+        });
       }
     };
 
