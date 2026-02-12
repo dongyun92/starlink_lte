@@ -534,28 +534,45 @@ def get_cell_towers_geojson_internal(session_id: str, flight_id: int = None) -> 
             except (ValueError, TypeError):
                 return None
 
-    # Read original LTE data for cell details
+    # Read original LTE data for cell details from ALL LTE CSV files
     lte_details = {}
     if lte_csv_files:
-        lte_original = pd.read_csv(lte_csv_files[0])
-        for cell_id in lte_original['cell_id'].unique():
-            if pd.isna(cell_id) or cell_id in ['0', 'FFFFFFFF']:
-                continue
-            cell_rows = lte_original[lte_original['cell_id'] == cell_id]
-            first_row = cell_rows.iloc[0]
+        print(f"\n🔍 Reading {len(lte_csv_files)} LTE CSV files for cell details...")
 
-            lte_details[cell_id] = {
-                'mcc': safe_int(first_row.get('mcc')) or 450,
-                'mnc': safe_int(first_row.get('mnc')),
-                'lac': safe_int(first_row.get('lac')),
-                'pcid': safe_int(first_row.get('pcid')),
-                'enodeb_id': safe_int(first_row.get('enodeb_id')),
-                'cell_sector_id': safe_int(first_row.get('cell_sector_id')),
-            }
+        for lte_file in lte_csv_files:
+            # Force cell_id to be read as string to preserve hex values
+            lte_original = pd.read_csv(lte_file, dtype={'cell_id': str})
+
+            for cell_id in lte_original['cell_id'].unique():
+                if pd.isna(cell_id) or cell_id in ['0', 'FFFFFFFF', 'nan']:
+                    continue
+
+                # Convert to uppercase for consistent matching
+                cell_id_key = str(cell_id).upper()
+
+                # Skip if already processed
+                if cell_id_key in lte_details:
+                    continue
+
+                cell_rows = lte_original[lte_original['cell_id'] == cell_id]
+                first_row = cell_rows.iloc[0]
+
+                lte_details[cell_id_key] = {
+                    'mcc': safe_int(first_row.get('mcc')) or 450,
+                    'mnc': safe_int(first_row.get('mnc')),
+                    'lac': safe_int(first_row.get('lac')),
+                    'pcid': safe_int(first_row.get('pcid')),
+                    'enodeb_id': safe_int(first_row.get('enodeb_id')),
+                    'cell_sector_id': safe_int(first_row.get('cell_sector_id')),
+                }
+
+        print(f"✅ Built lte_details dictionary with {len(lte_details)} unique cell IDs")
 
     # Calculate tower positions from GPS data
     tower_features = []
     unique_cells = df_lte['lte_cell_id'].unique()
+
+    print(f"📡 Found {len(unique_cells)} unique cell IDs in merged data")
 
     # Compute flight path boundary for physical validation
     flight_boundary = compute_flight_boundary(df_lte, buffer_km=5.0)
@@ -608,8 +625,13 @@ def get_cell_towers_geojson_internal(session_id: str, flight_id: int = None) -> 
         avg_rsrp = float(all_cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in all_cell_data.columns else -100
         connection_count = len(all_cell_data)
 
-        # Get detailed cell information
-        details = lte_details.get(cell_id, {})
+        # Get detailed cell information (cell_id is already uppercase string)
+        cell_id_key = str(cell_id).upper()
+        details = lte_details.get(cell_id_key, {})
+
+        if not details:
+            print(f"⚠️  No LTE details found for cell_id '{cell_id}' (normalized: '{cell_id_key}')")
+
         mcc = details.get('mcc', 450)
         mnc = details.get('mnc')
         lac = details.get('lac')
