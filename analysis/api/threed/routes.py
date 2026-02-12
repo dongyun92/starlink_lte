@@ -17,7 +17,12 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from models.session import Session
 from .czml_generator import CZMLGenerator
 from .opencellid_client import OpenCellIDClient
-from .tower_estimation import estimate_tower_hybrid
+from .tower_estimation import (
+    estimate_tower_hybrid,
+    compute_flight_boundary,
+    filter_by_signal_quality,
+    validate_tower_position
+)
 from .hexagonal_heatmap import HexagonalHeatmapGenerator
 
 api_3d_bp = Blueprint('api_3d', __name__, url_prefix='/api/3d')
@@ -579,6 +584,17 @@ def get_cell_towers(session_id):
         tower_features = []
         unique_cells = df_lte['lte_cell_id'].unique()
 
+        # 🛡️ Compute flight path boundary for physical validation
+        print(f"\n  🗺️ Computing flight path boundary (Convex Hull + 5km buffer)...")
+        flight_boundary = compute_flight_boundary(df_lte, buffer_km=5.0)
+        flight_center_lat = float(df_lte['latitude'].mean())
+        flight_center_lon = float(df_lte['longitude'].mean())
+
+        if flight_boundary:
+            print(f"     ✅ Flight boundary computed: {len(flight_boundary.exterior.coords)} vertices")
+        else:
+            print(f"     ⚠️ Flight boundary calculation skipped (shapely not available)")
+
         for cell_id in unique_cells:
             # Skip invalid cell IDs
             if cell_id in ['0', 'FFFFFFFF', 'nan'] or pd.isna(cell_id):
@@ -596,11 +612,15 @@ def get_cell_towers(session_id):
             # Filter to valid RSRP range (-140 to -40 dBm)
             cell_data = cell_data[(cell_data['lte_rsrp'] >= -140) & (cell_data['lte_rsrp'] <= -40)]
 
-            if len(cell_data) < 3:
-                print(f"    ⚠️ Cell {cell_id}: Insufficient valid data points ({len(cell_data)}), skipping")
+            # 🔥 Phase 1: Signal quality filtering (use top 50% RSRP only)
+            original_count = len(cell_data)
+            cell_data = filter_by_signal_quality(cell_data, rsrp_percentile=50.0)
+
+            if len(cell_data) < 5:
+                print(f"    ⚠️ Cell {cell_id}: Insufficient high-quality data points ({len(cell_data)}/{original_count}), skipping")
                 continue
 
-            print(f"\n    🎯 Cell {cell_id}: High-accuracy estimation from {len(cell_data)} GPS points")
+            print(f"\n    🎯 Cell {cell_id}: High-accuracy estimation from {len(cell_data)}/{original_count} high-quality GPS points")
             print(f"       RSRP range: {cell_data['lte_rsrp'].min():.1f} ~ {cell_data['lte_rsrp'].max():.1f} dBm")
 
             # 🚀 Hybrid estimation: Trilateration + Weighted Centroid + Top-3 Average
@@ -611,6 +631,21 @@ def get_cell_towers(session_id):
             tower_alt = estimation.get('altitude', 30.0)
             uncertainty_m = estimation['uncertainty_m']
             position_method = estimation['position_method']
+
+            # 🛡️ Phase 2: Physical validation (boundary + distance check)
+            is_valid, validation_reason = validate_tower_position(
+                tower_lat, tower_lon,
+                flight_boundary,
+                flight_center_lat, flight_center_lon,
+                max_distance_km=15.0
+            )
+
+            if not is_valid:
+                print(f"       ❌ Position validation failed: {validation_reason}")
+                print(f"       🗑️ Cell {cell_id} excluded from results")
+                continue
+
+            print(f"       ✅ Position validated: {validation_reason}")
 
             # Get signal statistics (from all connection points, not just filtered)
             all_cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]

@@ -290,3 +290,128 @@ def estimate_tower_hybrid(cell_data: pd.DataFrame, verbose: bool = True) -> dict
         'avg_confidence': total_conf / len(results),
         'position_method': f'Hybrid ({len(results)} methods)'
     }
+
+
+def compute_flight_boundary(gps_data: pd.DataFrame, buffer_km: float = 5.0):
+    """
+    Compute flight path boundary (Convex Hull + buffer) to constrain tower positions
+
+    Args:
+        gps_data: DataFrame with 'latitude' and 'longitude' columns
+        buffer_km: Buffer distance in kilometers (default 5km)
+
+    Returns:
+        Shapely Polygon representing the valid area for tower positions
+    """
+    try:
+        from scipy.spatial import ConvexHull
+        from shapely.geometry import Polygon, Point
+    except ImportError:
+        print("⚠️ scipy or shapely not installed, skipping boundary calculation")
+        return None
+
+    # Get GPS coordinates
+    coords = gps_data[['latitude', 'longitude']].values
+
+    if len(coords) < 3:
+        return None  # Need at least 3 points for convex hull
+
+    # Compute Convex Hull
+    try:
+        hull = ConvexHull(coords)
+        hull_points = coords[hull.vertices]
+
+        # Create polygon (lon, lat order for Shapely)
+        polygon = Polygon([(lon, lat) for lat, lon in hull_points])
+
+        # Add buffer (convert km to degrees, approximately)
+        # 1 degree latitude ≈ 111 km
+        buffer_degrees = buffer_km / 111.0
+        buffered_polygon = polygon.buffer(buffer_degrees)
+
+        return buffered_polygon
+
+    except Exception as e:
+        print(f"⚠️ Failed to compute convex hull: {e}")
+        return None
+
+
+def filter_by_signal_quality(cell_data: pd.DataFrame, rsrp_percentile: float = 50.0) -> pd.DataFrame:
+    """
+    Filter GPS points to use only high-quality signal measurements
+
+    Args:
+        cell_data: DataFrame with LTE signal quality columns
+        rsrp_percentile: Use only top N% of RSRP values (default 50%)
+
+    Returns:
+        Filtered DataFrame with high-quality signal points only
+    """
+    if 'lte_rsrp' not in cell_data.columns:
+        return cell_data
+
+    # Calculate RSRP threshold (top N%)
+    threshold = cell_data['lte_rsrp'].quantile(rsrp_percentile / 100.0)
+    filtered = cell_data[cell_data['lte_rsrp'] >= threshold].copy()
+
+    # Additional filters for signal quality
+    # 1. Remove very weak signals (< -110 dBm)
+    filtered = filtered[filtered['lte_rsrp'] >= -110]
+
+    # 2. Remove high-noise signals (SINR < 0 dB if available)
+    if 'lte_sinr' in filtered.columns:
+        filtered = filtered[filtered['lte_sinr'] >= 0]
+
+    # 3. Reduce weight for high-altitude measurements (signal can be misleading)
+    if 'altitude' in filtered.columns:
+        # Flights above 150m get reduced weighting (not filtered, just noted)
+        high_alt_count = len(filtered[filtered['altitude'] > 150])
+        if high_alt_count > 0:
+            print(f"      ⚠️ {high_alt_count} high-altitude points (>150m) detected")
+
+    return filtered
+
+
+def validate_tower_position(tower_lat: float, tower_lon: float,
+                           flight_boundary,
+                           flight_center_lat: float, flight_center_lon: float,
+                           max_distance_km: float = 15.0) -> tuple:
+    """
+    Validate tower position against physical constraints
+
+    Args:
+        tower_lat, tower_lon: Estimated tower position
+        flight_boundary: Shapely Polygon from compute_flight_boundary()
+        flight_center_lat, flight_center_lon: Center of flight path
+        max_distance_km: Maximum allowed distance from flight center (default 15km)
+
+    Returns:
+        (is_valid, reason) tuple
+    """
+    try:
+        from shapely.geometry import Point
+    except ImportError:
+        # If shapely not available, skip boundary check
+        print("⚠️ shapely not installed, skipping boundary validation")
+        flight_boundary = None
+
+    # Check 1: Within flight boundary (if available)
+    if flight_boundary is not None:
+        tower_point = Point(tower_lon, tower_lat)
+        if not flight_boundary.contains(tower_point):
+            return False, "Outside flight boundary (likely ocean/mountain)"
+
+    # Check 2: Distance from flight center
+    distance_km = haversine_distance_m(
+        flight_center_lat, flight_center_lon, 0,
+        tower_lat, tower_lon, 0
+    ) / 1000.0
+
+    if distance_km > max_distance_km:
+        return False, f"Too far from flight center ({distance_km:.1f}km > {max_distance_km}km)"
+
+    # Check 3: Valid GPS coordinates
+    if not (-90 <= tower_lat <= 90) or not (-180 <= tower_lon <= 180):
+        return False, "Invalid GPS coordinates"
+
+    return True, "Valid"
