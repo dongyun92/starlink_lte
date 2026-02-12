@@ -27,7 +27,7 @@ CSV_ROTATION_MINUTES = 10
 CSV_MAX_SIZE_MB = 30
 SERIAL_PORT = "auto"
 SERIAL_BAUDRATE = 115200
-COLLECTION_INTERVAL = 0.5
+COLLECTION_INTERVAL = 1.0
 # =================================================
 
 app = Flask(__name__)

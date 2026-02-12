@@ -120,7 +120,7 @@ export default function RootCausePanel({ sessionId, isVisible, onClose }: RootCa
               <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                 <div className="text-xs text-green-600 font-semibold mb-1">Avg Duration</div>
                 <div className="text-2xl font-bold text-green-900">
-                  {rootCauseData.summary.avg_duration.toFixed(1)}s
+                  {typeof rootCauseData.summary.avg_duration === 'number' && !isNaN(rootCauseData.summary.avg_duration) ? rootCauseData.summary.avg_duration.toFixed(1) : 'N/A'}s
                 </div>
               </div>
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
@@ -198,7 +198,7 @@ export default function RootCausePanel({ sessionId, isVisible, onClose }: RootCa
                     <div className="flex items-center justify-between text-xs mb-1">
                       <span className="text-gray-600">{item.range}</span>
                       <span className="font-semibold text-gray-900">
-                        {item.count} segments ({item.percentage}%) • Avg {item.avg_duration.toFixed(1)}s
+                        {item.count} segments ({item.percentage}%) • Avg {typeof item.avg_duration === 'number' && !isNaN(item.avg_duration) ? item.avg_duration.toFixed(1) : 'N/A'}s
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-3">

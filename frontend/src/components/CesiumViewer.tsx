@@ -430,17 +430,20 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         console.log('✅ Flight path visualization complete');
         console.log('⏸️ Timeline paused (autoplay disabled)');
       } catch (error) {
-        console.error('❌ Failed to load flight data:', error);
+        // 🛡️ CRITICAL: Silently ignore errors to prevent UI crashes
+        // Invalid GPS data, network errors, or malformed data should not break the visualization
+        console.error('❌ Failed to load flight data (silently ignored):', error);
 
-        // Show user-friendly error message
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+        // Only log to console, do NOT show alert() or error page
         if (errorMessage.includes('Insufficient data')) {
-          // Data availability error - user needs to choose different color mode
-          alert(`⚠️ ${errorMessage}\n\nPlease select a different Path Color Mode.`);
+          console.warn('⚠️ Insufficient data for selected color mode, try a different mode');
         } else {
-          // Other errors
-          alert(`❌ Failed to load flight path:\n${errorMessage}`);
+          console.error('❌ Flight data loading error:', errorMessage);
         }
+
+        // Continue execution without breaking the UI
       }
     };
 
@@ -526,7 +529,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         await cesiumViewerRef.current.dataSources.add(dataSource);
         console.log('✅ LTE heatmap loaded');
       } catch (error) {
-        console.error('❌ Failed to load LTE heatmap:', error);
+        // 🛡️ Silently ignore heatmap errors (bad data should not crash UI)
+        console.error('❌ Failed to load LTE heatmap (silently ignored):', error);
       }
     };
 
@@ -607,7 +611,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         await cesiumViewerRef.current.dataSources.add(dataSource);
         console.log('✅ Starlink heatmap loaded');
       } catch (error) {
-        console.error('❌ Failed to load Starlink heatmap:', error);
+        // 🛡️ Silently ignore heatmap errors (bad data should not crash UI)
+        console.error('❌ Failed to load Starlink heatmap (silently ignored):', error);
       }
     };
 
@@ -688,7 +693,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         await cesiumViewerRef.current.dataSources.add(dataSource);
         console.log('✅ Combined heatmap loaded');
       } catch (error) {
-        console.error('❌ Failed to load Combined heatmap:', error);
+        // 🛡️ Silently ignore heatmap errors (bad data should not crash UI)
+        console.error('❌ Failed to load Combined heatmap (silently ignored):', error);
       }
     };
 
@@ -725,7 +731,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         setCellTowerData(data);
         console.log(`✅ Cell tower data loaded: ${data.features?.length || 0} towers`);
       } catch (error) {
-        console.error('❌ Failed to load cell tower data:', error);
+        // 🛡️ Silently ignore cell tower errors
+        console.error('❌ Failed to load cell tower data (silently ignored):', error);
         setCellTowerData(null);
       }
     };
@@ -810,7 +817,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             <b>Radio:</b> ${props.radio}<br/>
             <b>Operator:</b> ${props.operator || 'Unknown'}<br/>
             <b>MCC:</b> ${props.mcc} <b>MNC:</b> ${props.mnc}<br/>
-            <b>Location:</b> ${lat.toFixed(5)}, ${lon.toFixed(5)}
+            <b>Location:</b> ${typeof lat === 'number' && !isNaN(lat) ? lat.toFixed(5) : 'N/A'}, ${typeof lon === 'number' && !isNaN(lon) ? lon.toFixed(5) : 'N/A'}
           </div>
         `
       });
@@ -861,7 +868,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
         console.log('✅ Satellite direction arrows rendered');
       } catch (error) {
-        console.error('❌ Failed to load satellite direction arrows:', error);
+        // 🛡️ Silently ignore satellite direction errors
+        console.error('❌ Failed to load satellite direction arrows (silently ignored):', error);
       }
     };
 
@@ -906,7 +914,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
         console.log('✅ Tower connections rendered');
       } catch (error) {
-        console.error('❌ Failed to load tower connections:', error);
+        // 🛡️ Silently ignore tower connection errors
+        console.error('❌ Failed to load tower connections (silently ignored):', error);
       }
     };
 
@@ -988,7 +997,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
               heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
             },
             label: {
-              text: `Signal Loss\n${duration_seconds.toFixed(1)}s`,
+              text: `Signal Loss\n${typeof duration_seconds === 'number' && !isNaN(duration_seconds) ? duration_seconds.toFixed(1) : 'N/A'}s`,
               font: '14px monospace',
               fillColor: Cesium.Color.WHITE,
               outlineColor: Cesium.Color.BLACK,
@@ -1001,12 +1010,12 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             description: `
               <div style="font-family: monospace; font-size: 12px;">
                 <b>🔴 Signal Loss Segment #${index + 1}</b><br/>
-                <b>Duration:</b> ${duration_seconds.toFixed(2)} seconds<br/>
+                <b>Duration:</b> ${typeof duration_seconds === 'number' && !isNaN(duration_seconds) ? duration_seconds.toFixed(2) : 'N/A'} seconds<br/>
                 <b>Status:</b> ${label}<br/>
-                <b>LTE Poor:</b> ${lte_poor ? 'Yes' : 'No'}${segment.avg_lte_rsrp !== null ? ` (${segment.avg_lte_rsrp.toFixed(1)} dBm)` : ''}<br/>
-                <b>Starlink Poor:</b> ${starlink_poor ? 'Yes' : 'No'}${segment.avg_starlink_latency !== null ? ` (${segment.avg_starlink_latency.toFixed(1)} ms)` : ''}<br/>
-                <b>Location:</b> ${center_lat.toFixed(5)}, ${center_lon.toFixed(5)}<br/>
-                <b>Altitude:</b> ${center_altitude.toFixed(2)} m
+                <b>LTE Poor:</b> ${lte_poor ? 'Yes' : 'No'}${segment.avg_lte_rsrp !== null && typeof segment.avg_lte_rsrp === 'number' && !isNaN(segment.avg_lte_rsrp) ? ` (${segment.avg_lte_rsrp.toFixed(1)} dBm)` : ''}<br/>
+                <b>Starlink Poor:</b> ${starlink_poor ? 'Yes' : 'No'}${segment.avg_starlink_latency !== null && typeof segment.avg_starlink_latency === 'number' && !isNaN(segment.avg_starlink_latency) ? ` (${segment.avg_starlink_latency.toFixed(1)} ms)` : ''}<br/>
+                <b>Location:</b> ${typeof center_lat === 'number' && !isNaN(center_lat) ? center_lat.toFixed(5) : 'N/A'}, ${typeof center_lon === 'number' && !isNaN(center_lon) ? center_lon.toFixed(5) : 'N/A'}<br/>
+                <b>Altitude:</b> ${typeof center_altitude === 'number' && !isNaN(center_altitude) ? center_altitude.toFixed(2) : 'N/A'} m
               </div>
             `,
             // Store segment data for click handler
@@ -1022,7 +1031,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         console.log(`✅ ${signalLossEntitiesRef.current.length} signal loss cylinders rendered`);
         console.log(`📊 Total signal loss: ${data.total_percentage.toFixed(2)}% (${data.total_segments} segments)`);
       } catch (error) {
-        console.error('❌ Failed to load signal loss segments:', error);
+        // 🛡️ Silently ignore signal loss segment errors
+        console.error('❌ Failed to load signal loss segments (silently ignored):', error);
       }
     };
 
@@ -1124,7 +1134,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       marker.style.opacity = '0.8';
       marker.style.zIndex = '1000';
       marker.style.pointerEvents = 'none';
-      marker.title = `Signal Loss: ${segment.duration_seconds.toFixed(1)}s`;
+      marker.title = `Signal Loss: ${typeof segment.duration_seconds === 'number' && !isNaN(segment.duration_seconds) ? segment.duration_seconds.toFixed(1) : 'N/A'}s`;
 
       timelineContainer.appendChild(marker);
     });

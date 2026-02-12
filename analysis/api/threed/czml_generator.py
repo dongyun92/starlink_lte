@@ -63,6 +63,11 @@ class CZMLGenerator:
 
         df.set_index('timestamp', inplace=True)
 
+        # 🛡️ CRITICAL: Sort by timestamp to prevent flight path teleportation/backward movement
+        # GPS data may arrive out of order due to network delays or data collection timing
+        df.sort_index(inplace=True)
+        print(f"✅ Sorted by timestamp: {len(df)} points in chronological order")
+
         if df.empty:
             raise ValueError("No flight data available")
 
@@ -870,10 +875,19 @@ class CZMLGenerator:
             lat = row['latitude']
             alt = row['altitude']
 
-            # Skip invalid positions (NaN, Infinity)
+            # 🛡️ Skip invalid positions (NaN, Infinity, out of range)
             if np.isnan(lon) or np.isnan(lat) or np.isnan(alt):
                 continue
             if np.isinf(lon) or np.isinf(lat) or np.isinf(alt):
+                continue
+
+            # 🛡️ CRITICAL: Validate lat/lon ranges to prevent visualization crashes
+            # Latitude: -90 to +90, Longitude: -180 to +180
+            if not (-90 <= lat <= 90):
+                print(f"⚠️ Invalid latitude {lat:.6f} at {timestamp}, skipping")
+                continue
+            if not (-180 <= lon <= 180):
+                print(f"⚠️ Invalid longitude {lon:.6f} at {timestamp}, skipping")
                 continue
 
             # Time offset in seconds
@@ -936,6 +950,9 @@ class CZMLGenerator:
 
         df.set_index('timestamp', inplace=True)
 
+        # 🛡️ CRITICAL: Sort by timestamp (same as flight path)
+        df.sort_index(inplace=True)
+
         if df.empty:
             raise ValueError("No flight data available")
 
@@ -995,8 +1012,12 @@ class CZMLGenerator:
             lat = row['latitude']
             alt = row['altitude']
 
-            # Skip invalid positions
+            # 🛡️ Skip invalid positions (NaN, Infinity, out of range)
             if np.isnan(lon) or np.isnan(lat) or np.isnan(alt):
+                continue
+            if np.isinf(lon) or np.isinf(lat) or np.isinf(alt):
+                continue
+            if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
                 continue
 
             # Calculate quality score (0-100)

@@ -23,6 +23,10 @@ export const SignalLossDrilldownModal: React.FC<SignalLossDrilldownModalProps> =
   };
 
   const formatDuration = (seconds: number): string => {
+    // 🛡️ Validate input to prevent toFixed() crashes
+    if (typeof seconds !== 'number' || isNaN(seconds)) {
+      return 'N/A';
+    }
     if (seconds < 60) {
       return `${seconds.toFixed(1)}s`;
     }
@@ -121,7 +125,7 @@ export const SignalLossDrilldownModal: React.FC<SignalLossDrilldownModalProps> =
                 <div className={`text-lg font-bold ${segment.lte_poor ? 'text-red-700' : 'text-green-700'}`}>
                   {segment.lte_poor ? 'Poor' : 'Good'}
                 </div>
-                {segment.avg_lte_rsrp !== null && (
+                {segment.avg_lte_rsrp !== null && typeof segment.avg_lte_rsrp === 'number' && !isNaN(segment.avg_lte_rsrp) && (
                   <div className="text-xs text-gray-600 mt-1">
                     RSRP: <span className="font-mono font-semibold">{segment.avg_lte_rsrp.toFixed(1)} dBm</span>
                   </div>
@@ -134,7 +138,7 @@ export const SignalLossDrilldownModal: React.FC<SignalLossDrilldownModalProps> =
                 <div className={`text-lg font-bold ${segment.starlink_poor ? 'text-red-700' : 'text-green-700'}`}>
                   {segment.starlink_poor ? 'Poor' : 'Good'}
                 </div>
-                {segment.avg_starlink_latency !== null && (
+                {segment.avg_starlink_latency !== null && typeof segment.avg_starlink_latency === 'number' && !isNaN(segment.avg_starlink_latency) && (
                   <div className="text-xs text-gray-600 mt-1">
                     Latency: <span className="font-mono font-semibold">{segment.avg_starlink_latency.toFixed(1)} ms</span>
                   </div>
@@ -149,15 +153,15 @@ export const SignalLossDrilldownModal: React.FC<SignalLossDrilldownModalProps> =
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-600">Latitude:</span>
-                <span className="font-mono text-gray-900">{segment.center_lat.toFixed(6)}°</span>
+                <span className="font-mono text-gray-900">{typeof segment.center_lat === 'number' && !isNaN(segment.center_lat) ? segment.center_lat.toFixed(6) : 'N/A'}°</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Longitude:</span>
-                <span className="font-mono text-gray-900">{segment.center_lon.toFixed(6)}°</span>
+                <span className="font-mono text-gray-900">{typeof segment.center_lon === 'number' && !isNaN(segment.center_lon) ? segment.center_lon.toFixed(6) : 'N/A'}°</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Altitude:</span>
-                <span className="font-mono text-gray-900">{segment.center_altitude.toFixed(2)} m</span>
+                <span className="font-mono text-gray-900">{typeof segment.center_altitude === 'number' && !isNaN(segment.center_altitude) ? segment.center_altitude.toFixed(2) : 'N/A'} m</span>
               </div>
             </div>
           </div>

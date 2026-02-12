@@ -184,15 +184,15 @@ export const KPIDashboard: React.FC<KPIDashboardProps> = ({ sessionId }) => {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Distance:</span>
-                    <span className="font-semibold text-gray-800">{kpi.flight.distance_km.toFixed(2)} km</span>
+                    <span className="font-semibold text-gray-800">{typeof kpi.flight.distance_km === 'number' && !isNaN(kpi.flight.distance_km) ? kpi.flight.distance_km.toFixed(2) : 'N/A'} km</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Max Altitude:</span>
-                    <span className="font-semibold text-gray-800">{kpi.flight.max_altitude_m.toFixed(0)} m</span>
+                    <span className="font-semibold text-gray-800">{typeof kpi.flight.max_altitude_m === 'number' && !isNaN(kpi.flight.max_altitude_m) ? kpi.flight.max_altitude_m.toFixed(0) : 'N/A'} m</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Avg Speed:</span>
-                    <span className="font-semibold text-gray-800">{kpi.flight.avg_speed_kmh.toFixed(1)} km/h</span>
+                    <span className="font-semibold text-gray-800">{typeof kpi.flight.avg_speed_kmh === 'number' && !isNaN(kpi.flight.avg_speed_kmh) ? kpi.flight.avg_speed_kmh.toFixed(1) : 'N/A'} km/h</span>
                   </div>
                 </div>
               </div>
@@ -209,7 +209,7 @@ export const KPIDashboard: React.FC<KPIDashboardProps> = ({ sessionId }) => {
                   <div className="flex justify-between">
                     <span className="text-gray-600">Avg RSRP:</span>
                     <span className="font-semibold text-gray-800">
-                      {kpi.lte.avg_rsrp !== null ? `${kpi.lte.avg_rsrp.toFixed(1)} dBm` : 'N/A'}
+                      {kpi.lte.avg_rsrp !== null && typeof kpi.lte.avg_rsrp === 'number' && !isNaN(kpi.lte.avg_rsrp) ? `${kpi.lte.avg_rsrp.toFixed(1)} dBm` : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -237,7 +237,7 @@ export const KPIDashboard: React.FC<KPIDashboardProps> = ({ sessionId }) => {
                   <div className="flex justify-between">
                     <span className="text-gray-600">Avg Latency:</span>
                     <span className="font-semibold text-gray-800">
-                      {kpi.starlink.avg_latency !== null ? `${kpi.starlink.avg_latency.toFixed(1)} ms` : 'N/A'}
+                      {kpi.starlink.avg_latency !== null && typeof kpi.starlink.avg_latency === 'number' && !isNaN(kpi.starlink.avg_latency) ? `${kpi.starlink.avg_latency.toFixed(1)} ms` : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -264,7 +264,7 @@ export const KPIDashboard: React.FC<KPIDashboardProps> = ({ sessionId }) => {
                 <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Percentage:</span>
-                    <span className="font-semibold text-gray-800">{kpi.signal_loss.percentage.toFixed(1)}%</span>
+                    <span className="font-semibold text-gray-800">{typeof kpi.signal_loss.percentage === 'number' && !isNaN(kpi.signal_loss.percentage) ? kpi.signal_loss.percentage.toFixed(1) : 'N/A'}%</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Segments:</span>

@@ -539,6 +539,22 @@ def get_cell_towers(session_id):
             8: 'KT'
         }
 
+        # 🛡️ Helper function to safely convert to int (handles hex strings like 'F6F7')
+        def safe_int(value):
+            """Convert value to int, handling hex strings and invalid values"""
+            if pd.isna(value):
+                return None
+            try:
+                # Try direct int conversion first
+                return int(value)
+            except (ValueError, TypeError):
+                try:
+                    # Try parsing as hex string (e.g., 'F6F7' → 63223)
+                    return int(str(value), 16)
+                except (ValueError, TypeError):
+                    # If all fails, return None
+                    return None
+
         # Read original LTE data for cell details
         lte_details = {}
         if lte_csv_files:
@@ -550,12 +566,12 @@ def get_cell_towers(session_id):
                 first_row = cell_rows.iloc[0]
 
                 lte_details[cell_id] = {
-                    'mcc': int(first_row['mcc']) if pd.notna(first_row.get('mcc')) else 450,
-                    'mnc': int(first_row['mnc']) if pd.notna(first_row.get('mnc')) else None,
-                    'lac': int(first_row['lac']) if pd.notna(first_row.get('lac')) else None,
-                    'pcid': int(first_row['pcid']) if pd.notna(first_row.get('pcid')) else None,
-                    'enodeb_id': int(first_row['enodeb_id']) if pd.notna(first_row.get('enodeb_id')) else None,
-                    'cell_sector_id': int(first_row['cell_sector_id']) if pd.notna(first_row.get('cell_sector_id')) else None,
+                    'mcc': safe_int(first_row.get('mcc')) or 450,
+                    'mnc': safe_int(first_row.get('mnc')),
+                    'lac': safe_int(first_row.get('lac')),
+                    'pcid': safe_int(first_row.get('pcid')),
+                    'enodeb_id': safe_int(first_row.get('enodeb_id')),
+                    'cell_sector_id': safe_int(first_row.get('cell_sector_id')),
                 }
 
         # Calculate tower positions from GPS data
@@ -628,7 +644,7 @@ def get_cell_towers(session_id):
                     'connection_count': connection_count,  # Number of connections
                     'avg_rsrp': avg_rsrp,  # Average signal strength
                     'position_method': 'GPS-based (Top 20% signal)',  # How position was computed
-                    'connected': True  # This tower was connected during flight
+                    'is_connected': True  # This tower was connected during flight (field name matches frontend)
                 }
             })
 
