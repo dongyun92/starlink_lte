@@ -587,18 +587,35 @@ def get_cell_towers_geojson_internal(session_id: str, flight_id: int = None) -> 
         # Get all positions where drone was connected to this cell
         cell_data = df_lte[df_lte['lte_cell_id'] == cell_id].copy()
 
+        # ✅ CONNECTED TOWER: This cell was actually connected during flight
+        is_connected_tower = True  # If it appears in merged data, it was connected
+
         # Require RSRP data for accurate estimation
         if 'lte_rsrp' not in cell_data.columns or cell_data['lte_rsrp'].notna().sum() < 3:
-            continue
+            # Skip only if not connected or insufficient data
+            if not is_connected_tower:
+                continue
+            # For connected towers with insufficient data, use all available points
+            print(f"⚠️  Connected tower {cell_id} has only {cell_data['lte_rsrp'].notna().sum()} RSRP samples")
 
         # Filter to valid RSRP range
-        cell_data = cell_data[(cell_data['lte_rsrp'] >= -140) & (cell_data['lte_rsrp'] <= -40)]
+        cell_data_filtered = cell_data[(cell_data['lte_rsrp'] >= -140) & (cell_data['lte_rsrp'] <= -40)]
 
         # Signal quality filtering (use top 50% RSRP only)
-        cell_data = filter_by_signal_quality(cell_data, rsrp_percentile=50.0)
+        cell_data_quality = filter_by_signal_quality(cell_data_filtered, rsrp_percentile=50.0)
 
-        if len(cell_data) < 5:
-            continue
+        # ⚠️ CRITICAL: Relax minimum data requirement from 5 → 3
+        # Connected towers must be displayed even with limited data
+        if len(cell_data_quality) < 3:
+            if is_connected_tower and len(cell_data_filtered) >= 2:
+                # Use all filtered data for connected towers
+                cell_data_quality = cell_data_filtered
+                print(f"⚠️  Connected tower {cell_id}: Using {len(cell_data_quality)} samples (relaxed)")
+            else:
+                continue
+
+        # Use the quality-filtered data for estimation
+        cell_data = cell_data_quality
 
         # Hybrid estimation: Trilateration + Weighted Centroid + Top-3 Average
         estimation = estimate_tower_hybrid(cell_data, verbose=False)
