@@ -17,6 +17,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from models.session import Session
 from .czml_generator import CZMLGenerator
 from .opencellid_client import OpenCellIDClient
+from .tower_estimation import estimate_tower_hybrid
 from .hexagonal_heatmap import HexagonalHeatmapGenerator
 
 api_3d_bp = Blueprint('api_3d', __name__, url_prefix='/api/3d')
@@ -584,27 +585,39 @@ def get_cell_towers(session_id):
                 continue
 
             # Get all positions where drone was connected to this cell
-            cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
+            cell_data = df_lte[df_lte['lte_cell_id'] == cell_id].copy()
 
-            # Filter to strongest signal positions (top 20% RSRP)
-            # Tower is closest where signal is strongest - avoids ocean/distant positions
-            if 'lte_rsrp' in cell_data.columns and cell_data['lte_rsrp'].notna().sum() > 0:
-                rsrp_threshold = cell_data['lte_rsrp'].quantile(0.80)  # Top 20% strongest signals
-                cell_data_strong = cell_data[cell_data['lte_rsrp'] >= rsrp_threshold]
+            # 🎯 High-accuracy position estimation with hybrid algorithm
+            # Require RSRP data for accurate estimation
+            if 'lte_rsrp' not in cell_data.columns or cell_data['lte_rsrp'].notna().sum() < 3:
+                print(f"    ⚠️ Cell {cell_id}: Insufficient RSRP data, skipping")
+                continue
 
-                # Use at least 3 points for stability
-                if len(cell_data_strong) >= 3:
-                    cell_data = cell_data_strong
-                    print(f"    🎯 Cell {cell_id}: Using top 20% signal strength ({len(cell_data)} points, RSRP≥{rsrp_threshold:.1f}dBm)")
+            # Filter to valid RSRP range (-140 to -40 dBm)
+            cell_data = cell_data[(cell_data['lte_rsrp'] >= -140) & (cell_data['lte_rsrp'] <= -40)]
 
-            # Use median position (more robust than mean)
-            tower_lat = float(cell_data['latitude'].median())
-            tower_lon = float(cell_data['longitude'].median())
+            if len(cell_data) < 3:
+                print(f"    ⚠️ Cell {cell_id}: Insufficient valid data points ({len(cell_data)}), skipping")
+                continue
 
-            # Get signal statistics (from original data, not filtered)
+            print(f"\n    🎯 Cell {cell_id}: High-accuracy estimation from {len(cell_data)} GPS points")
+            print(f"       RSRP range: {cell_data['lte_rsrp'].min():.1f} ~ {cell_data['lte_rsrp'].max():.1f} dBm")
+
+            # 🚀 Hybrid estimation: Trilateration + Weighted Centroid + Top-3 Average
+            estimation = estimate_tower_hybrid(cell_data, verbose=True)
+
+            tower_lat = estimation['latitude']
+            tower_lon = estimation['longitude']
+            tower_alt = estimation.get('altitude', 30.0)
+            uncertainty_m = estimation['uncertainty_m']
+            position_method = estimation['position_method']
+
+            # Get signal statistics (from all connection points, not just filtered)
             all_cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
             avg_rsrp = float(all_cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in all_cell_data.columns else -100
             connection_count = len(all_cell_data)
+
+            print(f"       📊 Statistics: {connection_count} connections, Avg RSRP={avg_rsrp:.1f}dBm")
 
             # Get detailed cell information from original LTE data
             details = lte_details.get(cell_id, {})
@@ -643,7 +656,10 @@ def get_cell_towers(session_id):
                     'sector_id': sector_id,  # Sector ID (antenna direction)
                     'connection_count': connection_count,  # Number of connections
                     'avg_rsrp': avg_rsrp,  # Average signal strength
-                    'position_method': 'GPS-based (Top 20% signal)',  # How position was computed
+                    'position_method': position_method,  # High-accuracy estimation method
+                    'uncertainty_m': uncertainty_m,  # Position uncertainty in meters
+                    'estimation_confidence': estimation.get('avg_confidence', 0.0),  # Confidence score
+                    'num_estimation_methods': estimation.get('num_methods', 1),  # Number of methods used
                     'is_connected': True  # This tower was connected during flight (field name matches frontend)
                 }
             })
@@ -658,7 +674,8 @@ def get_cell_towers(session_id):
                 info_parts.append(f"PCID {pcid}")
 
             print(f"  📍 {' | '.join(info_parts)}")
-            print(f"      Position: ({tower_lat:.6f}, {tower_lon:.6f})")
+            print(f"      Position: ({tower_lat:.6f}, {tower_lon:.6f}) ±{uncertainty_m:.0f}m")
+            print(f"      Method: {position_method}, Confidence: {estimation.get('avg_confidence', 0):.2f}")
             print(f"      Operator: {operator_name} (MCC:{mcc}, MNC:{mnc}, LAC:{lac})")
             print(f"      Stats: {connection_count} connections, Avg RSRP={avg_rsrp:.1f}dBm")
 
