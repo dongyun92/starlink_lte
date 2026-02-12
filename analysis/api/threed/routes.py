@@ -471,6 +471,195 @@ def get_heatmap_czml(session_id):
         return jsonify({'error': str(e)}), 500
 
 
+def get_cell_towers_geojson_internal(session_id: str, flight_id: int = None) -> dict:
+    """
+    Internal function to compute cell tower positions (for use by other modules)
+
+    Args:
+        session_id: Session identifier
+        flight_id: Optional flight ID to filter by
+
+    Returns:
+        GeoJSON FeatureCollection dict (not a Flask response)
+    """
+    # Load session data
+    session = Session.get_by_id(session_id)
+
+    if not session or session.status != 'completed':
+        return {'type': 'FeatureCollection', 'features': []}
+
+    # Read merged data
+    results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
+    merged_data_path = results_dir / 'merged_data.csv'
+
+    if not merged_data_path.exists():
+        return {'type': 'FeatureCollection', 'features': []}
+
+    # Read CSV and compute tower positions
+    import pandas as pd
+    df = pd.read_csv(merged_data_path, low_memory=False)
+
+    if df.empty:
+        return {'type': 'FeatureCollection', 'features': []}
+
+    # Filter by flight_id if specified
+    if flight_id is not None and 'flight_id' in df.columns:
+        df = df[df['flight_id'] == flight_id].copy()
+
+    # Filter LTE data
+    if 'lte_cell_id' not in df.columns:
+        return {'type': 'FeatureCollection', 'features': []}
+
+    df_lte = df[df['lte_cell_id'].notna()].copy()
+
+    if df_lte.empty:
+        return {'type': 'FeatureCollection', 'features': []}
+
+    # Load original LTE CSV for detailed cell information
+    uploads_dir = Path(__file__).parent.parent.parent / 'uploads' / session_id / 'lte_data'
+    lte_csv_files = list(uploads_dir.glob('*.csv')) if uploads_dir.exists() else []
+
+    # Operator mapping
+    OPERATORS = {5: 'SK Telecom', 6: 'LG U+', 8: 'KT'}
+
+    # Helper function to safely convert to int
+    def safe_int(value):
+        if pd.isna(value):
+            return None
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            try:
+                return int(str(value), 16)
+            except (ValueError, TypeError):
+                return None
+
+    # Read original LTE data for cell details
+    lte_details = {}
+    if lte_csv_files:
+        lte_original = pd.read_csv(lte_csv_files[0])
+        for cell_id in lte_original['cell_id'].unique():
+            if pd.isna(cell_id) or cell_id in ['0', 'FFFFFFFF']:
+                continue
+            cell_rows = lte_original[lte_original['cell_id'] == cell_id]
+            first_row = cell_rows.iloc[0]
+
+            lte_details[cell_id] = {
+                'mcc': safe_int(first_row.get('mcc')) or 450,
+                'mnc': safe_int(first_row.get('mnc')),
+                'lac': safe_int(first_row.get('lac')),
+                'pcid': safe_int(first_row.get('pcid')),
+                'enodeb_id': safe_int(first_row.get('enodeb_id')),
+                'cell_sector_id': safe_int(first_row.get('cell_sector_id')),
+            }
+
+    # Calculate tower positions from GPS data
+    tower_features = []
+    unique_cells = df_lte['lte_cell_id'].unique()
+
+    # Compute flight path boundary for physical validation
+    flight_boundary = compute_flight_boundary(df_lte, buffer_km=5.0)
+    flight_center_lat = float(df_lte['latitude'].mean())
+    flight_center_lon = float(df_lte['longitude'].mean())
+
+    for cell_id in unique_cells:
+        # Skip invalid cell IDs
+        if cell_id in ['0', 'FFFFFFFF', 'nan'] or pd.isna(cell_id):
+            continue
+
+        # Get all positions where drone was connected to this cell
+        cell_data = df_lte[df_lte['lte_cell_id'] == cell_id].copy()
+
+        # Require RSRP data for accurate estimation
+        if 'lte_rsrp' not in cell_data.columns or cell_data['lte_rsrp'].notna().sum() < 3:
+            continue
+
+        # Filter to valid RSRP range
+        cell_data = cell_data[(cell_data['lte_rsrp'] >= -140) & (cell_data['lte_rsrp'] <= -40)]
+
+        # Signal quality filtering (use top 50% RSRP only)
+        cell_data = filter_by_signal_quality(cell_data, rsrp_percentile=50.0)
+
+        if len(cell_data) < 5:
+            continue
+
+        # Hybrid estimation: Trilateration + Weighted Centroid + Top-3 Average
+        estimation = estimate_tower_hybrid(cell_data, verbose=False)
+
+        tower_lat = estimation['latitude']
+        tower_lon = estimation['longitude']
+        tower_alt = estimation.get('altitude', 30.0)
+        uncertainty_m = estimation['uncertainty_m']
+        position_method = estimation['position_method']
+
+        # Physical validation (boundary + distance check)
+        is_valid, validation_reason = validate_tower_position(
+            tower_lat, tower_lon,
+            flight_boundary,
+            flight_center_lat, flight_center_lon,
+            max_distance_km=15.0
+        )
+
+        if not is_valid:
+            continue
+
+        # Get signal statistics
+        all_cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
+        avg_rsrp = float(all_cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in all_cell_data.columns else -100
+        connection_count = len(all_cell_data)
+
+        # Get detailed cell information
+        details = lte_details.get(cell_id, {})
+        mcc = details.get('mcc', 450)
+        mnc = details.get('mnc')
+        lac = details.get('lac')
+        pcid = details.get('pcid')
+        enodeb_id = details.get('enodeb_id')
+        sector_id = details.get('cell_sector_id')
+
+        # Generate meaningful name
+        operator_name = OPERATORS.get(mnc, 'Unknown') if mnc else 'GPS Computed'
+        if enodeb_id and sector_id is not None:
+            tower_name = f"{operator_name} - eNB {enodeb_id} - Sector {sector_id}"
+        else:
+            tower_name = f"{operator_name} - Cell {cell_id}"
+
+        # Create GeoJSON feature
+        tower_features.append({
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Point',
+                'coordinates': [tower_lon, tower_lat, 50]
+            },
+            'properties': {
+                'id': f"GPS-{mcc}-{mnc}-{lac}-{cell_id}",
+                'name': tower_name,
+                'radio': 'LTE',
+                'operator': operator_name,
+                'mcc': mcc,
+                'mnc': mnc,
+                'lac': lac,
+                'cid': str(cell_id),
+                'pcid': pcid,
+                'enodeb_id': enodeb_id,
+                'sector_id': sector_id,
+                'connection_count': connection_count,
+                'avg_rsrp': avg_rsrp,
+                'position_method': position_method,
+                'uncertainty_m': uncertainty_m,
+                'estimation_confidence': estimation.get('avg_confidence', 0.0),
+                'num_estimation_methods': estimation.get('num_methods', 1),
+                'is_connected': True
+            }
+        })
+
+    # Create GeoJSON FeatureCollection
+    return {
+        'type': 'FeatureCollection',
+        'features': tower_features
+    }
+
+
 @api_3d_bp.route('/cell-towers/<session_id>', methods=['GET'])
 def get_cell_towers(session_id):
     """
@@ -479,6 +668,7 @@ def get_cell_towers(session_id):
 
     Query Parameters:
         - use_cache: Use cached data if available (true/false) [default: true]
+        - flight_id: Optional flight ID to filter by (for multi-flight sessions)
 
     Response:
         GeoJSON FeatureCollection with cell tower locations
@@ -486,9 +676,10 @@ def get_cell_towers(session_id):
     try:
         # Get query parameters
         use_cache = request.args.get('use_cache', 'true', type=str) == 'true'
+        flight_id = request.args.get('flight_id', None, type=int)
 
-        # Cache key
-        cache_key = f"cell_towers_gps:{session_id}"
+        # Cache key (include flight_id if specified)
+        cache_key = f"cell_towers:{session_id}:LTE" if flight_id is None else f"cell_towers:{session_id}:{flight_id}:LTE"
 
         # Check cache (24 hour TTL)
         if use_cache and redis_client:
@@ -500,227 +691,15 @@ def get_cell_towers(session_id):
             except Exception as e:
                 print(f"⚠️ Redis cache read error: {e}")
 
-        # Load session data
-        session = Session.get_by_id(session_id)
+        # Call internal function to compute tower positions
+        print(f"📡 Computing tower positions from GPS data...")
+        geojson = get_cell_towers_geojson_internal(session_id, flight_id=flight_id)
 
-        if not session:
-            return jsonify({'error': 'Session not found'}), 404
-
-        if session.status != 'completed':
-            return jsonify({'error': 'Session not completed'}), 400
-
-        # Read merged data
-        results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
-        merged_data_path = results_dir / 'merged_data.csv'
-
-        if not merged_data_path.exists():
-            return jsonify({'error': 'No flight data available'}), 404
-
-        # Read CSV and compute tower positions
-        import pandas as pd
-        df = pd.read_csv(merged_data_path, low_memory=False)
-
-        if df.empty:
-            return jsonify({'error': 'No flight data available'}), 404
-
-        # Filter LTE data
-        if 'lte_cell_id' not in df.columns:
-            return jsonify({'error': 'No LTE cell data available'}), 404
-
-        df_lte = df[df['lte_cell_id'].notna()].copy()
-
-        if df_lte.empty:
+        # Check if any towers found
+        if not geojson or not geojson.get('features'):
             return jsonify({'error': 'No LTE connection data available'}), 404
 
-        print(f"📡 Computing tower positions from {len(df_lte)} LTE connection points...")
-
-        # Load original LTE CSV for detailed cell information
-        uploads_dir = Path(__file__).parent.parent.parent / 'uploads' / session_id / 'lte_data'
-        lte_csv_files = list(uploads_dir.glob('*.csv')) if uploads_dir.exists() else []
-
-        # Operator mapping
-        OPERATORS = {
-            5: 'SK Telecom',
-            6: 'LG U+',
-            8: 'KT'
-        }
-
-        # 🛡️ Helper function to safely convert to int (handles hex strings like 'F6F7')
-        def safe_int(value):
-            """Convert value to int, handling hex strings and invalid values"""
-            if pd.isna(value):
-                return None
-            try:
-                # Try direct int conversion first
-                return int(value)
-            except (ValueError, TypeError):
-                try:
-                    # Try parsing as hex string (e.g., 'F6F7' → 63223)
-                    return int(str(value), 16)
-                except (ValueError, TypeError):
-                    # If all fails, return None
-                    return None
-
-        # Read original LTE data for cell details
-        lte_details = {}
-        if lte_csv_files:
-            lte_original = pd.read_csv(lte_csv_files[0])
-            for cell_id in lte_original['cell_id'].unique():
-                if pd.isna(cell_id) or cell_id in ['0', 'FFFFFFFF']:
-                    continue
-                cell_rows = lte_original[lte_original['cell_id'] == cell_id]
-                first_row = cell_rows.iloc[0]
-
-                lte_details[cell_id] = {
-                    'mcc': safe_int(first_row.get('mcc')) or 450,
-                    'mnc': safe_int(first_row.get('mnc')),
-                    'lac': safe_int(first_row.get('lac')),
-                    'pcid': safe_int(first_row.get('pcid')),
-                    'enodeb_id': safe_int(first_row.get('enodeb_id')),
-                    'cell_sector_id': safe_int(first_row.get('cell_sector_id')),
-                }
-
-        # Calculate tower positions from GPS data
-        tower_features = []
-        unique_cells = df_lte['lte_cell_id'].unique()
-
-        # 🛡️ Compute flight path boundary for physical validation
-        print(f"\n  🗺️ Computing flight path boundary (Convex Hull + 5km buffer)...")
-        flight_boundary = compute_flight_boundary(df_lte, buffer_km=5.0)
-        flight_center_lat = float(df_lte['latitude'].mean())
-        flight_center_lon = float(df_lte['longitude'].mean())
-
-        if flight_boundary:
-            print(f"     ✅ Flight boundary computed: {len(flight_boundary.exterior.coords)} vertices")
-        else:
-            print(f"     ⚠️ Flight boundary calculation skipped (shapely not available)")
-
-        for cell_id in unique_cells:
-            # Skip invalid cell IDs
-            if cell_id in ['0', 'FFFFFFFF', 'nan'] or pd.isna(cell_id):
-                continue
-
-            # Get all positions where drone was connected to this cell
-            cell_data = df_lte[df_lte['lte_cell_id'] == cell_id].copy()
-
-            # 🎯 High-accuracy position estimation with hybrid algorithm
-            # Require RSRP data for accurate estimation
-            if 'lte_rsrp' not in cell_data.columns or cell_data['lte_rsrp'].notna().sum() < 3:
-                print(f"    ⚠️ Cell {cell_id}: Insufficient RSRP data, skipping")
-                continue
-
-            # Filter to valid RSRP range (-140 to -40 dBm)
-            cell_data = cell_data[(cell_data['lte_rsrp'] >= -140) & (cell_data['lte_rsrp'] <= -40)]
-
-            # 🔥 Phase 1: Signal quality filtering (use top 50% RSRP only)
-            original_count = len(cell_data)
-            cell_data = filter_by_signal_quality(cell_data, rsrp_percentile=50.0)
-
-            if len(cell_data) < 5:
-                print(f"    ⚠️ Cell {cell_id}: Insufficient high-quality data points ({len(cell_data)}/{original_count}), skipping")
-                continue
-
-            print(f"\n    🎯 Cell {cell_id}: High-accuracy estimation from {len(cell_data)}/{original_count} high-quality GPS points")
-            print(f"       RSRP range: {cell_data['lte_rsrp'].min():.1f} ~ {cell_data['lte_rsrp'].max():.1f} dBm")
-
-            # 🚀 Hybrid estimation: Trilateration + Weighted Centroid + Top-3 Average
-            estimation = estimate_tower_hybrid(cell_data, verbose=True)
-
-            tower_lat = estimation['latitude']
-            tower_lon = estimation['longitude']
-            tower_alt = estimation.get('altitude', 30.0)
-            uncertainty_m = estimation['uncertainty_m']
-            position_method = estimation['position_method']
-
-            # 🛡️ Phase 2: Physical validation (boundary + distance check)
-            is_valid, validation_reason = validate_tower_position(
-                tower_lat, tower_lon,
-                flight_boundary,
-                flight_center_lat, flight_center_lon,
-                max_distance_km=15.0
-            )
-
-            if not is_valid:
-                print(f"       ❌ Position validation failed: {validation_reason}")
-                print(f"       🗑️ Cell {cell_id} excluded from results")
-                continue
-
-            print(f"       ✅ Position validated: {validation_reason}")
-
-            # Get signal statistics (from all connection points, not just filtered)
-            all_cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
-            avg_rsrp = float(all_cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in all_cell_data.columns else -100
-            connection_count = len(all_cell_data)
-
-            print(f"       📊 Statistics: {connection_count} connections, Avg RSRP={avg_rsrp:.1f}dBm")
-
-            # Get detailed cell information from original LTE data
-            details = lte_details.get(cell_id, {})
-            mcc = details.get('mcc', 450)
-            mnc = details.get('mnc')
-            lac = details.get('lac')
-            pcid = details.get('pcid')
-            enodeb_id = details.get('enodeb_id')
-            sector_id = details.get('cell_sector_id')
-
-            # Generate meaningful name
-            operator_name = OPERATORS.get(mnc, 'Unknown') if mnc else 'GPS Computed'
-            if enodeb_id and sector_id is not None:
-                tower_name = f"{operator_name} - eNB {enodeb_id} - Sector {sector_id}"
-            else:
-                tower_name = f"{operator_name} - Cell {cell_id}"
-
-            # Create GeoJSON feature with complete LTE information
-            tower_features.append({
-                'type': 'Feature',
-                'geometry': {
-                    'type': 'Point',
-                    'coordinates': [tower_lon, tower_lat, 50]  # lon, lat, altitude
-                },
-                'properties': {
-                    'id': f"GPS-{mcc}-{mnc}-{lac}-{cell_id}",  # Unique ID
-                    'name': tower_name,  # Human-readable name
-                    'radio': 'LTE',
-                    'operator': operator_name,
-                    'mcc': mcc,  # Mobile Country Code
-                    'mnc': mnc,  # Mobile Network Code
-                    'lac': lac,  # Location Area Code
-                    'cid': str(cell_id),  # Cell ID (hex)
-                    'pcid': pcid,  # Physical Cell ID
-                    'enodeb_id': enodeb_id,  # eNodeB ID (base station)
-                    'sector_id': sector_id,  # Sector ID (antenna direction)
-                    'connection_count': connection_count,  # Number of connections
-                    'avg_rsrp': avg_rsrp,  # Average signal strength
-                    'position_method': position_method,  # High-accuracy estimation method
-                    'uncertainty_m': uncertainty_m,  # Position uncertainty in meters
-                    'estimation_confidence': estimation.get('avg_confidence', 0.0),  # Confidence score
-                    'num_estimation_methods': estimation.get('num_methods', 1),  # Number of methods used
-                    'is_connected': True  # This tower was connected during flight (field name matches frontend)
-                }
-            })
-
-            # Print detailed tower info
-            info_parts = [f"Cell {cell_id}"]
-            if enodeb_id:
-                info_parts.append(f"eNB {enodeb_id}")
-            if sector_id is not None:
-                info_parts.append(f"Sector {sector_id}")
-            if pcid:
-                info_parts.append(f"PCID {pcid}")
-
-            print(f"  📍 {' | '.join(info_parts)}")
-            print(f"      Position: ({tower_lat:.6f}, {tower_lon:.6f}) ±{uncertainty_m:.0f}m")
-            print(f"      Method: {position_method}, Confidence: {estimation.get('avg_confidence', 0):.2f}")
-            print(f"      Operator: {operator_name} (MCC:{mcc}, MNC:{mnc}, LAC:{lac})")
-            print(f"      Stats: {connection_count} connections, Avg RSRP={avg_rsrp:.1f}dBm")
-
-        # Create GeoJSON FeatureCollection
-        geojson = {
-            'type': 'FeatureCollection',
-            'features': tower_features
-        }
-
-        print(f"✅ Computed {len(tower_features)} tower positions from GPS data")
+        print(f"✅ Computed {len(geojson['features'])} tower positions")
 
         # Cache result (24 hours)
         if redis_client:

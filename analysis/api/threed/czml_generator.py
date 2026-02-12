@@ -1485,55 +1485,74 @@ class CZMLGenerator:
         df_valid['cell_changed'] = df_valid['lte_cell_id'] != df_valid['lte_cell_id'].shift(1)
         df_valid['connection_segment'] = df_valid['cell_changed'].cumsum()
 
-        # Compute tower locations from actual connection data
-        # Key insight: Drone connects to nearest tower, so median GPS position
-        # when connected to a Cell ID = that tower's approximate location
-        # This is MORE accurate than external databases and requires no API calls!
-        print(f"  🎯 Computing tower locations from actual connection data...", flush=True)
+        # 🚀 Use high-accuracy tower positions from Cell Towers API (hybrid algorithm)
+        # This ensures tower connections use the same positions as cell tower markers
+        print(f"  🎯 Loading high-accuracy tower positions from Cell Towers API...", flush=True)
 
-        # Calculate average position for each unique Cell ID
-        cell_tower_positions = {}
-        unique_cells = df_valid['lte_cell_id'].unique()
+        # Import Cell Towers API logic
+        from .routes import get_cell_towers_geojson_internal
 
-        for cell_id in unique_cells:
-            # Skip invalid cell IDs
-            if cell_id in ['0', 'FFFFFFFF', 0, 'nan'] or pd.isna(cell_id):
-                continue
+        try:
+            # Get tower positions from Cell Towers API (uses hybrid estimation + physical filtering)
+            tower_geojson = get_cell_towers_geojson_internal(self.session_id, flight_id=flight_id)
 
-            # Get all positions where drone was connected to this cell
-            cell_data = df_valid[df_valid['lte_cell_id'] == cell_id]
+            if not tower_geojson or 'features' not in tower_geojson:
+                raise ValueError(f"❌ No cell tower data available from API")
 
-            # Filter to strongest signal positions (top 20% RSRP)
-            # Tower is closest where signal is strongest - avoids ocean/distant positions
-            if 'lte_rsrp' in cell_data.columns and cell_data['lte_rsrp'].notna().sum() > 0:
-                rsrp_threshold = cell_data['lte_rsrp'].quantile(0.80)  # Top 20% strongest signals
-                cell_data_strong = cell_data[cell_data['lte_rsrp'] >= rsrp_threshold]
+            # Convert GeoJSON to tower positions dictionary
+            cell_tower_positions = {}
+            for feature in tower_geojson['features']:
+                props = feature['properties']
+                coords = feature['geometry']['coordinates']  # [lon, lat, alt]
 
-                # Use at least 3 points for stability
-                if len(cell_data_strong) >= 3:
-                    cell_data = cell_data_strong
-                    print(f"    🎯 Cell {cell_id}: Using top 20% signal strength ({len(cell_data)} points, RSRP≥{rsrp_threshold:.1f}dBm)", flush=True)
+                # Extract Cell ID from properties
+                cell_id = props.get('cid', '').upper()
+                if not cell_id or cell_id in ['0', 'FFFFFFFF', 'NAN']:
+                    continue
 
-            # Use median position (more robust than mean for GPS data)
-            tower_lat = cell_data['latitude'].median()
-            tower_lon = cell_data['longitude'].median()
+                cell_tower_positions[cell_id] = {
+                    'lat': coords[1],
+                    'lon': coords[0],
+                    'alt': coords[2] if len(coords) > 2 else 50,
+                    'cellid': cell_id,
+                    'connection_count': props.get('connection_count', 0),
+                    'position_method': props.get('position_method', 'Unknown')
+                }
 
-            cell_tower_positions[cell_id] = {
-                'lat': tower_lat,
-                'lon': tower_lon,
-                'alt': 50,  # Approximate tower height in meters
-                'cellid': cell_id,
-                'connection_count': len(cell_data)
-            }
+            print(f"  ✅ Loaded {len(cell_tower_positions)} high-accuracy tower positions from Cell Towers API", flush=True)
 
-        print(f"  📡 Computed {len(cell_tower_positions)} tower positions from {len(unique_cells)} unique Cell IDs", flush=True)
+            # Show tower statistics
+            for cell_id, tower in cell_tower_positions.items():
+                method = tower.get('position_method', 'Unknown')
+                print(f"    📍 Cell {cell_id}: ({tower['lat']:.6f}, {tower['lon']:.6f}) - {tower['connection_count']} connections [{method}]", flush=True)
+
+        except Exception as e:
+            print(f"  ⚠️ Failed to load from Cell Towers API: {e}", flush=True)
+            print(f"  ⚠️ Falling back to basic median calculation...", flush=True)
+
+            # Fallback: Basic median calculation (old method)
+            cell_tower_positions = {}
+            unique_cells = df_valid['lte_cell_id'].unique()
+
+            for cell_id in unique_cells:
+                if cell_id in ['0', 'FFFFFFFF', 0, 'nan'] or pd.isna(cell_id):
+                    continue
+
+                cell_data = df_valid[df_valid['lte_cell_id'] == cell_id]
+
+                tower_lat = cell_data['latitude'].median()
+                tower_lon = cell_data['longitude'].median()
+
+                cell_tower_positions[str(cell_id).upper()] = {
+                    'lat': tower_lat,
+                    'lon': tower_lon,
+                    'alt': 50,
+                    'cellid': str(cell_id).upper(),
+                    'connection_count': len(cell_data)
+                }
 
         if not cell_tower_positions:
             raise ValueError(f"❌ No valid LTE cell IDs found in data")
-
-        # Show tower statistics
-        for cell_id, tower in cell_tower_positions.items():
-            print(f"    📍 Cell {cell_id}: ({tower['lat']:.6f}, {tower['lon']:.6f}) - {tower['connection_count']} connections", flush=True)
 
         # Process each connection segment
         segments = []
