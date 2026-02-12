@@ -415,3 +415,92 @@ def validate_tower_position(tower_lat: float, tower_lon: float,
         return False, "Invalid GPS coordinates"
 
     return True, "Valid"
+
+
+def estimate_tower_by_enodeb(merged_data: pd.DataFrame, enodeb_id: int,
+                             sector_cells: dict, verbose: bool = True) -> dict:
+    """
+    Estimate tower position by combining data from all sectors of the same eNodeB
+
+    Physical Reality: Same eNodeB = Same physical tower location
+    - Multiple sectors (0, 1, 2, ...) are just different directional antennas
+    - All sectors share the same GPS coordinates
+    - Combining all sector data improves estimation accuracy
+
+    Args:
+        merged_data: DataFrame with GPS and LTE data
+        enodeb_id: eNodeB identifier (physical tower ID)
+        sector_cells: Dict mapping sector_id → cell_id for this eNodeB
+        verbose: Print debug information
+
+    Returns:
+        dict with keys:
+            - latitude, longitude, altitude: Estimated tower position
+            - uncertainty_m: Position uncertainty in meters
+            - sector_count: Number of sectors detected
+            - total_samples: Total GPS samples across all sectors
+            - sector_directions: Dict of sector_id → estimated_azimuth
+            - position_method: Description of estimation method
+    """
+    # Collect all GPS points where drone was connected to ANY sector of this eNodeB
+    all_sector_data = []
+    sector_directions = {}
+
+    for sector_id, cell_id in sector_cells.items():
+        # Get GPS points for this sector
+        sector_data = merged_data[merged_data['lte_cell_id'] == cell_id].copy()
+
+        if len(sector_data) == 0:
+            continue
+
+        # Filter valid RSRP range
+        sector_data = sector_data[(sector_data['lte_rsrp'] >= -140) & (sector_data['lte_rsrp'] <= -40)]
+
+        if len(sector_data) > 0:
+            all_sector_data.append(sector_data)
+
+            # Calculate average bearing from tower to drone for this sector
+            # (This tells us which direction the sector antenna points)
+            sector_center_lat = sector_data['latitude'].mean()
+            sector_center_lon = sector_data['longitude'].mean()
+
+            # Store for later sector direction analysis
+            sector_directions[sector_id] = {
+                'center_lat': sector_center_lat,
+                'center_lon': sector_center_lon,
+                'sample_count': len(sector_data),
+                'avg_rsrp': float(sector_data['lte_rsrp'].mean())
+            }
+
+    if len(all_sector_data) == 0:
+        return None
+
+    # Combine all sector data into unified dataset
+    combined_data = pd.concat(all_sector_data, ignore_index=True)
+
+    if verbose:
+        print(f"  📡 eNodeB {enodeb_id}: {len(all_sector_data)} sectors, {len(combined_data)} total GPS samples")
+
+    # Signal quality filtering (use top 50% RSRP across all sectors)
+    combined_data = filter_by_signal_quality(combined_data, rsrp_percentile=50.0)
+
+    if len(combined_data) < 3:
+        if verbose:
+            print(f"  ⚠️  eNodeB {enodeb_id}: Insufficient data after filtering ({len(combined_data)} points)")
+        return None
+
+    # Hybrid estimation using combined sector data
+    estimation = estimate_tower_hybrid(combined_data, verbose=False)
+
+    return {
+        'latitude': estimation['latitude'],
+        'longitude': estimation['longitude'],
+        'altitude': estimation['altitude'],
+        'uncertainty_m': estimation['uncertainty_m'],
+        'sector_count': len(all_sector_data),
+        'total_samples': len(combined_data),
+        'sector_directions': sector_directions,
+        'position_method': f'eNodeB-based ({len(all_sector_data)} sectors combined)',
+        'avg_confidence': estimation['avg_confidence'],
+        'num_methods': estimation['num_methods']
+    }

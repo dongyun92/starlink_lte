@@ -19,6 +19,7 @@ from .czml_generator import CZMLGenerator
 from .opencellid_client import OpenCellIDClient
 from .tower_estimation import (
     estimate_tower_hybrid,
+    estimate_tower_by_enodeb,
     compute_flight_boundary,
     filter_by_signal_quality,
     validate_tower_position
@@ -568,18 +569,137 @@ def get_cell_towers_geojson_internal(session_id: str, flight_id: int = None) -> 
 
         print(f"✅ Built lte_details dictionary with {len(lte_details)} unique cell IDs")
 
-    # Calculate tower positions from GPS data
+    # ═══════════════════════════════════════════════════════════════
+    # P1: eNodeB-Based Tower Position Estimation
+    # ═══════════════════════════════════════════════════════════════
+    # Physical Reality: Same eNodeB = Same physical tower location
+    # Multiple sectors (0, 1, 2, ...) are directional antennas on the same tower
+    # Combining all sector data dramatically improves estimation accuracy
+    # ═══════════════════════════════════════════════════════════════
+
     tower_features = []
     unique_cells = df_lte['lte_cell_id'].unique()
-
     print(f"📡 Found {len(unique_cells)} unique cell IDs in merged data")
+
+    # Step 1: Group cells by eNodeB ID (same physical tower)
+    enodeb_groups = {}  # enodeb_id → { sector_id → cell_id }
+    cells_without_enodeb = []
+
+    for cell_id in unique_cells:
+        if cell_id in ['0', 'FFFFFFFF', 'nan'] or pd.isna(cell_id):
+            continue
+
+        cell_id_key = str(cell_id).upper()
+        details = lte_details.get(cell_id_key, {})
+        enodeb_id = details.get('enodeb_id')
+        sector_id = details.get('cell_sector_id')
+
+        if enodeb_id is not None and sector_id is not None:
+            # Group by eNodeB
+            if enodeb_id not in enodeb_groups:
+                enodeb_groups[enodeb_id] = {}
+            enodeb_groups[enodeb_id][sector_id] = cell_id
+        else:
+            # No eNodeB info - process individually
+            cells_without_enodeb.append(cell_id)
+
+    print(f"  📊 eNodeB grouping: {len(enodeb_groups)} physical towers, {sum(len(s) for s in enodeb_groups.values())} total sectors")
+    print(f"  ⚠️  {len(cells_without_enodeb)} cells without eNodeB info (will process individually)")
 
     # Compute flight path boundary for physical validation
     flight_boundary = compute_flight_boundary(df_lte, buffer_km=5.0)
     flight_center_lat = float(df_lte['latitude'].mean())
     flight_center_lon = float(df_lte['longitude'].mean())
 
-    for cell_id in unique_cells:
+    # Step 2: Estimate tower positions by eNodeB (combined sectors)
+    for enodeb_id, sector_cells in enodeb_groups.items():
+        # Get details from first sector (all sectors share same MCC, MNC, LAC)
+        first_cell_id = list(sector_cells.values())[0]
+        cell_id_key = str(first_cell_id).upper()
+        details = lte_details.get(cell_id_key, {})
+
+        # Estimate tower position using ALL sectors of this eNodeB
+        estimation = estimate_tower_by_enodeb(df_lte, enodeb_id, sector_cells, verbose=True)
+
+        if estimation is None:
+            continue
+
+        tower_lat = estimation['latitude']
+        tower_lon = estimation['longitude']
+        tower_alt = estimation.get('altitude', 30.0)
+        uncertainty_m = estimation['uncertainty_m']
+        position_method = estimation['position_method']
+
+        # Physical validation
+        is_valid, validation_reason = validate_tower_position(
+            tower_lat, tower_lon, flight_boundary,
+            flight_center_lat, flight_center_lon,
+            max_distance_km=15.0
+        )
+
+        if not is_valid:
+            print(f"  ❌ eNodeB {enodeb_id} rejected: {validation_reason}")
+            continue
+
+        # Get signal statistics (combined across all sectors)
+        all_sector_data = []
+        for cell_id in sector_cells.values():
+            sector_data = df_lte[df_lte['lte_cell_id'] == cell_id]
+            if len(sector_data) > 0:
+                all_sector_data.append(sector_data)
+
+        if len(all_sector_data) == 0:
+            continue
+
+        combined_data = pd.concat(all_sector_data, ignore_index=True)
+        avg_rsrp = float(combined_data['lte_rsrp'].mean()) if 'lte_rsrp' in combined_data.columns else -100
+        connection_count = len(combined_data)
+
+        # Get cell information
+        mcc = details.get('mcc', 450)
+        mnc = details.get('mnc')
+        lac = details.get('lac')
+
+        # Generate tower name
+        operator_name = OPERATORS.get(mnc, 'Unknown') if mnc else 'GPS Computed'
+        sector_list = ', '.join([str(s) for s in sorted(sector_cells.keys())])
+        tower_name = f"{operator_name} - eNB {enodeb_id} ({len(sector_cells)} sectors: {sector_list})"
+
+        # Create primary tower ID (use first sector's cell_id for ID)
+        primary_cell_id = list(sector_cells.values())[0]
+
+        # Create GeoJSON feature for this physical tower
+        tower_features.append({
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Point',
+                'coordinates': [tower_lon, tower_lat, 50]
+            },
+            'properties': {
+                'id': f"GPS-{mcc}-{mnc}-{lac}-eNB{enodeb_id}",
+                'name': tower_name,
+                'radio': 'LTE',
+                'operator': operator_name,
+                'mcc': mcc,
+                'mnc': mnc,
+                'lac': lac,
+                'cid': str(primary_cell_id),  # Use first sector's cell_id
+                'enodeb_id': enodeb_id,
+                'sector_count': estimation['sector_count'],
+                'sectors': list(sector_cells.keys()),  # List of all sectors
+                'connection_count': connection_count,
+                'avg_rsrp': avg_rsrp,
+                'position_method': position_method,
+                'uncertainty_m': uncertainty_m,
+                'estimation_confidence': estimation.get('avg_confidence', 0.0),
+                'num_estimation_methods': estimation.get('num_methods', 1),
+                'is_connected': True
+            }
+        })
+
+    # Step 3: Process cells without eNodeB info (fallback to old method)
+    print(f"\n  🔧 Processing {len(cells_without_enodeb)} cells without eNodeB info...")
+    for cell_id in cells_without_enodeb:
         # Skip invalid cell IDs
         if cell_id in ['0', 'FFFFFFFF', 'nan'] or pd.isna(cell_id):
             continue
