@@ -668,6 +668,9 @@ def get_cell_towers_geojson_internal(session_id: str, flight_id: int = None) -> 
         # Create primary tower ID (use first sector's cell_id for ID)
         primary_cell_id = list(sector_cells.values())[0]
 
+        # Collect ALL cell_ids for this eNodeB (all sectors)
+        all_cell_ids = [str(cell_id).upper() for cell_id in sector_cells.values()]
+
         # Create GeoJSON feature for this physical tower
         tower_features.append({
             'type': 'Feature',
@@ -684,6 +687,7 @@ def get_cell_towers_geojson_internal(session_id: str, flight_id: int = None) -> 
                 'mnc': mnc,
                 'lac': lac,
                 'cid': str(primary_cell_id),  # Use first sector's cell_id
+                'all_cell_ids': all_cell_ids,  # ✨ ALL cell_ids for this tower
                 'enodeb_id': enodeb_id,
                 'sector_count': estimation['sector_count'],
                 'sectors': list(sector_cells.keys()),  # List of all sectors

@@ -1500,31 +1500,58 @@ class CZMLGenerator:
                 raise ValueError(f"❌ No cell tower data available from API")
 
             # Convert GeoJSON to tower positions dictionary
+            # ✨ CRITICAL: Map ALL cell_ids (not just primary) to same tower position
             cell_tower_positions = {}
             for feature in tower_geojson['features']:
                 props = feature['properties']
                 coords = feature['geometry']['coordinates']  # [lon, lat, alt]
 
-                # Extract Cell ID from properties
-                cell_id = props.get('cid', '').upper()
-                if not cell_id or cell_id in ['0', 'FFFFFFFF', 'NAN']:
+                # Extract primary Cell ID
+                primary_cell_id = props.get('cid', '').upper()
+                if not primary_cell_id or primary_cell_id in ['0', 'FFFFFFFF', 'NAN']:
                     continue
 
-                cell_tower_positions[cell_id] = {
+                # Get ALL cell_ids for this eNodeB (all sectors)
+                all_cell_ids = props.get('all_cell_ids', [primary_cell_id])
+                if isinstance(all_cell_ids, str):
+                    all_cell_ids = [all_cell_ids]
+
+                # Create tower position data
+                tower_data = {
                     'lat': coords[1],
                     'lon': coords[0],
                     'alt': coords[2] if len(coords) > 2 else 50,
-                    'cellid': cell_id,
+                    'cellid': primary_cell_id,
                     'connection_count': props.get('connection_count', 0),
                     'position_method': props.get('position_method', 'Unknown')
                 }
 
-            print(f"  ✅ Loaded {len(cell_tower_positions)} high-accuracy tower positions from Cell Towers API", flush=True)
+                # ✨ Map ALL cell_ids to the SAME tower position
+                # This ensures connections work for ALL sectors, not just the primary one
+                for cell_id in all_cell_ids:
+                    cell_id_key = str(cell_id).upper()
+                    if cell_id_key and cell_id_key not in ['0', 'FFFFFFFF', 'NAN']:
+                        cell_tower_positions[cell_id_key] = tower_data.copy()
 
-            # Show tower statistics
+            print(f"  ✅ Loaded {len(cell_tower_positions)} cell_id mappings from Cell Towers API", flush=True)
+
+            # Show tower statistics (group by unique tower positions)
+            unique_towers = {}
             for cell_id, tower in cell_tower_positions.items():
+                tower_key = (tower['lat'], tower['lon'])
+                if tower_key not in unique_towers:
+                    unique_towers[tower_key] = {
+                        'cell_ids': [],
+                        'tower': tower
+                    }
+                unique_towers[tower_key]['cell_ids'].append(cell_id)
+
+            print(f"  📊 {len(unique_towers)} physical towers with {len(cell_tower_positions)} total cell_id mappings:", flush=True)
+            for tower_key, info in unique_towers.items():
+                tower = info['tower']
+                cell_ids = ', '.join(info['cell_ids'])
                 method = tower.get('position_method', 'Unknown')
-                print(f"    📍 Cell {cell_id}: ({tower['lat']:.6f}, {tower['lon']:.6f}) - {tower['connection_count']} connections [{method}]", flush=True)
+                print(f"    📍 Tower at ({tower['lat']:.6f}, {tower['lon']:.6f}): {len(info['cell_ids'])} cell_ids [{cell_ids}] - {tower['connection_count']} connections [{method}]", flush=True)
 
         except Exception as e:
             print(f"  ⚠️ Failed to load from Cell Towers API: {e}", flush=True)
