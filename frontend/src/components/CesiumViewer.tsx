@@ -769,12 +769,13 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       const lat = coords[1];
       const height = 30; // 기지국 높이 (지면에서 30m)
 
-      // Check if this tower was connected during flight
+      // Check if this tower is GPS-based estimation (vs OpenCellID)
+      const isGPSBased = props.id?.startsWith('GPS-') || false;
       const isConnected = props.is_connected === true;
 
-      // Different colors for connected vs unconnected towers
-      const iconColor = isConnected ? '#ff4444' : '#3498db'; // Red for connected, Blue for unconnected
-      const iconSize = isConnected ? 40 : 28; // Larger for connected towers
+      // Different colors: GPS-based (red) vs OpenCellID (blue)
+      const iconColor = isGPSBased ? '#ff4444' : '#3498db'; // Red for GPS-based, Blue for OpenCellID
+      const iconSize = isGPSBased ? 40 : 28; // Larger for GPS-based towers
 
       // Generate SVG with dynamic color
       const svgIcon = `data:image/svg+xml;base64,${btoa(`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -812,7 +813,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         description: `
           <div style="font-family: monospace; font-size: 12px;">
             <b>📡 Cell Tower</b><br/>
-            ${isConnected ? '<b style="color: #ff4444;">✅ CONNECTED DURING FLIGHT</b><br/>' : ''}
+            ${isGPSBased ? '<b style="color: #ff4444;">🔴 GPS-BASED ESTIMATION</b><br/>' : '<b style="color: #3498db;">🔵 OpenCellID Data</b><br/>'}
+            ${isConnected ? '<b style="color: #00ff00;">✅ CONNECTED DURING FLIGHT</b><br/>' : ''}
             <b>Cell ID:</b> ${props.id}<br/>
             <b>Radio:</b> ${props.radio}<br/>
             <b>Operator:</b> ${props.operator || 'Unknown'}<br/>

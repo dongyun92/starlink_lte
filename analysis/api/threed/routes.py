@@ -411,13 +411,33 @@ def get_heatmap_czml(session_id):
                     return jsonify({'error': 'Flight ID filtering not available'}), 400
                 df = df[df['flight_id'] == flight_id]
 
-            # Map mode to quality metric
+            # Auto-detect available columns (consistent with CZMLGenerator)
+            lte_column = None
+            if 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all():
+                lte_column = 'lte_rsrp'
+            elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
+                lte_column = 'lte_rssi'
+            elif 'lte_sinr' in df.columns and not df['lte_sinr'].isna().all():
+                lte_column = 'lte_sinr'
+
+            starlink_column = None
+            if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
+                starlink_column = 'starlink_snr'
+            elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
+                starlink_column = 'starlink_latency'
+
+            # Map mode to actual column
             mode_map = {
-                'lte': 'lte_rsrp',
-                'starlink': 'starlink_latency',
-                'combined': 'lte_rsrp'  # Default to LTE for combined
+                'lte': lte_column,
+                'starlink': starlink_column,
+                'combined': lte_column  # Default to LTE for combined
             }
-            quality_mode = mode_map.get(mode, 'lte_rsrp')
+            quality_mode = mode_map.get(mode)
+
+            # Check if requested mode has data
+            if quality_mode is None:
+                # Return empty CZML if no data available
+                return jsonify([{"id": "document", "version": "1.0", "name": f"Empty Heatmap - No {mode.upper()} data"}]), 200
 
             # Generate 3D hexagonal voxel grid
             hex_generator = HexagonalHeatmapGenerator(
