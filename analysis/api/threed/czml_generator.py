@@ -1133,10 +1133,10 @@ class CZMLGenerator:
                 "epoch": start_iso,
                 "cartographicDegrees": sampled_positions
             },
-            # 3D Model - using a free Cesium drone/aircraft model
+            # 3D Model - using Cesium airplane model for eVTOL visualization
             "model": {
-                "gltf": "https://raw.githubusercontent.com/CesiumGS/cesium/main/Apps/SampleData/models/CesiumDrone/CesiumDrone.glb",
-                "scale": 50.0,  # Scale up for visibility
+                "gltf": "https://raw.githubusercontent.com/CesiumGS/cesium/main/Apps/SampleData/models/CesiumAir/Cesium_Air.glb",
+                "scale": 30.0,  # Scale for eVTOL visibility (airplane model is larger)
                 "minimumPixelSize": 64,
                 "maximumScale": 200,
                 "silhouetteColor": {"rgba": [255, 255, 0, 255]},
@@ -1153,7 +1153,7 @@ class CZMLGenerator:
             },
             # Label with current info
             "label": {
-                "text": "Aircraft",
+                "text": "eVTOL",
                 "font": "12pt sans-serif",
                 "style": "FILL_AND_OUTLINE",
                 "outlineWidth": 2,
