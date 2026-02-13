@@ -107,8 +107,8 @@ class CZMLGenerator:
         auto_sampling_rate, auto_segment_interval = self._calculate_sampling_params(original_len)
 
         # Skip sampling for binary/quality modes to preserve rare events
-        # Binary modes (connection_quality, roaming) have few positive samples that must not be lost
-        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'lte_quality_combined', 'starlink_quality_combined']
+        # Binary modes (connection_quality, roaming, alerts) have few positive samples that must not be lost
+        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any', 'lte_quality_combined', 'starlink_quality_combined']
         should_skip_sampling = color_by in skip_sampling_modes
 
         # Apply sampling if needed (fraction-based sampling)
@@ -676,6 +676,18 @@ class CZMLGenerator:
                 raise ValueError(f"❌ Starlink roaming alert data not available in this session")
             values = (~df['starlink_alerts.alert_roaming'].fillna(False)).astype(float)  # 1 = not roaming (good), 0 = roaming (bad)
             column_name = 'starlink_roaming'
+        elif color_by == 'starlink_alerts_any':
+            # Any alert triggered = bad (red), no alerts = good (green)
+            # Check for all alert columns
+            alert_columns = [col for col in df.columns if col.startswith('starlink_alerts.alert_')]
+            if not alert_columns:
+                raise ValueError(f"❌ Starlink alert data not available in this session")
+
+            # Combine all alerts: True if ANY alert is True
+            any_alert = df[alert_columns].fillna(False).any(axis=1)
+            values = (~any_alert).astype(float)  # 1 = no alerts (good), 0 = any alert (bad)
+            column_name = 'starlink_alerts_any'
+            print(f"📊 Checking {len(alert_columns)} alert types: {', '.join([c.replace('starlink_alerts.alert_', '') for c in alert_columns])}")
         elif color_by == 'starlink_obstruction':
             # Try multiple field candidates (fallback logic)
             obstruction_candidates = ['starlink_raw_status.fraction_obstructed', 'starlink_obstruction.valid_s']
@@ -770,6 +782,10 @@ class CZMLGenerator:
             # Binary: already 0 or 1 (0=roaming/bad, 1=not roaming/good)
             normalized = values
             vmin, vmax = 0, 1
+        elif column_name == 'starlink_alerts_any':
+            # Binary: already 0 or 1 (0=alerts/bad, 1=no alerts/good)
+            normalized = values
+            vmin, vmax = 0, 1
         elif column_name == 'starlink_obstruction':
             # Obstruction: use actual min/max from data (lower is better, INVERTED!)
             vmin, vmax = vmax_actual, vmin_actual  # Swap for inversion
@@ -803,8 +819,8 @@ class CZMLGenerator:
         normalized = np.clip(normalized, 0, 1)
 
         # Store metadata for legend
-        # For binary modes (connection_quality, roaming), always use 0-1 range even if data is uniform
-        if column_name in ['starlink_connection_quality', 'starlink_roaming']:
+        # For binary modes (connection_quality, roaming, alerts), always use 0-1 range even if data is uniform
+        if column_name in ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any']:
             metadata_min, metadata_max = 0.0, 1.0
         else:
             # For other modes, use actual data range

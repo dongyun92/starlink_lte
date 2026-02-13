@@ -395,6 +395,15 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
+                        checked={pathColorMode === 'starlink_alerts_any'}
+                        onChange={() => onPathColorModeChange('starlink_alerts_any')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">⚠️ Alerts (All)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
                         checked={pathColorMode === 'starlink_obstruction'}
                         onChange={() => onPathColorModeChange('starlink_obstruction')}
                         className="w-2.5 h-2.5"
