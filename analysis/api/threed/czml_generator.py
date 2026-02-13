@@ -106,17 +106,25 @@ class CZMLGenerator:
         original_len = len(df)
         auto_sampling_rate, auto_segment_interval = self._calculate_sampling_params(original_len)
 
+        # Skip sampling for binary/quality modes to preserve rare events
+        # Binary modes (connection_quality, roaming) have few positive samples that must not be lost
+        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'lte_quality_combined', 'starlink_quality_combined']
+        should_skip_sampling = color_by in skip_sampling_modes
+
         # Apply sampling if needed (fraction-based sampling)
-        if auto_sampling_rate < 1.0:
+        if should_skip_sampling:
+            print(f"🎯 Skipping sampling for '{color_by}' mode (preserves rare events): {len(df)} points (100%)")
+            # Still calculate segment interval for rendering
+            self._segment_interval = auto_segment_interval
+        elif auto_sampling_rate < 1.0:
             # Use interval-based sampling for consistent temporal distribution
             sample_interval = max(1, int(1 / auto_sampling_rate))
             df = df.iloc[::sample_interval].copy()
             print(f"🎯 Dynamic Sampling: {len(df)} points from {original_len} ({auto_sampling_rate*100:.0f}%, interval={sample_interval})")
+            self._segment_interval = auto_segment_interval
         else:
             print(f"📊 No sampling needed: {len(df)} points (100%)")
-
-        # Store segment interval for later use
-        self._segment_interval = auto_segment_interval
+            self._segment_interval = auto_segment_interval
 
         # Generate CZML document
         czml = []
