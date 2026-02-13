@@ -109,7 +109,7 @@ class CZMLGenerator:
         # Skip sampling for binary/quality modes to preserve rare events
         # Binary modes (connection_quality, roaming, alerts) have few positive samples that must not be lost
         skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any', 'lte_quality_combined', 'starlink_quality_combined']
-        should_skip_sampling = color_by in skip_sampling_modes
+        should_skip_sampling = color_by in skip_sampling_modes or color_by.startswith('starlink_alert_')
 
         # Apply sampling if needed (fraction-based sampling)
         if should_skip_sampling:
@@ -688,6 +688,21 @@ class CZMLGenerator:
             values = (~any_alert).astype(float)  # 1 = no alerts (good), 0 = any alert (bad)
             column_name = 'starlink_alerts_any'
             print(f"📊 Checking {len(alert_columns)} alert types: {', '.join([c.replace('starlink_alerts.alert_', '') for c in alert_columns])}")
+
+        # Individual alert modes (starlink_alert_install_pending, etc.)
+        elif color_by.startswith('starlink_alert_') and color_by not in ['starlink_alerts_any']:
+            # Extract alert name (e.g., 'starlink_alert_install_pending' -> 'alert_install_pending')
+            alert_name = color_by.replace('starlink_alert_', 'alert_')
+            alert_column = f'starlink_alerts.{alert_name}'
+
+            if alert_column not in df.columns:
+                raise ValueError(f"❌ Alert '{alert_name}' not available in this session")
+
+            # FALSE (no alert) = good, TRUE (alert active) = bad
+            values = (~df[alert_column].fillna(False)).astype(float)  # 1 = no alert (good), 0 = alert (bad)
+            column_name = color_by
+            print(f"📊 Visualizing individual alert: {alert_name}")
+
         elif color_by == 'starlink_obstruction':
             # Try multiple field candidates (fallback logic)
             obstruction_candidates = ['starlink_raw_status.fraction_obstructed', 'starlink_obstruction.valid_s']
@@ -786,6 +801,10 @@ class CZMLGenerator:
             # Binary: already 0 or 1 (0=alerts/bad, 1=no alerts/good)
             normalized = values
             vmin, vmax = 0, 1
+        elif column_name.startswith('starlink_alert_'):
+            # Individual alerts: Binary (0=alert active/bad, 1=no alert/good)
+            normalized = values
+            vmin, vmax = 0, 1
         elif column_name == 'starlink_obstruction':
             # Obstruction: use actual min/max from data (lower is better, INVERTED!)
             vmin, vmax = vmax_actual, vmin_actual  # Swap for inversion
@@ -820,7 +839,7 @@ class CZMLGenerator:
 
         # Store metadata for legend
         # For binary modes (connection_quality, roaming, alerts), always use 0-1 range even if data is uniform
-        if column_name in ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any']:
+        if column_name in ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any'] or column_name.startswith('starlink_alert_'):
             metadata_min, metadata_max = 0.0, 1.0
         else:
             # For other modes, use actual data range

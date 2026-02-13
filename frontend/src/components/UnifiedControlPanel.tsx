@@ -401,6 +401,24 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                       />
                       <span className="text-xs">⚠️ Alerts (All)</span>
                     </label>
+                    <label className="flex items-center gap-2 cursor-pointer ml-4">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'starlink_alert_roaming'}
+                        onChange={() => onPathColorModeChange('starlink_alert_roaming')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs text-gray-600">↳ Roaming</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer ml-4">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'starlink_alert_install_pending'}
+                        onChange={() => onPathColorModeChange('starlink_alert_install_pending')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs text-gray-600">↳ Install Pending</span>
+                    </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
