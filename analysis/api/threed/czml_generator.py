@@ -1025,7 +1025,7 @@ class CZMLGenerator:
     def _create_aircraft_entity(self, df) -> dict:
         """
         Create an animated aircraft/drone entity that follows the flight path
-        Uses heading, pitch, roll data for realistic orientation
+        Uses velocityReference for automatic orientation along flight path
 
         Args:
             df: Flight data DataFrame with position and attitude data
@@ -1064,62 +1064,12 @@ class CZMLGenerator:
             time_offset = (timestamp - start_time).total_seconds()
             positions.extend([time_offset, lon, lat, alt])
 
-        # Build orientation samples (time, heading, pitch, roll -> quaternion)
-        orientations = []
-        has_attitude = all(col in df.columns for col in ['heading', 'pitch', 'roll'])
-
-        if has_attitude:
-            for timestamp, row in df.iterrows():
-                if isinstance(timestamp, str):
-                    timestamp = pd.to_datetime(timestamp)
-
-                heading = row.get('heading', 0) or 0
-                pitch = row.get('pitch', 0) or 0
-                roll = row.get('roll', 0) or 0
-
-                # Skip invalid values
-                if any(np.isnan([heading, pitch, roll])):
-                    continue
-
-                time_offset = (timestamp - start_time).total_seconds()
-
-                # Convert degrees to radians
-                # Cesium uses ENU (East-North-Up) coordinate system
-                # heading: rotation around Up axis (yaw)
-                # pitch: rotation around East axis
-                # roll: rotation around North axis
-                h = math.radians(heading)
-                p = math.radians(-pitch)  # Invert pitch for Cesium
-                r = math.radians(roll)
-
-                # Convert Euler angles (HPR) to quaternion
-                # Using ZXY rotation order (heading, pitch, roll)
-                cy = math.cos(h * 0.5)
-                sy = math.sin(h * 0.5)
-                cp = math.cos(p * 0.5)
-                sp = math.sin(p * 0.5)
-                cr = math.cos(r * 0.5)
-                sr = math.sin(r * 0.5)
-
-                # Quaternion components (x, y, z, w)
-                qx = sr * cp * cy - cr * sp * sy
-                qy = cr * sp * cy + sr * cp * sy
-                qz = cr * cp * sy - sr * sp * cy
-                qw = cr * cp * cy + sr * sp * sy
-
-                orientations.extend([time_offset, qx, qy, qz, qw])
-
         # Sample every 10th point for performance (aircraft position updates)
         sampled_positions = []
         for i in range(0, len(positions), 40):  # Every 10th point (4 values per point)
             sampled_positions.extend(positions[i:i+4])
 
-        sampled_orientations = []
-        if orientations:
-            for i in range(0, len(orientations), 50):  # Every 10th point (5 values per point)
-                sampled_orientations.extend(orientations[i:i+5])
-
-        print(f"✈️ Aircraft entity: {len(sampled_positions)//4} position samples, {len(sampled_orientations)//5} orientation samples")
+        print(f"✈️ Aircraft entity: {len(sampled_positions)//4} position samples (using velocityReference for orientation)")
 
         # Create the aircraft entity
         aircraft = {
@@ -1128,10 +1078,15 @@ class CZMLGenerator:
             "availability": f"{start_iso}/{end_iso}",
             "position": {
                 "interpolationAlgorithm": "LAGRANGE",
-                "interpolationDegree": 1,
+                "interpolationDegree": 2,  # Smoother interpolation
                 "referenceFrame": "FIXED",
                 "epoch": start_iso,
                 "cartographicDegrees": sampled_positions
+            },
+            # Use velocityReference to auto-orient along flight path direction
+            # This makes the aircraft nose point in the direction of travel
+            "orientation": {
+                "velocityReference": "#position"
             },
             # 3D Model - using Cesium airplane model for eVTOL visualization
             "model": {
@@ -1164,19 +1119,6 @@ class CZMLGenerator:
                 "disableDepthTestDistance": 1000000
             }
         }
-
-        # Add orientation if we have attitude data
-        if sampled_orientations:
-            aircraft["orientation"] = {
-                "interpolationAlgorithm": "LINEAR",
-                "epoch": start_iso,
-                "unitQuaternion": sampled_orientations
-            }
-        else:
-            # Use velocity-based orientation (auto-orient along path)
-            aircraft["orientation"] = {
-                "velocityReference": "#position"
-            }
 
         return aircraft
 
