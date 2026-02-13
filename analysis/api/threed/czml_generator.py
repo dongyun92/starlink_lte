@@ -138,6 +138,11 @@ class CZMLGenerator:
         # Flight path entity (single path only, colored by user selection)
         czml.extend(self._create_flight_path_entity(df, color_by))
 
+        # Aircraft model entity (animated drone following the path)
+        aircraft_entity = self._create_aircraft_entity(df)
+        if aircraft_entity:
+            czml.append(aircraft_entity)
+
         # Add color metadata to document header (custom property)
         if self._color_metadata:
             czml[0]['colorMetadata'] = self._color_metadata
@@ -1016,6 +1021,164 @@ class CZMLGenerator:
         colors = self._viridis_colormap(normalized)
 
         return colors
+
+    def _create_aircraft_entity(self, df) -> dict:
+        """
+        Create an animated aircraft/drone entity that follows the flight path
+        Uses heading, pitch, roll data for realistic orientation
+
+        Args:
+            df: Flight data DataFrame with position and attitude data
+
+        Returns:
+            CZML entity dictionary for the aircraft
+        """
+        import math
+
+        # Get time range
+        start_time = df.index.min()
+        end_time = df.index.max()
+
+        if isinstance(start_time, str):
+            start_time = pd.to_datetime(start_time, utc=True)
+        if isinstance(end_time, str):
+            end_time = pd.to_datetime(end_time, utc=True)
+
+        start_iso = start_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        end_iso = end_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+        # Build position samples (time, lon, lat, alt)
+        positions = []
+        for timestamp, row in df.iterrows():
+            if isinstance(timestamp, str):
+                timestamp = pd.to_datetime(timestamp)
+
+            lon = row['longitude']
+            lat = row['latitude']
+            alt = row['altitude']
+
+            # Skip invalid positions
+            if np.isnan(lon) or np.isnan(lat) or np.isnan(alt):
+                continue
+
+            time_offset = (timestamp - start_time).total_seconds()
+            positions.extend([time_offset, lon, lat, alt])
+
+        # Build orientation samples (time, heading, pitch, roll -> quaternion)
+        orientations = []
+        has_attitude = all(col in df.columns for col in ['heading', 'pitch', 'roll'])
+
+        if has_attitude:
+            for timestamp, row in df.iterrows():
+                if isinstance(timestamp, str):
+                    timestamp = pd.to_datetime(timestamp)
+
+                heading = row.get('heading', 0) or 0
+                pitch = row.get('pitch', 0) or 0
+                roll = row.get('roll', 0) or 0
+
+                # Skip invalid values
+                if any(np.isnan([heading, pitch, roll])):
+                    continue
+
+                time_offset = (timestamp - start_time).total_seconds()
+
+                # Convert degrees to radians
+                # Cesium uses ENU (East-North-Up) coordinate system
+                # heading: rotation around Up axis (yaw)
+                # pitch: rotation around East axis
+                # roll: rotation around North axis
+                h = math.radians(heading)
+                p = math.radians(-pitch)  # Invert pitch for Cesium
+                r = math.radians(roll)
+
+                # Convert Euler angles (HPR) to quaternion
+                # Using ZXY rotation order (heading, pitch, roll)
+                cy = math.cos(h * 0.5)
+                sy = math.sin(h * 0.5)
+                cp = math.cos(p * 0.5)
+                sp = math.sin(p * 0.5)
+                cr = math.cos(r * 0.5)
+                sr = math.sin(r * 0.5)
+
+                # Quaternion components (x, y, z, w)
+                qx = sr * cp * cy - cr * sp * sy
+                qy = cr * sp * cy + sr * cp * sy
+                qz = cr * cp * sy - sr * sp * cy
+                qw = cr * cp * cy + sr * sp * sy
+
+                orientations.extend([time_offset, qx, qy, qz, qw])
+
+        # Sample every 10th point for performance (aircraft position updates)
+        sampled_positions = []
+        for i in range(0, len(positions), 40):  # Every 10th point (4 values per point)
+            sampled_positions.extend(positions[i:i+4])
+
+        sampled_orientations = []
+        if orientations:
+            for i in range(0, len(orientations), 50):  # Every 10th point (5 values per point)
+                sampled_orientations.extend(orientations[i:i+5])
+
+        print(f"✈️ Aircraft entity: {len(sampled_positions)//4} position samples, {len(sampled_orientations)//5} orientation samples")
+
+        # Create the aircraft entity
+        aircraft = {
+            "id": "aircraft_model",
+            "name": "Flight Vehicle",
+            "availability": f"{start_iso}/{end_iso}",
+            "position": {
+                "interpolationAlgorithm": "LAGRANGE",
+                "interpolationDegree": 1,
+                "referenceFrame": "FIXED",
+                "epoch": start_iso,
+                "cartographicDegrees": sampled_positions
+            },
+            # 3D Model - using a free Cesium drone/aircraft model
+            "model": {
+                "gltf": "https://raw.githubusercontent.com/CesiumGS/cesium/main/Apps/SampleData/models/CesiumDrone/CesiumDrone.glb",
+                "scale": 50.0,  # Scale up for visibility
+                "minimumPixelSize": 64,
+                "maximumScale": 200,
+                "silhouetteColor": {"rgba": [255, 255, 0, 255]},
+                "silhouetteSize": 2.0
+            },
+            # Billboard as fallback (always visible)
+            "billboard": {
+                "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjMDBGRjAwIj48cGF0aCBkPSJNMjEgMTZWOGE1IDUgMCAwIDAtNS01SDhhNSA1IDAgMCAwLTUgNXY4YTUgNSAwIDAgMCA1IDVoOGE1IDUgMCAwIDAgNS01eiIvPjxwYXRoIGZpbGw9IiMwMDAiIGQ9Ik0xMiA2TDcgMTBoMTBMMTIgNnptMCA4TDcgMTBoMTBsLTUgNHoiLz48L3N2Zz4=",
+                "scale": 0.5,
+                "verticalOrigin": "CENTER",
+                "horizontalOrigin": "CENTER",
+                "heightReference": "NONE",
+                "disableDepthTestDistance": 1000000
+            },
+            # Label with current info
+            "label": {
+                "text": "Aircraft",
+                "font": "12pt sans-serif",
+                "style": "FILL_AND_OUTLINE",
+                "outlineWidth": 2,
+                "outlineColor": {"rgba": [0, 0, 0, 255]},
+                "fillColor": {"rgba": [255, 255, 255, 255]},
+                "verticalOrigin": "BOTTOM",
+                "pixelOffset": {"cartesian2": [0, -20]},
+                "disableDepthTestDistance": 1000000
+            }
+        }
+
+        # Add orientation if we have attitude data
+        if sampled_orientations:
+            aircraft["orientation"] = {
+                "interpolationAlgorithm": "LINEAR",
+                "epoch": start_iso,
+                "unitQuaternion": sampled_orientations
+            }
+        else:
+            # Use velocity-based orientation (auto-orient along path)
+            aircraft["orientation"] = {
+                "velocityReference": "#position"
+            }
+
+        return aircraft
 
     def _build_position_samples(self, df) -> list:
         """
