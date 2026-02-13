@@ -794,14 +794,21 @@ class CZMLGenerator:
         # Clamp to 0-1 range
         normalized = np.clip(normalized, 0, 1)
 
-        # Store metadata for legend - ALWAYS use actual data min/max from CSV
+        # Store metadata for legend
+        # For binary modes (connection_quality, roaming), always use 0-1 range even if data is uniform
+        if column_name in ['starlink_connection_quality', 'starlink_roaming']:
+            metadata_min, metadata_max = 0.0, 1.0
+        else:
+            # For other modes, use actual data range
+            metadata_min, metadata_max = float(vmin_actual), float(vmax_actual)
+
         self._color_metadata = {
             'column': column_name,
-            'min': float(vmin_actual),
-            'max': float(vmax_actual),
+            'min': metadata_min,
+            'max': metadata_max,
             'unit': self._get_unit(column_name)
         }
-        print(f"📊 Color range: {column_name} = {vmin_actual:.2f} ~ {vmax_actual:.2f} {self._color_metadata['unit']}")
+        print(f"📊 Color range: {column_name} = {metadata_min:.2f} ~ {metadata_max:.2f} {self._color_metadata['unit']}")
 
         # Apply industry-standard colormap based on data type
         colors = self._apply_colormap(normalized, column_name)
