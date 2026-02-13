@@ -377,6 +377,24 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
+                        checked={pathColorMode === 'starlink_connection_quality'}
+                        onChange={() => onPathColorModeChange('starlink_connection_quality')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">Connection Quality</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'starlink_roaming'}
+                        onChange={() => onPathColorModeChange('starlink_roaming')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">Roaming Status</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
                         checked={pathColorMode === 'starlink_obstruction'}
                         onChange={() => onPathColorModeChange('starlink_obstruction')}
                         className="w-2.5 h-2.5"

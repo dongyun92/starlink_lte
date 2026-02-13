@@ -178,9 +178,9 @@ class CZMLGenerator:
         segment_entities = []
         num_points = len(polyline_positions) // 3
 
-        # Always use all sampled points to ensure path matches aircraft position
-        # (sampling already applied by sample_rate parameter)
-        segment_interval = 1
+        # Use adaptive segment interval for performance
+        # Fewer segments = faster generation, but still smooth enough for visualization
+        segment_interval = 3  # Create 1 segment per 3 points (3x faster)
 
         print(f"🎨 Creating gradient segments: {num_points} points, interval={segment_interval}")
 
@@ -617,6 +617,18 @@ class CZMLGenerator:
                 raise ValueError(f"❌ Starlink uplink throughput data not available in this session")
             values = df['starlink_uplink_throughput_bps'].values / 1_000_000  # Convert to Mbps
             column_name = 'starlink_throughput_up'
+        elif color_by == 'starlink_connection_quality':
+            # Binary classification: Good (>1 Mbps) vs Bad (<=1 Mbps)
+            if 'starlink_uplink_throughput_bps' not in df.columns:
+                raise ValueError(f"❌ Starlink uplink throughput data not available in this session")
+            values = (df['starlink_uplink_throughput_bps'].values > 1_000_000).astype(float)  # 1 = good, 0 = bad
+            column_name = 'starlink_connection_quality'
+        elif color_by == 'starlink_roaming':
+            # Roaming status: False (not roaming) = good, True (roaming) = bad
+            if 'starlink_alerts.alert_roaming' not in df.columns:
+                raise ValueError(f"❌ Starlink roaming alert data not available in this session")
+            values = (~df['starlink_alerts.alert_roaming'].fillna(False)).astype(float)  # 1 = not roaming (good), 0 = roaming (bad)
+            column_name = 'starlink_roaming'
         elif color_by == 'starlink_obstruction':
             # Try multiple field candidates (fallback logic)
             obstruction_candidates = ['starlink_raw_status.fraction_obstructed', 'starlink_obstruction.valid_s']
@@ -653,52 +665,71 @@ class CZMLGenerator:
             print(error_msg)
             raise ValueError(error_msg)
 
-        # Normalize values to 0-1 range using domain-specific logic
-        # This ensures consistent color mapping with heatmaps
-        vmin_actual = np.nanmin(values)
-        vmax_actual = np.nanmax(values)
+        # Normalize values to 0-1 range using percentile-based logic
+        # Use 5th~95th percentile to focus on main distribution (exclude outliers)
+        vmin_actual = np.nanpercentile(values, 5)   # 5th percentile
+        vmax_actual = np.nanpercentile(values, 95)  # 95th percentile
 
-        # Domain-specific normalization (same as heatmap quality scores)
+        # Fallback to absolute min/max if percentiles are identical
+        if vmax_actual <= vmin_actual:
+            vmin_actual = np.nanmin(values)
+            vmax_actual = np.nanmax(values)
+
+        # Domain-specific normalization using actual data ranges
         if column_name == 'lte_quality_combined' or column_name == 'starlink_quality_combined':
             # Combined quality scores are already normalized 0-1
             normalized = values
             vmin, vmax = 0, 1
-        elif column_name == 'lte_rsrp':
-            # RSRP: -140 ~ -40 dBm (higher is better)
-            vmin, vmax = -140, -40
-            normalized = (values - vmin) / (vmax - vmin)
-        elif column_name == 'lte_rssi':
-            # RSSI: -120 ~ -20 dBm (higher is better)
-            vmin, vmax = -120, -20
-            normalized = (values - vmin) / (vmax - vmin)
-        elif column_name == 'lte_sinr':
-            # SINR: -20 ~ 30 dB (higher is better)
-            vmin, vmax = -20, 30
-            normalized = (values - vmin) / (vmax - vmin)
-        elif column_name == 'lte_rsrq':
-            # RSRQ: -20 ~ -3 dB (higher is better)
-            vmin, vmax = -20, -3
-            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name in ['lte_rsrp', 'lte_rssi', 'lte_sinr', 'lte_rsrq']:
+            # LTE metrics: use actual min/max from data (higher is better)
+            vmin, vmax = vmin_actual, vmax_actual
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
         elif column_name == 'starlink_latency':
-            # Latency: 200 ~ 0 ms (lower is better, INVERTED!)
-            vmin, vmax = 200, 0
-            normalized = (values - vmin) / (vmax - vmin)
+            # Latency: use actual min/max from data (lower is better, INVERTED!)
+            vmin, vmax = vmax_actual, vmin_actual  # Swap for inversion
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
         elif column_name == 'starlink_packet_loss':
-            # Packet Loss: 1.0 ~ 0.0 (lower is better, INVERTED!)
-            vmin, vmax = 1.0, 0.0
-            normalized = (values - vmin) / (vmax - vmin)
+            # Packet Loss: use actual min/max from data (lower is better, INVERTED!)
+            vmin, vmax = vmax_actual, vmin_actual  # Swap for inversion
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
         elif column_name == 'starlink_throughput_down':
-            # Downlink: 0 ~ 100 Mbps (higher is better)
-            vmin, vmax = 0, 100
-            normalized = (values - vmin) / (vmax - vmin)
+            # Downlink: use actual min/max from data (higher is better)
+            vmin, vmax = vmin_actual, vmax_actual
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
         elif column_name == 'starlink_throughput_up':
-            # Uplink: 0 ~ 10 Mbps (higher is better)
-            vmin, vmax = 0, 10
-            normalized = (values - vmin) / (vmax - vmin)
+            # Uplink: use actual min/max from data (higher is better)
+            vmin, vmax = vmin_actual, vmax_actual
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
+        elif column_name == 'starlink_connection_quality':
+            # Binary: already 0 or 1 (0=bad, 1=good)
+            normalized = values
+            vmin, vmax = 0, 1
+        elif column_name == 'starlink_roaming':
+            # Binary: already 0 or 1 (0=roaming/bad, 1=not roaming/good)
+            normalized = values
+            vmin, vmax = 0, 1
         elif column_name == 'starlink_obstruction':
-            # Obstruction: 1.0 ~ 0.0 (lower is better, INVERTED!)
-            vmin, vmax = 1.0, 0.0
-            normalized = (values - vmin) / (vmax - vmin)
+            # Obstruction: use actual min/max from data (lower is better, INVERTED!)
+            vmin, vmax = vmax_actual, vmin_actual  # Swap for inversion
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
         elif column_name == 'starlink_uptime':
             # Uptime: use actual min/max (higher is better)
             vmin, vmax = vmin_actual, vmax_actual
@@ -724,7 +755,7 @@ class CZMLGenerator:
         # Clamp to 0-1 range
         normalized = np.clip(normalized, 0, 1)
 
-        # Store metadata for legend
+        # Store metadata for legend - ALWAYS use actual data min/max from CSV
         self._color_metadata = {
             'column': column_name,
             'min': float(vmin_actual),
@@ -742,6 +773,8 @@ class CZMLGenerator:
         """Get unit for column"""
         if 'quality_combined' in column_name:
             return 'score'
+        elif 'connection_quality' in column_name or 'roaming' in column_name:
+            return ''  # Binary: Bad/Good or Roaming/Not Roaming
         elif 'rsrp' in column_name or 'rssi' in column_name or 'sinr' in column_name or 'rsrq' in column_name or 'snr' in column_name:
             return 'dB'
         elif 'latency' in column_name:
