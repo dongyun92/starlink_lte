@@ -28,6 +28,37 @@ class CZMLGenerator:
         self.session_id = session_id
         self.analyzer = None
 
+    def _calculate_sampling_params(self, data_size: int) -> tuple[float, int]:
+        """
+        Calculate optimal sampling parameters based on data size.
+        Goal: Keep rendered points between 5,000-15,000 for smooth performance.
+
+        Args:
+            data_size: Total number of GPS points
+
+        Returns:
+            (sampling_rate, segment_interval) tuple
+            - sampling_rate: Fraction of data to keep (0.0-1.0)
+            - segment_interval: Interval for creating path segments
+        """
+        # Target: 5,000-15,000 rendered points
+        if data_size > 100000:
+            # Very large dataset: aggressive sampling
+            return 0.05, 5  # 5% of data, 5-point segments → ~1,000 segments
+        elif data_size > 50000:
+            # Large dataset: moderate sampling
+            return 0.1, 3  # 10% of data, 3-point segments → ~1,666 segments
+        elif data_size > 20000:
+            # Medium dataset: light sampling
+            return 0.2, 2  # 20% of data, 2-point segments → ~2,000 segments
+        elif data_size > 10000:
+            # Small-medium dataset: minimal sampling
+            return 0.3, 1  # 30% of data, 1-point segments → ~3,000 segments
+        else:
+            # Small dataset: no sampling
+            return 1.0, 1  # 100% of data, 1-point segments → all points
+
+
     def generate(self, sample_rate: int = 1, color_by: str = 'altitude', flight_id: int = None, custom_metrics: dict = None) -> list:
         """
         Generate CZML data for the flight session
@@ -71,14 +102,21 @@ class CZMLGenerator:
         if df.empty:
             raise ValueError("No flight data available")
 
-        # Sample data (e.g., sample_rate=0.5 means 1 point every 2 seconds)
-        if sample_rate > 0 and sample_rate < 1:
-            sample_interval = max(1, int(1 / sample_rate))
-            original_len = len(df)
+        # Calculate optimal sampling parameters based on data size
+        original_len = len(df)
+        auto_sampling_rate, auto_segment_interval = self._calculate_sampling_params(original_len)
+
+        # Apply sampling if needed (fraction-based sampling)
+        if auto_sampling_rate < 1.0:
+            # Use interval-based sampling for consistent temporal distribution
+            sample_interval = max(1, int(1 / auto_sampling_rate))
             df = df.iloc[::sample_interval].copy()
-            print(f"🎯 Sampling: {len(df)} points from {original_len} (interval={sample_interval}, rate={sample_rate})")
-        elif sample_rate >= 1:
-            print(f"📊 No sampling: {len(df)} points (rate={sample_rate})")
+            print(f"🎯 Dynamic Sampling: {len(df)} points from {original_len} ({auto_sampling_rate*100:.0f}%, interval={sample_interval})")
+        else:
+            print(f"📊 No sampling needed: {len(df)} points (100%)")
+
+        # Store segment interval for later use
+        self._segment_interval = auto_segment_interval
 
         # Generate CZML document
         czml = []
@@ -174,15 +212,16 @@ class CZMLGenerator:
             polyline_positions.extend([lon, lat, alt])
 
         # Create multiple polyline segments for gradient effect
-        # Note: Data is already sampled by sample_rate, so use every point for path accuracy
+        # Note: Data is already sampled, now use dynamic segment interval
         segment_entities = []
         num_points = len(polyline_positions) // 3
 
-        # Use adaptive segment interval for performance
-        # Fewer segments = faster generation, but still smooth enough for visualization
-        segment_interval = 3  # Create 1 segment per 3 points (3x faster)
+        # Use dynamically calculated segment interval for optimal performance
+        # This was calculated based on total data size in _calculate_sampling_params()
+        segment_interval = self._segment_interval
 
-        print(f"🎨 Creating gradient segments: {num_points} points, interval={segment_interval}")
+        estimated_segments = num_points // segment_interval
+        print(f"🎨 Creating gradient segments: {num_points} points, interval={segment_interval}, ~{estimated_segments} segments")
 
         # Use list comprehension for better performance
         for i in range(0, num_points - 1, segment_interval):

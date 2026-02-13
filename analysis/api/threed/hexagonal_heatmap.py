@@ -56,18 +56,59 @@ class HexagonalHeatmapGenerator:
         'speed': None,                # Use actual min/max
     }
 
-    def __init__(self, resolution: int = 8, altitude_bin_size: float = 25.0):
+    def __init__(self, resolution: int = None, altitude_bin_size: float = None):
         """
         Initialize hexagonal heatmap generator.
 
         Args:
-            resolution: H3 resolution level (7-10). Default 8 (461m edge).
-            altitude_bin_size: Altitude bin size in meters for 3D voxel layers (default 25m).
+            resolution: H3 resolution level (7-10). Default None (auto-calculate based on data size).
+            altitude_bin_size: Altitude bin size in meters for 3D voxel layers (default None = auto-calculate).
         """
-        if not 7 <= resolution <= 10:
+        # Allow None to enable dynamic calculation later
+        if resolution is not None and not 7 <= resolution <= 10:
             raise ValueError("Resolution must be between 7 and 10")
-        self.resolution = resolution
-        self.altitude_bin_size = altitude_bin_size
+        self.resolution = resolution  # None = auto-calculate
+        self.altitude_bin_size = altitude_bin_size  # None = auto-calculate
+
+    def _calculate_heatmap_params(self, data_size: int, altitude_range: float) -> tuple[int, float]:
+        """
+        Calculate optimal hexagonal heatmap parameters based on data characteristics.
+
+        Args:
+            data_size: Total number of GPS points
+            altitude_range: Altitude range in meters (max - min)
+
+        Returns:
+            (resolution, altitude_bin_size) tuple
+            - resolution: H3 resolution (7-10)
+            - altitude_bin_size: Altitude bin size in meters
+        """
+        # H3 Resolution selection based on data density
+        # Goal: Balance detail vs performance (avoid too many hexagons)
+        if data_size > 50000:
+            # Very large: use coarser resolution
+            resolution = 7  # 1.22 km edge
+            altitude_bin_size = 50.0  # 50m altitude bins
+        elif data_size > 20000:
+            # Large: moderate resolution
+            resolution = 8  # 461 m edge (RECOMMENDED)
+            altitude_bin_size = 30.0  # 30m altitude bins
+        elif data_size > 10000:
+            # Medium: finer resolution
+            resolution = 9  # 174 m edge
+            altitude_bin_size = 25.0  # 25m altitude bins
+        else:
+            # Small: finest resolution
+            resolution = 9  # 174 m edge (don't go too fine)
+            altitude_bin_size = 20.0  # 20m altitude bins
+
+        # Adjust altitude bin size based on actual altitude range
+        if altitude_range > 1000:
+            altitude_bin_size = max(altitude_bin_size, 50.0)  # Larger bins for high-altitude flights
+        elif altitude_range < 200:
+            altitude_bin_size = min(altitude_bin_size, 20.0)  # Smaller bins for low-altitude flights
+
+        return resolution, altitude_bin_size
 
     def generate_czml(
         self,
@@ -107,14 +148,28 @@ class HexagonalHeatmapGenerator:
         if df_clean.empty:
             return self._create_empty_czml()
 
-        # Step 1: Create altitude bins for 3D voxel layers
+        # Step 1: Calculate dynamic parameters if not set
         df_clean = df_clean.copy()
         altitude_min = df_clean['altitude'].min()
         altitude_max = df_clean['altitude'].max()
+        altitude_range = altitude_max - altitude_min
+
+        # Auto-calculate resolution and altitude_bin_size if not explicitly set
+        if self.resolution is None or self.altitude_bin_size is None:
+            auto_resolution, auto_altitude_bin_size = self._calculate_heatmap_params(
+                data_size=len(df_clean),
+                altitude_range=altitude_range
+            )
+            resolution = self.resolution if self.resolution is not None else auto_resolution
+            altitude_bin_size = self.altitude_bin_size if self.altitude_bin_size is not None else auto_altitude_bin_size
+            print(f"📊 Dynamic Heatmap Params: resolution={resolution}, altitude_bin={altitude_bin_size}m (data_size={len(df_clean)}, alt_range={altitude_range:.0f}m)")
+        else:
+            resolution = self.resolution
+            altitude_bin_size = self.altitude_bin_size
 
         # Create bins from altitude_min to altitude_max with altitude_bin_size steps
-        num_bins = int(np.ceil((altitude_max - altitude_min) / self.altitude_bin_size))
-        bins = [altitude_min + i * self.altitude_bin_size for i in range(num_bins + 1)]
+        num_bins = int(np.ceil((altitude_max - altitude_min) / altitude_bin_size))
+        bins = [altitude_min + i * altitude_bin_size for i in range(num_bins + 1)]
 
         # Assign altitude bins
         df_clean['altitude_bin'] = pd.cut(
@@ -126,7 +181,7 @@ class HexagonalHeatmapGenerator:
 
         # Calculate midpoint altitude for each bin
         df_clean['altitude_mid'] = df_clean['altitude_bin'].apply(
-            lambda x: altitude_min + (float(x) + 0.5) * self.altitude_bin_size if pd.notna(x) else np.nan
+            lambda x: altitude_min + (float(x) + 0.5) * altitude_bin_size if pd.notna(x) else np.nan
         )
 
         # Remove rows where altitude_bin assignment failed
@@ -134,11 +189,11 @@ class HexagonalHeatmapGenerator:
         if df_clean.empty:
             return self._create_empty_czml()
 
-        print(f"📊 3D Voxel Grid: {num_bins} altitude layers ({altitude_min:.1f}m - {altitude_max:.1f}m, {self.altitude_bin_size}m bins)")
+        print(f"📊 3D Voxel Grid: {num_bins} altitude layers ({altitude_min:.1f}m - {altitude_max:.1f}m, {altitude_bin_size}m bins)")
 
         # Step 2: Convert GPS coordinates to H3 cells
         df_clean['h3_cell'] = df_clean.apply(
-            lambda row: h3.latlng_to_cell(row['latitude'], row['longitude'], self.resolution),
+            lambda row: h3.latlng_to_cell(row['latitude'], row['longitude'], resolution),
             axis=1
         )
 
@@ -177,8 +232,8 @@ class HexagonalHeatmapGenerator:
             color = self._get_quality_color(normalized)
 
             # For 3D voxel: place hexagon at altitude_mid, with thickness = altitude_bin_size
-            base_altitude = altitude_mid - self.altitude_bin_size / 2
-            top_altitude = altitude_mid + self.altitude_bin_size / 2
+            base_altitude = altitude_mid - altitude_bin_size / 2
+            top_altitude = altitude_mid + altitude_bin_size / 2
 
             # Create CZML polygon packet (3D voxel layer)
             czml_packet = self._create_polygon_packet_3d(
@@ -370,13 +425,16 @@ class HexagonalHeatmapGenerator:
         if df.empty:
             return 0
 
+        # Use auto-calculated resolution if not set
+        resolution = self.resolution if self.resolution is not None else 8
+
         # Convert sample points to H3 cells
         sample_size = min(1000, len(df))
         sample = df.sample(n=sample_size) if len(df) > sample_size else df
 
         cells = set()
         for _, row in sample.iterrows():
-            cell = h3.latlng_to_cell(row['latitude'], row['longitude'], self.resolution)
+            cell = h3.latlng_to_cell(row['latitude'], row['longitude'], resolution)
             cells.add(cell)
 
         # Extrapolate to full dataset
