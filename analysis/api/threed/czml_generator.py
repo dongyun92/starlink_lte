@@ -1025,7 +1025,7 @@ class CZMLGenerator:
     def _create_aircraft_entity(self, df) -> dict:
         """
         Create an animated aircraft/drone entity that follows the flight path
-        Uses velocityReference for automatic orientation along flight path
+        Uses actual heading, pitch, roll from flight log for realistic orientation
 
         Args:
             df: Flight data DataFrame with position and attitude data
@@ -1047,8 +1047,11 @@ class CZMLGenerator:
         start_iso = start_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         end_iso = end_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
-        # Build position samples (time, lon, lat, alt)
+        # Build position and orientation samples together
         positions = []
+        orientations = []
+        has_attitude = all(col in df.columns for col in ['heading', 'pitch', 'roll'])
+
         for timestamp, row in df.iterrows():
             if isinstance(timestamp, str):
                 timestamp = pd.to_datetime(timestamp)
@@ -1058,18 +1061,67 @@ class CZMLGenerator:
             alt = row['altitude']
 
             # Skip invalid positions
-            if np.isnan(lon) or np.isnan(lat) or np.isnan(alt):
+            if pd.isna(lon) or pd.isna(lat) or pd.isna(alt):
                 continue
 
             time_offset = (timestamp - start_time).total_seconds()
             positions.extend([time_offset, lon, lat, alt])
 
-        # Sample every 10th point for performance (aircraft position updates)
+            # Build orientation from HPR if available
+            if has_attitude:
+                heading_deg = row.get('heading', 0)
+                pitch_val = row.get('pitch', 0)
+                roll_val = row.get('roll', 0)
+
+                if pd.isna(heading_deg) or pd.isna(pitch_val) or pd.isna(roll_val):
+                    continue
+
+                heading_deg = float(heading_deg) if heading_deg else 0
+                pitch_val = float(pitch_val) if pitch_val else 0
+                roll_val = float(roll_val) if roll_val else 0
+
+                # Detect if pitch/roll are in radians (values < 1 radian ≈ 57°)
+                if abs(pitch_val) < 1.5 and abs(roll_val) < 1.5:
+                    pitch_deg = math.degrees(pitch_val)
+                    roll_deg = math.degrees(roll_val)
+                else:
+                    pitch_deg = pitch_val
+                    roll_deg = roll_val
+
+                # Convert to radians for quaternion
+                # Cesium heading: 0° = North, clockwise positive
+                # Add 90° offset because Cesium_Air model nose points +X (East), not +Y (North)
+                h = math.radians(heading_deg - 90)  # Offset for model orientation
+                p = math.radians(-pitch_deg)  # Invert pitch for Cesium (nose up = negative in Cesium)
+                r = math.radians(-roll_deg)   # Invert roll for Cesium
+
+                # Quaternion from HPR using ZYX (Heading-Pitch-Roll) order
+                cy = math.cos(h * 0.5)
+                sy = math.sin(h * 0.5)
+                cp = math.cos(p * 0.5)
+                sp = math.sin(p * 0.5)
+                cr = math.cos(r * 0.5)
+                sr = math.sin(r * 0.5)
+
+                # Standard aerospace ZYX quaternion
+                qw = cr * cp * cy + sr * sp * sy
+                qx = sr * cp * cy - cr * sp * sy
+                qy = cr * sp * cy + sr * cp * sy
+                qz = cr * cp * sy - sr * sp * cy
+
+                orientations.extend([time_offset, qx, qy, qz, qw])
+
+        # Sample for performance
         sampled_positions = []
-        for i in range(0, len(positions), 40):  # Every 10th point (4 values per point)
+        for i in range(0, len(positions), 40):  # Every 10th point
             sampled_positions.extend(positions[i:i+4])
 
-        print(f"✈️ Aircraft entity: {len(sampled_positions)//4} position samples (using velocityReference for orientation)")
+        sampled_orientations = []
+        if orientations:
+            for i in range(0, len(orientations), 50):  # Every 10th point
+                sampled_orientations.extend(orientations[i:i+5])
+
+        print(f"✈️ Aircraft entity: {len(sampled_positions)//4} positions, {len(sampled_orientations)//5} orientations (HPR from flight log)")
 
         # Create the aircraft entity
         aircraft = {
@@ -1078,15 +1130,10 @@ class CZMLGenerator:
             "availability": f"{start_iso}/{end_iso}",
             "position": {
                 "interpolationAlgorithm": "LAGRANGE",
-                "interpolationDegree": 2,  # Smoother interpolation
+                "interpolationDegree": 2,
                 "referenceFrame": "FIXED",
                 "epoch": start_iso,
                 "cartographicDegrees": sampled_positions
-            },
-            # Use velocityReference to auto-orient along flight path direction
-            # This makes the aircraft nose point in the direction of travel
-            "orientation": {
-                "velocityReference": "#position"
             },
             # 3D Model - using Cesium airplane model for eVTOL visualization
             "model": {
@@ -1119,6 +1166,19 @@ class CZMLGenerator:
                 "disableDepthTestDistance": 1000000
             }
         }
+
+        # Add orientation from flight log HPR data
+        if sampled_orientations:
+            aircraft["orientation"] = {
+                "interpolationAlgorithm": "LINEAR",
+                "epoch": start_iso,
+                "unitQuaternion": sampled_orientations
+            }
+        else:
+            # Fallback to velocity-based orientation if no attitude data
+            aircraft["orientation"] = {
+                "velocityReference": "#position"
+            }
 
         return aircraft
 
