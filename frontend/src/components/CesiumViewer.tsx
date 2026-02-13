@@ -6,6 +6,7 @@ import { AnalyticsPanel } from './AnalyticsPanel';
 import { KPIDashboard } from './KPIDashboard';
 import RootCausePanel from './RootCausePanel';
 import { SignalLossDrilldownModal } from './SignalLossDrilldownModal';
+import { AttitudeAnalysisPanel } from './AttitudeAnalysisPanel';
 
 interface CesiumViewerProps {
   className?: string;
@@ -87,6 +88,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Path color mode
   type PathColorMode = 'altitude' | 'speed' |
+    'pitch' | 'roll' | 'pitch_performance' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
@@ -130,6 +132,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Signal loss state
   const [showSignalLoss, setShowSignalLoss] = useState<boolean>(false);
   const [signalLossSegments, setSignalLossSegments] = useState<any[]>([]);
+
+  // Attitude analysis panel state
+  const [showAttitudeAnalysis, setShowAttitudeAnalysis] = useState<boolean>(false);
 
   // Timeline control states
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -1265,6 +1270,25 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           metric={pathColorMode}
         />
       )}
+
+      {/* Attitude Analysis Button */}
+      {selectedSessionId && (
+        <button
+          onClick={() => setShowAttitudeAnalysis(true)}
+          className="absolute bottom-4 left-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-2 rounded-lg shadow-lg hover:from-blue-700 hover:to-indigo-700 transition-all z-10 text-sm font-medium flex items-center gap-2"
+        >
+          <span>Attitude Analysis</span>
+          <span className="text-xs opacity-80">(Pitch+Elevation)</span>
+        </button>
+      )}
+
+      {/* Attitude Analysis Panel */}
+      <AttitudeAnalysisPanel
+        sessionId={selectedSessionId}
+        flightId={selectedFlightId}
+        isVisible={showAttitudeAnalysis}
+        onClose={() => setShowAttitudeAnalysis(false)}
+      />
 
       <div ref={viewerRef} className="w-full h-full" />
     </div>

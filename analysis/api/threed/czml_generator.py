@@ -620,6 +620,26 @@ class CZMLGenerator:
                 raise ValueError(f"❌ Speed data not available in this session")
             values = df['speed_mps'].values
 
+        # Aircraft attitude modes
+        elif color_by == 'pitch':
+            if 'pitch' not in df.columns:
+                raise ValueError(f"❌ Pitch data not available in this session")
+            values = df['pitch'].values
+        elif color_by == 'roll':
+            if 'roll' not in df.columns:
+                raise ValueError(f"❌ Roll data not available in this session")
+            values = df['roll'].values
+        elif color_by == 'pitch_performance':
+            # Color by pitch angle with performance context
+            # Level flight (pitch near 0) = RED (bad), tilted = GREEN (good)
+            if 'pitch' not in df.columns:
+                raise ValueError(f"❌ Pitch data not available in this session")
+            pitch = df['pitch'].values
+            # Optimal pitch is NOT 0 (based on analysis: tilted is better)
+            # Score: further from 0 = better, so abs(pitch) normalized
+            values = np.abs(pitch)  # Higher absolute pitch = better
+            column_name = 'pitch_performance'
+
         # LTE modes
         elif color_by == 'lte_quality_combined':
             values = self._calculate_lte_quality_combined(df)
@@ -826,6 +846,23 @@ class CZMLGenerator:
                 normalized = (values - vmin) / (vmax - vmin)
             else:
                 normalized = np.zeros_like(values)
+        elif column_name == 'pitch':
+            # Pitch: use symmetric range around 0 (-15 to +15 degrees typical)
+            vmin, vmax = -15, 15
+            # Normalize to 0-1 where 0=-15°, 0.5=0°, 1=+15°
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'roll':
+            # Roll: use symmetric range around 0 (-15 to +15 degrees typical)
+            vmin, vmax = -15, 15
+            normalized = (values - vmin) / (vmax - vmin)
+        elif column_name == 'pitch_performance':
+            # Pitch performance: higher absolute pitch = better (green)
+            # Level flight (0°) = bad (red), tilted (>5°) = good (green)
+            vmin, vmax = 0, 10  # 0° = worst, 10° = best
+            if vmax > vmin:
+                normalized = (values - vmin) / (vmax - vmin)
+            else:
+                normalized = np.zeros_like(values)
         else:
             # altitude and others: use actual min/max
             vmin, vmax = vmin_actual, vmax_actual
@@ -878,6 +915,8 @@ class CZMLGenerator:
             return 'm'
         elif 'speed' in column_name:
             return 'm/s'
+        elif 'pitch' in column_name or 'roll' in column_name:
+            return '°'
         else:
             return ''
 
@@ -911,6 +950,16 @@ class CZMLGenerator:
             # Fluid dynamics standard for velocity visualization
             cmap = cm.turbo
             print(f"🎨 Using TURBO colormap (Blue→Green→Yellow→Red) for speed")
+
+        elif column_name == 'pitch_performance':
+            # Performance-based: Red (level/bad) → Green (tilted/good)
+            cmap = cm.RdYlGn
+            print(f"🎨 Using TRAFFIC LIGHT colormap (Red=level→Green=tilted) for pitch performance")
+
+        elif 'pitch' in column_name or 'roll' in column_name:
+            # Diverging colormap for attitude: Blue (negative) → White (0) → Red (positive)
+            cmap = cm.coolwarm
+            print(f"🎨 Using COOLWARM colormap (Blue→White→Red) for {column_name}")
 
         else:
             # Fallback: jet colormap

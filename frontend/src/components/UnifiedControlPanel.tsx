@@ -37,11 +37,13 @@ interface UnifiedControlPanelProps {
 
   // Path color controls
   pathColorMode: 'altitude' | 'speed' |
+    'pitch' | 'roll' | 'pitch_performance' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime';
   onPathColorModeChange: (mode: 'altitude' | 'speed' |
+    'pitch' | 'roll' | 'pitch_performance' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
@@ -242,6 +244,50 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 />
                 <span className="text-xs">Speed (Fast ↔ Slow)</span>
               </label>
+
+              {/* Aircraft Attitude - Expandable */}
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={pathColorMode === 'pitch' || pathColorMode === 'roll' || pathColorMode === 'pitch_performance'}
+                    onChange={() => onPathColorModeChange('pitch_performance')}
+                    className="w-3 h-3"
+                  />
+                  <span className="text-xs font-semibold">Aircraft Attitude ▼</span>
+                </label>
+                {(pathColorMode === 'pitch' || pathColorMode === 'roll' || pathColorMode === 'pitch_performance') && (
+                  <div className="ml-5 mt-1 space-y-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'pitch_performance'}
+                        onChange={() => onPathColorModeChange('pitch_performance')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">Pitch Performance (Level=Bad) ⭐</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'pitch'}
+                        onChange={() => onPathColorModeChange('pitch')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">Pitch Angle (Nose Up/Down)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'roll'}
+                        onChange={() => onPathColorModeChange('roll')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">Roll Angle (Left/Right Tilt)</span>
+                    </label>
+                  </div>
+                )}
+              </div>
 
               {/* LTE Quality - Expandable */}
               <div>

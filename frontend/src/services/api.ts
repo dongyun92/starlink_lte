@@ -53,6 +53,7 @@ export async function getCZMLData(
   options?: {
     sample_rate?: number;
     color_by?: 'altitude' | 'speed' |
+                'pitch' | 'roll' | 'pitch_performance' |
                 'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' |
                 'starlink_quality_combined' | 'starlink_latency' |
                 'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
@@ -462,6 +463,102 @@ export async function getRootCauseAnalysis(sessionId: string): Promise<RootCause
 
   if (!response.ok) {
     throw new Error(`Failed to fetch root cause analysis: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Attitude analysis data interfaces
+ */
+export interface PitchElevationMatrixItem {
+  pitch: string;
+  elevation: string;
+  success_rate: number;
+  count: number;
+  avg_upload_mbps: number;
+  // Download metrics (optional)
+  download_success_rate?: number;
+  avg_download_mbps?: number;
+  // Latency metrics (optional)
+  latency_success_rate?: number;
+  avg_latency_ms?: number;
+}
+
+export interface AttitudeStatItem {
+  pitch?: string;
+  roll?: string;
+  direction?: string;
+  elevation?: string;
+  success_rate: number;
+  count: number;
+  avg_upload_mbps: number;
+  // Download metrics (optional)
+  download_success_rate?: number;
+  avg_download_mbps?: number;
+  // Latency metrics (optional)
+  latency_success_rate?: number;
+  avg_latency_ms?: number;
+}
+
+export interface AttitudeAnalysis {
+  session_id: string;
+  total_points: number;
+
+  // Upload metrics (primary)
+  good_points: number;
+  overall_success_rate: number;
+  avg_upload_mbps: number;
+  max_upload_mbps: number;
+
+  // Download metrics
+  good_download_points: number;
+  download_success_rate: number;
+  avg_download_mbps: number;
+  max_download_mbps: number;
+
+  // Latency metrics
+  good_latency_points: number;
+  latency_success_rate: number;
+  avg_latency_ms: number;
+  min_latency_ms: number;
+
+  // Detailed stats
+  pitch_elevation_matrix: PitchElevationMatrixItem[];
+  pitch_stats: AttitudeStatItem[];
+  roll_stats: AttitudeStatItem[];
+  azimuth_stats: AttitudeStatItem[];
+  elevation_stats: AttitudeStatItem[];
+  optimal_conditions: {
+    pitch: string | null;
+    elevation: string | null;
+    success_rate: number;
+  };
+}
+
+/**
+ * Get attitude analysis for a session (Pitch+Elevation matrix, etc.)
+ */
+export async function getAttitudeAnalysis(
+  sessionId: string,
+  options?: { flight_id?: number }
+): Promise<AttitudeAnalysis> {
+  const params = new URLSearchParams();
+
+  if (options?.flight_id !== undefined) {
+    params.append('flight_id', options.flight_id.toString());
+  }
+
+  const url = `${API_BASE_URL}/api/3d/attitude-analysis/${sessionId}${params.toString() ? '?' + params.toString() : ''}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    try {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to fetch attitude analysis: ${response.statusText}`);
+    } catch (parseError) {
+      throw new Error(`Failed to fetch attitude analysis: ${response.statusText}`);
+    }
   }
 
   return response.json();

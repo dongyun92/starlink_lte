@@ -1143,6 +1143,352 @@ def get_tower_connections_czml(session_id):
         return jsonify({'error': str(e)}), 500
 
 
+@api_3d_bp.route('/attitude-analysis/<session_id>', methods=['GET'])
+def get_attitude_analysis(session_id):
+    """
+    Analyze aircraft attitude (pitch, roll) vs Starlink performance
+    Returns Pitch+Elevation matrix and other attitude-based statistics
+
+    Query Parameters:
+        - flight_id: Optional flight ID to filter by (for multi-flight sessions)
+
+    Returns:
+        JSON with:
+        - pitch_elevation_matrix: 2D matrix of success rates by pitch and elevation bins
+        - pitch_stats: Performance by pitch angle
+        - roll_stats: Performance by roll angle
+        - azimuth_stats: Performance by satellite azimuth direction
+        - optimal_conditions: Best performing conditions
+    """
+    try:
+        import pandas as pd
+        import numpy as np
+
+        flight_id = request.args.get('flight_id', None, type=int)
+
+        # Load merged data
+        results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
+        merged_data_path = results_dir / 'merged_data.csv'
+
+        if not merged_data_path.exists():
+            return jsonify({'error': 'Session data not found'}), 404
+
+        df = pd.read_csv(merged_data_path)
+
+        # Filter by flight_id if specified
+        if flight_id is not None and 'flight_id' in df.columns:
+            df = df[df['flight_id'] == flight_id]
+
+        # Check required columns
+        required_cols = ['pitch']
+        missing = [col for col in required_cols if col not in df.columns]
+        if missing:
+            return jsonify({'error': f'Missing required columns: {missing}'}), 400
+
+        # ═══════════════════════════════════════════════════════════════
+        # Multi-metric performance analysis: Upload, Download, Latency
+        # ═══════════════════════════════════════════════════════════════
+
+        # Upload throughput analysis (>200 Kbps = good)
+        if 'starlink_uplink_throughput_bps' in df.columns:
+            df['is_good_upload'] = df['starlink_uplink_throughput_bps'] > 200_000
+            df['upload_mbps'] = df['starlink_uplink_throughput_bps'] / 1_000_000
+        else:
+            df['is_good_upload'] = False
+            df['upload_mbps'] = 0
+
+        # Download throughput analysis (>1 Mbps = good)
+        if 'starlink_downlink_throughput_bps' in df.columns:
+            df['is_good_download'] = df['starlink_downlink_throughput_bps'] > 1_000_000
+            df['download_mbps'] = df['starlink_downlink_throughput_bps'] / 1_000_000
+        else:
+            df['is_good_download'] = False
+            df['download_mbps'] = 0
+
+        # Latency analysis (<50ms = good)
+        if 'starlink_latency' in df.columns:
+            df['is_good_latency'] = df['starlink_latency'] < 50
+        else:
+            df['is_good_latency'] = False
+
+        # Combined "good" = good upload (primary metric)
+        df['is_good'] = df['is_good_upload']
+
+        # 1. Pitch + Elevation Matrix
+        pitch_bins = [-90, -5, -2, 0, 2, 5, 90]
+        pitch_labels = ['<-5°', '-5~-2°', '-2~0°', '0~2°', '2~5°', '>5°']
+
+        elev_bins = [0, 75, 80, 85, 90, 100]
+        elev_labels = ['<75°', '75-80°', '80-85°', '85-90°', '>90°']
+
+        df['pitch_bin'] = pd.cut(df['pitch'], bins=pitch_bins, labels=pitch_labels, include_lowest=True)
+
+        if 'starlink_elevation' in df.columns:
+            df['elev_bin'] = pd.cut(df['starlink_elevation'], bins=elev_bins, labels=elev_labels, include_lowest=True)
+
+            # Create pivot table for success rate (all metrics)
+            agg_dict = {
+                'is_good_upload': ['mean', 'count'],
+                'upload_mbps': 'mean'
+            }
+            if 'download_mbps' in df.columns:
+                agg_dict['is_good_download'] = 'mean'
+                agg_dict['download_mbps'] = 'mean'
+            if 'starlink_latency' in df.columns:
+                agg_dict['is_good_latency'] = 'mean'
+                agg_dict['starlink_latency'] = 'mean'
+
+            matrix_df = df.groupby(['pitch_bin', 'elev_bin'], observed=True).agg(agg_dict).reset_index()
+
+            # Flatten column names
+            matrix_df.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col for col in matrix_df.columns.values]
+
+            # Convert to matrix format for frontend
+            pitch_elevation_matrix = []
+            for _, row in matrix_df.iterrows():
+                if pd.notna(row['pitch_bin']) and pd.notna(row['elev_bin']):
+                    item = {
+                        'pitch': str(row['pitch_bin']),
+                        'elevation': str(row['elev_bin']),
+                        'success_rate': round(float(row.get('is_good_upload_mean', 0)) * 100, 1),
+                        'count': int(row.get('is_good_upload_count', 0)),
+                        'avg_upload_mbps': round(float(row.get('upload_mbps_mean', 0)), 3) if pd.notna(row.get('upload_mbps_mean')) else 0
+                    }
+                    # Add download metrics if available
+                    if 'is_good_download_mean' in row:
+                        item['download_success_rate'] = round(float(row['is_good_download_mean']) * 100, 1)
+                        item['avg_download_mbps'] = round(float(row.get('download_mbps_mean', 0)), 3) if pd.notna(row.get('download_mbps_mean')) else 0
+                    # Add latency metrics if available
+                    if 'is_good_latency_mean' in row:
+                        item['latency_success_rate'] = round(float(row['is_good_latency_mean']) * 100, 1)
+                        item['avg_latency_ms'] = round(float(row.get('starlink_latency_mean', 0)), 1) if pd.notna(row.get('starlink_latency_mean')) else 0
+                    pitch_elevation_matrix.append(item)
+        else:
+            pitch_elevation_matrix = []
+
+        # 2. Pitch Stats (success rate by pitch angle) - all metrics
+        pitch_agg = {'is_good_upload': ['mean', 'count'], 'upload_mbps': 'mean'}
+        if 'download_mbps' in df.columns:
+            pitch_agg['is_good_download'] = 'mean'
+            pitch_agg['download_mbps'] = 'mean'
+        if 'starlink_latency' in df.columns:
+            pitch_agg['is_good_latency'] = 'mean'
+            pitch_agg['starlink_latency'] = 'mean'
+
+        pitch_stats = df.groupby('pitch_bin', observed=True).agg(pitch_agg).reset_index()
+        pitch_stats.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col for col in pitch_stats.columns.values]
+
+        pitch_stats_list = []
+        for _, row in pitch_stats.iterrows():
+            if pd.notna(row['pitch_bin']):
+                item = {
+                    'pitch': str(row['pitch_bin']),
+                    'success_rate': round(float(row.get('is_good_upload_mean', 0)) * 100, 1),
+                    'count': int(row.get('is_good_upload_count', 0)),
+                    'avg_upload_mbps': round(float(row.get('upload_mbps_mean', 0)), 3) if pd.notna(row.get('upload_mbps_mean')) else 0
+                }
+                if 'is_good_download_mean' in row:
+                    item['download_success_rate'] = round(float(row['is_good_download_mean']) * 100, 1)
+                    item['avg_download_mbps'] = round(float(row.get('download_mbps_mean', 0)), 3) if pd.notna(row.get('download_mbps_mean')) else 0
+                if 'is_good_latency_mean' in row:
+                    item['latency_success_rate'] = round(float(row['is_good_latency_mean']) * 100, 1)
+                    item['avg_latency_ms'] = round(float(row.get('starlink_latency_mean', 0)), 1) if pd.notna(row.get('starlink_latency_mean')) else 0
+                pitch_stats_list.append(item)
+
+        # 3. Roll Stats - all metrics
+        roll_bins = [-90, -10, -5, -2, 2, 5, 10, 90]
+        roll_labels = ['<-10°', '-10~-5°', '-5~-2°', '-2~2°', '2~5°', '5~10°', '>10°']
+        df['roll_bin'] = pd.cut(df['roll'], bins=roll_bins, labels=roll_labels, include_lowest=True)
+
+        roll_agg = {'is_good_upload': ['mean', 'count'], 'upload_mbps': 'mean'}
+        if 'download_mbps' in df.columns:
+            roll_agg['is_good_download'] = 'mean'
+            roll_agg['download_mbps'] = 'mean'
+        if 'starlink_latency' in df.columns:
+            roll_agg['is_good_latency'] = 'mean'
+            roll_agg['starlink_latency'] = 'mean'
+
+        roll_stats = df.groupby('roll_bin', observed=True).agg(roll_agg).reset_index()
+        roll_stats.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col for col in roll_stats.columns.values]
+
+        roll_stats_list = []
+        for _, row in roll_stats.iterrows():
+            if pd.notna(row['roll_bin']):
+                item = {
+                    'roll': str(row['roll_bin']),
+                    'success_rate': round(float(row.get('is_good_upload_mean', 0)) * 100, 1),
+                    'count': int(row.get('is_good_upload_count', 0)),
+                    'avg_upload_mbps': round(float(row.get('upload_mbps_mean', 0)), 3) if pd.notna(row.get('upload_mbps_mean')) else 0
+                }
+                if 'is_good_download_mean' in row:
+                    item['download_success_rate'] = round(float(row['is_good_download_mean']) * 100, 1)
+                    item['avg_download_mbps'] = round(float(row.get('download_mbps_mean', 0)), 3) if pd.notna(row.get('download_mbps_mean')) else 0
+                if 'is_good_latency_mean' in row:
+                    item['latency_success_rate'] = round(float(row['is_good_latency_mean']) * 100, 1)
+                    item['avg_latency_ms'] = round(float(row.get('starlink_latency_mean', 0)), 1) if pd.notna(row.get('starlink_latency_mean')) else 0
+                roll_stats_list.append(item)
+
+        # 4. Azimuth Stats (satellite direction)
+        if 'starlink_azimuth' in df.columns:
+            # Convert azimuth to compass direction
+            def azimuth_to_direction(az):
+                if pd.isna(az):
+                    return None
+                az = az % 360
+                if az < 22.5 or az >= 337.5:
+                    return 'N'
+                elif az < 67.5:
+                    return 'NE'
+                elif az < 112.5:
+                    return 'E'
+                elif az < 157.5:
+                    return 'SE'
+                elif az < 202.5:
+                    return 'S'
+                elif az < 247.5:
+                    return 'SW'
+                elif az < 292.5:
+                    return 'W'
+                else:
+                    return 'NW'
+
+            df['azimuth_dir'] = df['starlink_azimuth'].apply(azimuth_to_direction)
+
+            azimuth_agg = {'is_good_upload': ['mean', 'count'], 'upload_mbps': 'mean'}
+            if 'download_mbps' in df.columns:
+                azimuth_agg['is_good_download'] = 'mean'
+                azimuth_agg['download_mbps'] = 'mean'
+            if 'starlink_latency' in df.columns:
+                azimuth_agg['is_good_latency'] = 'mean'
+                azimuth_agg['starlink_latency'] = 'mean'
+
+            azimuth_stats = df.groupby('azimuth_dir', observed=True).agg(azimuth_agg).reset_index()
+            azimuth_stats.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col for col in azimuth_stats.columns.values]
+
+            azimuth_stats_list = []
+            for _, row in azimuth_stats.iterrows():
+                if pd.notna(row['azimuth_dir']):
+                    item = {
+                        'direction': str(row['azimuth_dir']),
+                        'success_rate': round(float(row.get('is_good_upload_mean', 0)) * 100, 1),
+                        'count': int(row.get('is_good_upload_count', 0)),
+                        'avg_upload_mbps': round(float(row.get('upload_mbps_mean', 0)), 3) if pd.notna(row.get('upload_mbps_mean')) else 0
+                    }
+                    if 'is_good_download_mean' in row:
+                        item['download_success_rate'] = round(float(row['is_good_download_mean']) * 100, 1)
+                        item['avg_download_mbps'] = round(float(row.get('download_mbps_mean', 0)), 3) if pd.notna(row.get('download_mbps_mean')) else 0
+                    if 'is_good_latency_mean' in row:
+                        item['latency_success_rate'] = round(float(row['is_good_latency_mean']) * 100, 1)
+                        item['avg_latency_ms'] = round(float(row.get('starlink_latency_mean', 0)), 1) if pd.notna(row.get('starlink_latency_mean')) else 0
+                    azimuth_stats_list.append(item)
+        else:
+            azimuth_stats_list = []
+
+        # 5. Elevation Stats - all metrics
+        if 'starlink_elevation' in df.columns:
+            elev_agg = {'is_good_upload': ['mean', 'count'], 'upload_mbps': 'mean'}
+            if 'download_mbps' in df.columns:
+                elev_agg['is_good_download'] = 'mean'
+                elev_agg['download_mbps'] = 'mean'
+            if 'starlink_latency' in df.columns:
+                elev_agg['is_good_latency'] = 'mean'
+                elev_agg['starlink_latency'] = 'mean'
+
+            elev_stats = df.groupby('elev_bin', observed=True).agg(elev_agg).reset_index()
+            elev_stats.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col for col in elev_stats.columns.values]
+
+            elev_stats_list = []
+            for _, row in elev_stats.iterrows():
+                if pd.notna(row['elev_bin']):
+                    item = {
+                        'elevation': str(row['elev_bin']),
+                        'success_rate': round(float(row.get('is_good_upload_mean', 0)) * 100, 1),
+                        'count': int(row.get('is_good_upload_count', 0)),
+                        'avg_upload_mbps': round(float(row.get('upload_mbps_mean', 0)), 3) if pd.notna(row.get('upload_mbps_mean')) else 0
+                    }
+                    if 'is_good_download_mean' in row:
+                        item['download_success_rate'] = round(float(row['is_good_download_mean']) * 100, 1)
+                        item['avg_download_mbps'] = round(float(row.get('download_mbps_mean', 0)), 3) if pd.notna(row.get('download_mbps_mean')) else 0
+                    if 'is_good_latency_mean' in row:
+                        item['latency_success_rate'] = round(float(row['is_good_latency_mean']) * 100, 1)
+                        item['avg_latency_ms'] = round(float(row.get('starlink_latency_mean', 0)), 1) if pd.notna(row.get('starlink_latency_mean')) else 0
+                    elev_stats_list.append(item)
+        else:
+            elev_stats_list = []
+
+        # 6. Find optimal conditions
+        optimal_pitch = None
+        optimal_elev = None
+        optimal_success = 0
+
+        for item in pitch_elevation_matrix:
+            if item['count'] >= 100 and item['success_rate'] > optimal_success:
+                optimal_success = item['success_rate']
+                optimal_pitch = item['pitch']
+                optimal_elev = item['elevation']
+
+        # 7. Summary statistics - all metrics
+        total_points = len(df)
+
+        # Upload stats
+        good_upload_points = int(df['is_good_upload'].sum())
+        overall_upload_success_rate = round(good_upload_points / total_points * 100, 1) if total_points > 0 else 0
+        avg_upload_mbps = round(float(df['upload_mbps'].mean()), 3) if 'upload_mbps' in df.columns else 0
+        max_upload_mbps = round(float(df['upload_mbps'].max()), 3) if 'upload_mbps' in df.columns else 0
+
+        # Download stats
+        good_download_points = int(df['is_good_download'].sum()) if 'is_good_download' in df.columns else 0
+        overall_download_success_rate = round(good_download_points / total_points * 100, 1) if total_points > 0 else 0
+        avg_download_mbps = round(float(df['download_mbps'].mean()), 3) if 'download_mbps' in df.columns else 0
+        max_download_mbps = round(float(df['download_mbps'].max()), 3) if 'download_mbps' in df.columns else 0
+
+        # Latency stats
+        good_latency_points = int(df['is_good_latency'].sum()) if 'is_good_latency' in df.columns else 0
+        overall_latency_success_rate = round(good_latency_points / total_points * 100, 1) if total_points > 0 else 0
+        avg_latency_ms = round(float(df['starlink_latency'].mean()), 1) if 'starlink_latency' in df.columns else 0
+        min_latency_ms = round(float(df['starlink_latency'].min()), 1) if 'starlink_latency' in df.columns else 0
+
+        return jsonify({
+            'session_id': session_id,
+            'total_points': total_points,
+
+            # Upload metrics (primary)
+            'good_points': good_upload_points,
+            'overall_success_rate': overall_upload_success_rate,
+            'avg_upload_mbps': avg_upload_mbps,
+            'max_upload_mbps': max_upload_mbps,
+
+            # Download metrics
+            'good_download_points': good_download_points,
+            'download_success_rate': overall_download_success_rate,
+            'avg_download_mbps': avg_download_mbps,
+            'max_download_mbps': max_download_mbps,
+
+            # Latency metrics
+            'good_latency_points': good_latency_points,
+            'latency_success_rate': overall_latency_success_rate,
+            'avg_latency_ms': avg_latency_ms,
+            'min_latency_ms': min_latency_ms,
+
+            # Detailed stats
+            'pitch_elevation_matrix': pitch_elevation_matrix,
+            'pitch_stats': pitch_stats_list,
+            'roll_stats': roll_stats_list,
+            'azimuth_stats': azimuth_stats_list,
+            'elevation_stats': elev_stats_list,
+            'optimal_conditions': {
+                'pitch': optimal_pitch,
+                'elevation': optimal_elev,
+                'success_rate': optimal_success
+            }
+        }), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @api_3d_bp.route('/health', methods=['GET'])
 def health_check():
     """
