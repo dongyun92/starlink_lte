@@ -665,10 +665,10 @@ class CZMLGenerator:
             values = df['starlink_uplink_throughput_bps'].values / 1_000_000  # Convert to Mbps
             column_name = 'starlink_throughput_up'
         elif color_by == 'starlink_connection_quality':
-            # Binary classification: Good (>0.3 Mbps) vs Bad (<=0.3 Mbps)
+            # Binary classification: Good (>0.2 Mbps) vs Bad (<=0.2 Mbps)
             if 'starlink_uplink_throughput_bps' not in df.columns:
                 raise ValueError(f"❌ Starlink uplink throughput data not available in this session")
-            values = (df['starlink_uplink_throughput_bps'].values > 300_000).astype(float)  # 1 = good (>0.3 Mbps), 0 = bad
+            values = (df['starlink_uplink_throughput_bps'].values > 200_000).astype(float)  # 1 = good (>0.2 Mbps), 0 = bad
             column_name = 'starlink_connection_quality'
         elif color_by == 'starlink_roaming':
             # Roaming status: False (not roaming) = good, True (roaming) = bad
