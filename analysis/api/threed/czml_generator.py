@@ -1051,6 +1051,26 @@ class CZMLGenerator:
         positions = []
         orientations = []
         has_attitude = all(col in df.columns for col in ['heading', 'pitch', 'roll'])
+        has_quaternion = all(col in df.columns for col in ['q0', 'q1', 'q2', 'q3'])
+
+        print(f"\n{'='*60}")
+        print(f"🔍 ORIENTATION DATA CHECK")
+        print(f"{'='*60}")
+        print(f"   DataFrame columns: {list(df.columns)[:20]}...")  # First 20 columns
+        print(f"   has_attitude (heading/pitch/roll): {has_attitude}")
+        print(f"   has_quaternion (q0/q1/q2/q3): {has_quaternion}")
+
+        if has_quaternion:
+            print(f"✅ Quaternion data detected (q0,q1,q2,q3) - using PX4 native quaternion")
+        elif has_attitude:
+            print(f"⚠️ No quaternion, using Euler angles (heading/pitch/roll) - less accurate")
+        else:
+            print(f"❌ No attitude data available")
+        print(f"{'='*60}\n")
+        sys.stdout.flush()
+
+        quaternion_count = 0
+        euler_count = 0
 
         for timestamp, row in df.iterrows():
             if isinstance(timestamp, str):
@@ -1067,49 +1087,66 @@ class CZMLGenerator:
             time_offset = (timestamp - start_time).total_seconds()
             positions.extend([time_offset, lon, lat, alt])
 
-            # Build orientation from HPR if available
+            # Build orientation using Euler angles (yaw/pitch/roll from PX4)
             if has_attitude:
-                heading_deg = row.get('heading', 0)
+                # Use Euler angles converted from quaternion (more reliable than direct quaternion transform)
+                # Try yaw first (from quaternion conversion), then heading (from GPS)
+                yaw_deg = row.get('yaw', None)
+                if yaw_deg is None or pd.isna(yaw_deg):
+                    yaw_deg = row.get('heading', 0)
+
                 pitch_val = row.get('pitch', 0)
                 roll_val = row.get('roll', 0)
 
-                if pd.isna(heading_deg) or pd.isna(pitch_val) or pd.isna(roll_val):
+                if pd.isna(yaw_deg) or pd.isna(pitch_val) or pd.isna(roll_val):
                     continue
 
-                heading_deg = float(heading_deg) if heading_deg else 0
-                pitch_val = float(pitch_val) if pitch_val else 0
-                roll_val = float(roll_val) if roll_val else 0
+                yaw_deg = float(yaw_deg) if yaw_deg else 0
+                pitch_deg = float(pitch_val) if pitch_val else 0
+                roll_deg = float(roll_val) if roll_val else 0
 
-                # Detect if pitch/roll are in radians (values < 1 radian ≈ 57°)
-                if abs(pitch_val) < 1.5 and abs(roll_val) < 1.5:
-                    pitch_deg = math.degrees(pitch_val)
-                    roll_deg = math.degrees(roll_val)
-                else:
-                    pitch_deg = pitch_val
-                    roll_deg = roll_val
+                # ===== CESIUM STANDARD IMPLEMENTATION =====
+                # Source: https://github.com/CesiumGS/cesium/blob/main/packages/engine/Source/Core/Quaternion.js
+                # Cesium uses: heading (Z-axis, negative), pitch (Y-axis, negative), roll (X-axis, positive)
+                # Order: heading_quat * pitch_quat * roll_quat
 
-                # Convert to radians for quaternion
-                # Cesium heading: 0° = North, clockwise positive
-                # Add 90° offset because Cesium_Air model nose points +X (East), not +Y (North)
-                h = math.radians(heading_deg - 90)  # Offset for model orientation
-                p = math.radians(-pitch_deg)  # Invert pitch for Cesium (nose up = negative in Cesium)
-                r = math.radians(-roll_deg)   # Invert roll for Cesium
+                # Convert to radians with Cesium sign conventions
+                h_rad = math.radians(-yaw_deg)      # Negative Z-axis rotation
+                p_rad = math.radians(-pitch_deg)    # Negative Y-axis rotation
+                r_rad = math.radians(roll_deg)      # Positive X-axis rotation
 
-                # Quaternion from HPR using ZYX (Heading-Pitch-Roll) order
-                cy = math.cos(h * 0.5)
-                sy = math.sin(h * 0.5)
-                cp = math.cos(p * 0.5)
-                sp = math.sin(p * 0.5)
-                cr = math.cos(r * 0.5)
-                sr = math.sin(r * 0.5)
+                # Roll quaternion (X-axis)
+                roll_qw = math.cos(r_rad * 0.5)
+                roll_qx = math.sin(r_rad * 0.5)
+                roll_qy = 0
+                roll_qz = 0
 
-                # Standard aerospace ZYX quaternion
-                qw = cr * cp * cy + sr * sp * sy
-                qx = sr * cp * cy - cr * sp * sy
-                qy = cr * sp * cy + sr * cp * sy
-                qz = cr * cp * sy - sr * sp * cy
+                # Pitch quaternion (Y-axis)
+                pitch_qw = math.cos(p_rad * 0.5)
+                pitch_qx = 0
+                pitch_qy = math.sin(p_rad * 0.5)
+                pitch_qz = 0
+
+                # Heading quaternion (Z-axis)
+                heading_qw = math.cos(h_rad * 0.5)
+                heading_qx = 0
+                heading_qy = 0
+                heading_qz = math.sin(h_rad * 0.5)
+
+                # Multiply: pitch * roll
+                temp_w = pitch_qw * roll_qw - pitch_qx * roll_qx - pitch_qy * roll_qy - pitch_qz * roll_qz
+                temp_x = pitch_qw * roll_qx + pitch_qx * roll_qw + pitch_qy * roll_qz - pitch_qz * roll_qy
+                temp_y = pitch_qw * roll_qy - pitch_qx * roll_qz + pitch_qy * roll_qw + pitch_qz * roll_qx
+                temp_z = pitch_qw * roll_qz + pitch_qx * roll_qy - pitch_qy * roll_qx + pitch_qz * roll_qw
+
+                # Multiply: heading * (pitch * roll)
+                qw = heading_qw * temp_w - heading_qx * temp_x - heading_qy * temp_y - heading_qz * temp_z
+                qx = heading_qw * temp_x + heading_qx * temp_w + heading_qy * temp_z - heading_qz * temp_y
+                qy = heading_qw * temp_y - heading_qx * temp_z + heading_qy * temp_w + heading_qz * temp_x
+                qz = heading_qw * temp_z + heading_qx * temp_y - heading_qy * temp_x + heading_qz * temp_w
 
                 orientations.extend([time_offset, qx, qy, qz, qw])
+                euler_count += 1
 
         # Sample for performance
         sampled_positions = []
@@ -1121,66 +1158,28 @@ class CZMLGenerator:
             for i in range(0, len(orientations), 50):  # Every 10th point
                 sampled_orientations.extend(orientations[i:i+5])
 
-        print(f"✈️ Aircraft entity: {len(sampled_positions)//4} positions, {len(sampled_orientations)//5} orientations (HPR from flight log)")
+        # Log orientation source
+        print(f"\n{'='*60}")
+        print(f"📊 ORIENTATION USAGE SUMMARY")
+        print(f"{'='*60}")
+        print(f"   Total points processed: {len(df)}")
+        print(f"   Quaternion used: {quaternion_count} points")
+        print(f"   Euler HPR used: {euler_count} points")
+        print(f"   Sampled positions: {len(sampled_positions)//4}")
+        print(f"   Sampled orientations: {len(sampled_orientations)//5}")
 
-        # Create the aircraft entity
-        aircraft = {
-            "id": "aircraft_model",
-            "name": "Flight Vehicle",
-            "availability": f"{start_iso}/{end_iso}",
-            "position": {
-                "interpolationAlgorithm": "LAGRANGE",
-                "interpolationDegree": 2,
-                "referenceFrame": "FIXED",
-                "epoch": start_iso,
-                "cartographicDegrees": sampled_positions
-            },
-            # 3D Model - using Cesium airplane model for eVTOL visualization
-            "model": {
-                "gltf": "https://raw.githubusercontent.com/CesiumGS/cesium/main/Apps/SampleData/models/CesiumAir/Cesium_Air.glb",
-                "scale": 30.0,  # Scale for eVTOL visibility (airplane model is larger)
-                "minimumPixelSize": 64,
-                "maximumScale": 200,
-                "silhouetteColor": {"rgba": [255, 255, 0, 255]},
-                "silhouetteSize": 2.0
-            },
-            # Billboard as fallback (always visible)
-            "billboard": {
-                "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjMDBGRjAwIj48cGF0aCBkPSJNMjEgMTZWOGE1IDUgMCAwIDAtNS01SDhhNSA1IDAgMCAwLTUgNXY4YTUgNSAwIDAgMCA1IDVoOGE1IDUgMCAwIDAgNS01eiIvPjxwYXRoIGZpbGw9IiMwMDAiIGQ9Ik0xMiA2TDcgMTBoMTBMMTIgNnptMCA4TDcgMTBoMTBsLTUgNHoiLz48L3N2Zz4=",
-                "scale": 0.5,
-                "verticalOrigin": "CENTER",
-                "horizontalOrigin": "CENTER",
-                "heightReference": "NONE",
-                "disableDepthTestDistance": 1000000
-            },
-            # Label with current info
-            "label": {
-                "text": "eVTOL",
-                "font": "12pt sans-serif",
-                "style": "FILL_AND_OUTLINE",
-                "outlineWidth": 2,
-                "outlineColor": {"rgba": [0, 0, 0, 255]},
-                "fillColor": {"rgba": [255, 255, 255, 255]},
-                "verticalOrigin": "BOTTOM",
-                "pixelOffset": {"cartesian2": [0, -20]},
-                "disableDepthTestDistance": 1000000
-            }
-        }
-
-        # Add orientation from flight log HPR data
-        if sampled_orientations:
-            aircraft["orientation"] = {
-                "interpolationAlgorithm": "LINEAR",
-                "epoch": start_iso,
-                "unitQuaternion": sampled_orientations
-            }
+        if quaternion_count > 0:
+            print(f"✅ PRIMARY METHOD: Quaternion from PX4 (most accurate)")
+        elif euler_count > 0:
+            print(f"⚠️ FALLBACK METHOD: Euler HPR from heading/pitch/roll")
         else:
-            # Fallback to velocity-based orientation if no attitude data
-            aircraft["orientation"] = {
-                "velocityReference": "#position"
-            }
+            print(f"❌ NO ORIENTATION DATA")
+        print(f"{'='*60}\n")
+        sys.stdout.flush()
 
-        return aircraft
+        # NO AIRCRAFT MODEL - path only
+        print(f"🚫 Aircraft model disabled - showing path only")
+        return None
 
     def _build_position_samples(self, df) -> list:
         """

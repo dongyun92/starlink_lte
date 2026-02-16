@@ -60,6 +60,9 @@ export async function getCZMLData(
                 'starlink_obstruction' | 'starlink_uptime';
     flight_id?: number;
     custom_metrics?: Record<string, number>;
+    heading_offset?: number;
+    pitch_offset?: number;
+    roll_offset?: number;
   }
 ): Promise<CZMLDocument> {
   const params = new URLSearchParams();
@@ -78,6 +81,18 @@ export async function getCZMLData(
 
   if (options?.custom_metrics) {
     params.append('custom_metrics', JSON.stringify(options.custom_metrics));
+  }
+
+  if (options?.heading_offset !== undefined) {
+    params.append('heading_offset', options.heading_offset.toString());
+  }
+
+  if (options?.pitch_offset !== undefined) {
+    params.append('pitch_offset', options.pitch_offset.toString());
+  }
+
+  if (options?.roll_offset !== undefined) {
+    params.append('roll_offset', options.roll_offset.toString());
   }
 
   const url = `${API_BASE_URL}/api/3d/czml/${sessionId}${params.toString() ? '?' + params.toString() : ''}`;

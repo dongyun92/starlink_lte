@@ -194,28 +194,42 @@ class AnalysisPipeline:
                 print(f"  │  ✓ GPS COG (헤딩): {valid_heading}/{len(df)} 포인트")
                 print(f"  │    범위: {df['heading'].min():.1f}° ~ {df['heading'].max():.1f}° (0-360도)")
 
-            # Attitude 데이터 병합 (Roll/Pitch - 선택사항)
+            # Attitude 데이터 병합 (Quaternion + Euler angles)
             if attitude_dataset:
-                # Quaternion에서 Euler 각도 변환
+                # Quaternion 원본 데이터 추출 (3D 시각화용)
                 q = attitude_dataset.data
                 q0 = q['q[0]']
                 q1 = q['q[1]']
                 q2 = q['q[2]']
                 q3 = q['q[3]']
 
-                # Roll, Pitch 계산 (라디안 -> 도)
+                # Quaternion에서 Euler 각도 변환 (분석용)
+                # Roll (X-axis rotation)
                 roll = np.arctan2(2*(q0*q1 + q2*q3), 1 - 2*(q1**2 + q2**2))
+                # Pitch (Y-axis rotation)
                 pitch = np.arcsin(2*(q0*q2 - q3*q1))
+                # Yaw/Heading (Z-axis rotation)
+                yaw = np.arctan2(2*(q0*q3 + q1*q2), 1 - 2*(q2**2 + q3**2))
 
                 attitude_df = pd.DataFrame({
                     'timestamp_us': q['timestamp'],
+                    'q0': q0,
+                    'q1': q1,
+                    'q2': q2,
+                    'q3': q3,
                     'roll': np.degrees(roll),
-                    'pitch': np.degrees(pitch)
+                    'pitch': np.degrees(pitch),
+                    'yaw': np.degrees(yaw)
                 })
 
                 # GPS 타임스탬프에 맞춰 attitude 매칭 (nearest neighbor)
+                df['q0'] = np.nan
+                df['q1'] = np.nan
+                df['q2'] = np.nan
+                df['q3'] = np.nan
                 df['roll'] = np.nan
                 df['pitch'] = np.nan
+                df['yaw'] = np.nan
 
                 for i, row in df.iterrows():
                     # 가장 가까운 attitude 데이터 찾기
@@ -223,11 +237,17 @@ class AnalysisPipeline:
                     closest_idx = time_diff.argmin()
 
                     if time_diff.iloc[closest_idx] < 100000:  # 100ms 이내
+                        df.at[i, 'q0'] = attitude_df.iloc[closest_idx]['q0']
+                        df.at[i, 'q1'] = attitude_df.iloc[closest_idx]['q1']
+                        df.at[i, 'q2'] = attitude_df.iloc[closest_idx]['q2']
+                        df.at[i, 'q3'] = attitude_df.iloc[closest_idx]['q3']
                         df.at[i, 'roll'] = attitude_df.iloc[closest_idx]['roll']
                         df.at[i, 'pitch'] = attitude_df.iloc[closest_idx]['pitch']
+                        df.at[i, 'yaw'] = attitude_df.iloc[closest_idx]['yaw']
 
                 valid_attitude = df['roll'].notna().sum()
-                print(f"  │  ✓ Attitude (Roll/Pitch): {valid_attitude}/{len(df)} 포인트")
+                print(f"  │  ✓ Attitude (Quaternion + Euler): {valid_attitude}/{len(df)} 포인트")
+                print(f"  │    Quaternion (q0,q1,q2,q3) + Roll/Pitch/Yaw (degrees)")
 
             # timestamp_us 제거 (임시 컬럼)
             df = df.drop(columns=['timestamp_us'], errors='ignore')

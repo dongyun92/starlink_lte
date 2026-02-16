@@ -111,10 +111,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [cellTowerData, setCellTowerData] = useState<any>(null);
 
   // Analytics panel state
-  const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
+  const [showAnalytics, setShowAnalytics] = useState<boolean>(false);
 
   // KPI Dashboard state
-  const [showKPIDashboard, setShowKPIDashboard] = useState<boolean>(true);
+  const [showKPIDashboard, setShowKPIDashboard] = useState<boolean>(false);
 
   // Root Cause Panel state
   const [showRootCausePanel, setShowRootCausePanel] = useState<boolean>(false);
@@ -127,7 +127,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [showSatelliteDirection, setShowSatelliteDirection] = useState<boolean>(false);
 
   // Tower connections state
-  const [showTowerConnections, setShowTowerConnections] = useState<boolean>(true);
+  const [showTowerConnections, setShowTowerConnections] = useState<boolean>(false);
 
   // Signal loss state
   const [showSignalLoss, setShowSignalLoss] = useState<boolean>(false);
