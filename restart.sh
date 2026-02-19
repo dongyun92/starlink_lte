@@ -17,38 +17,30 @@ echo "  Starlink Flight Analysis - Complete System Restart"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-# Step 1: Kill all existing processes
+# Step 1: Kill only Starlink project processes (port-specific, no other projects affected)
 echo "🔪 Step 1/6: Killing existing processes..."
 
-# Kill all Vite processes (any port)
-echo "  ├─ Killing all Vite processes..."
-pkill -f "vite" 2>/dev/null || true
-sleep 1
+# Kill Vite on port 5173 ONLY (Starlink frontend)
+# Do NOT use pkill -f "vite" - that kills other projects' Vite too!
+if lsof -ti:5173 > /dev/null 2>&1; then
+    echo "  ├─ Killing Vite on port 5173..."
+    kill -9 $(lsof -ti:5173) 2>/dev/null || true
+    sleep 1
+fi
 
-# Kill all node processes related to this project
-pgrep -lf "node.*frontend" | awk '{print $1}' | xargs kill -9 2>/dev/null || true
-
-# Kill specific ports that might be in use
-for port in 5173 5020 5021 5022 5023; do
-    if lsof -ti:$port > /dev/null 2>&1; then
-        echo "  ├─ Killing process on port $port..."
-        kill -9 $(lsof -ti:$port) 2>/dev/null || true
-    fi
-done
-
-# Kill Flask server (port 5002)
+# Kill Flask server on port 5002 ONLY (Starlink backend)
 if lsof -ti:5002 > /dev/null 2>&1; then
     echo "  ├─ Killing Flask server (port 5002)..."
     kill -9 $(lsof -ti:5002) 2>/dev/null || true
     sleep 1
 fi
 
-# Kill any Python processes in analysis directory
-pkill -f "python.*app.py" 2>/dev/null || true
+# Kill Flask app.py process by its specific path
+pkill -f "starlink/analysis/app.py" 2>/dev/null || true
 
-sleep 2  # Wait for all processes to terminate
+sleep 1  # Wait for processes to terminate
 
-echo "  └─ ✅ All processes killed"
+echo "  └─ ✅ Starlink processes killed (other projects unaffected)"
 echo ""
 
 # Step 2: Clear Redis cache

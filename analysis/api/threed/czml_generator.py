@@ -883,8 +883,10 @@ class CZMLGenerator:
         if column_name in ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any'] or column_name.startswith('starlink_alert_'):
             metadata_min, metadata_max = 0.0, 1.0
         elif column_name == 'starlink_packet_loss':
-            # Fixed domain: actual percentile range for legend display (not inverted for readability)
-            metadata_min, metadata_max = float(vmin_actual), float(vmax_actual)
+            # For packet_loss, colorbar is Red (left) → Green (right)
+            # Red = BAD = high loss, Green = GOOD = low loss
+            # So left label = high loss value, right label = low loss value
+            metadata_min, metadata_max = float(vmax_actual), float(vmin_actual)  # Swap: high loss on red side
         else:
             # For other modes, use actual data range
             metadata_min, metadata_max = float(vmin_actual), float(vmax_actual)
