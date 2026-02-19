@@ -794,12 +794,11 @@ class CZMLGenerator:
             else:
                 normalized = np.zeros_like(values)
         elif column_name == 'starlink_packet_loss':
-            # Packet Loss: use actual min/max from data (lower is better, INVERTED!)
-            vmin, vmax = vmax_actual, vmin_actual  # Swap for inversion
-            if vmax > vmin:
-                normalized = (values - vmin) / (vmax - vmin)
-            else:
-                normalized = np.zeros_like(values)
+            # Packet Loss (ping_drop_rate): fixed [0, 1] domain (lower is better, INVERTED!)
+            # ping_drop_rate is always 0.0 (no loss=good) to 1.0 (complete loss=bad)
+            # Use fixed domain to avoid percentile collapse when most values are near 0
+            vmin, vmax = 0.0, 1.0
+            normalized = 1.0 - np.clip(values, 0, 1)  # 0 loss → 1.0 (good/green), 1.0 loss → 0.0 (bad/red)
         elif column_name == 'starlink_throughput_down':
             # Downlink: use actual min/max from data (higher is better)
             vmin, vmax = vmin_actual, vmax_actual
@@ -883,6 +882,9 @@ class CZMLGenerator:
         # For binary modes (connection_quality, roaming, alerts), always use 0-1 range even if data is uniform
         if column_name in ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any'] or column_name.startswith('starlink_alert_'):
             metadata_min, metadata_max = 0.0, 1.0
+        elif column_name == 'starlink_packet_loss':
+            # Fixed domain: actual percentile range for legend display (not inverted for readability)
+            metadata_min, metadata_max = float(vmin_actual), float(vmax_actual)
         else:
             # For other modes, use actual data range
             metadata_min, metadata_max = float(vmin_actual), float(vmax_actual)

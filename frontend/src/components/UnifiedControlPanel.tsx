@@ -406,7 +406,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                         onChange={() => onPathColorModeChange('starlink_packet_loss')}
                         className="w-2.5 h-2.5"
                       />
-                      <span className="text-xs">Packet Loss (Drop Rate)</span>
+                      <span className="text-xs">POP Ping Drop Rate (인터넷 연결)</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
