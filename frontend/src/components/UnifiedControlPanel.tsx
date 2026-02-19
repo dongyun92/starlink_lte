@@ -38,13 +38,13 @@ interface UnifiedControlPanelProps {
   // Path color controls
   pathColorMode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime';
   onPathColorModeChange: (mode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime') => void;
@@ -354,6 +354,38 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                       />
                       <span className="text-xs">RSRQ (Overall Quality)</span>
                     </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'lte_band'}
+                        onChange={() => onPathColorModeChange('lte_band')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">LTE Band (주파수 대역)</span>
+                    </label>
+                    {/* Band 범례 (lte_band 모드일 때만 표시) */}
+                    {pathColorMode === 'lte_band' && (
+                      <div className="ml-1 mt-1 p-1.5 bg-gray-50 rounded border border-gray-200 space-y-0.5">
+                        <div className="text-[9px] font-semibold text-gray-500 mb-1">Band 색상 범례</div>
+                        {[
+                          { band: 'BAND 1', freq: '2100 MHz', color: '#2ecc71', label: '도심' },
+                          { band: 'BAND 3', freq: '1800 MHz', color: '#9b59b6', label: '도심' },
+                          { band: 'BAND 5', freq: '850 MHz',  color: '#3498db', label: '광역' },
+                          { band: 'BAND 7', freq: '2600 MHz', color: '#f39c12', label: '고속' },
+                          { band: 'BAND 8', freq: '900 MHz',  color: '#e74c3c', label: '광역' },
+                        ].map(({ band, freq, color, label }) => (
+                          <div key={band} className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
+                            <span className="text-[9px] text-gray-600 font-medium">{band}</span>
+                            <span className="text-[9px] text-gray-400">{freq} {label}</span>
+                          </div>
+                        ))}
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-3 h-3 rounded-sm flex-shrink-0 bg-gray-400" />
+                          <span className="text-[9px] text-gray-600 font-medium">Unknown</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -511,11 +543,29 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                   }}></div>
                 )}
                 {/* LTE/Starlink Quality: Traffic Light (Red → Yellow → Green) */}
-                {(pathColorMode.startsWith('lte_') || pathColorMode.startsWith('starlink_')) && (
+                {(pathColorMode.startsWith('lte_') || pathColorMode.startsWith('starlink_')) && pathColorMode !== 'lte_band' && (
                   <div className="h-3 rounded mb-1" style={{
                     background: 'linear-gradient(to right, rgb(215,25,28), rgb(253,174,97), rgb(255,255,191), rgb(166,217,106), rgb(26,150,65))'
                   }}></div>
                 )}
+                {/* LTE Band: 카테고리형 - 그라디언트 없음 */}
+                {pathColorMode === 'lte_band' && (
+                  <div className="flex gap-1 flex-wrap">
+                    {[
+                      { band: 'B1', color: '#2ecc71' },
+                      { band: 'B3', color: '#9b59b6' },
+                      { band: 'B5', color: '#3498db' },
+                      { band: 'B7', color: '#f39c12' },
+                      { band: 'B8', color: '#e74c3c' },
+                    ].map(({ band, color }) => (
+                      <div key={band} className="flex items-center gap-0.5">
+                        <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }} />
+                        <span className="text-[9px] text-gray-600">{band}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {pathColorMode !== 'lte_band' && (
                 <div className="flex justify-between text-[10px] text-gray-600">
                   {colorMetadata ? (
                     <>
@@ -529,6 +579,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                     </>
                   )}
                 </div>
+                )}
               </div>
             </div>
           </div>

@@ -92,7 +92,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Path color mode
   type PathColorMode = 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime';

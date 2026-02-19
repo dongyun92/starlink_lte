@@ -108,7 +108,7 @@ class CZMLGenerator:
 
         # Skip sampling for binary/quality modes to preserve rare events
         # Binary modes (connection_quality, roaming, alerts) have few positive samples that must not be lost
-        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any', 'lte_quality_combined', 'starlink_quality_combined']
+        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any', 'lte_quality_combined', 'starlink_quality_combined', 'lte_band']
         should_skip_sampling = color_by in skip_sampling_modes or color_by.startswith('starlink_alert_')
 
         # Apply sampling if needed (fraction-based sampling)
@@ -426,6 +426,57 @@ class CZMLGenerator:
 
         return entities
 
+    def _calculate_lte_band_colors(self, df) -> np.ndarray:
+        """
+        Calculate categorical colors for LTE Band visualization.
+
+        Band → Color mapping (distinct, colorblind-friendly):
+          BAND 1  (2100 MHz) → Green  #2ecc71 - 도심 커버리지
+          BAND 3  (1800 MHz) → Purple #9b59b6 - 도심 커버리지
+          BAND 5  (850 MHz)  → Blue   #3498db - 광역/농촌 커버리지
+          BAND 7  (2600 MHz) → Orange #f39c12 - 고속/고용량
+          BAND 8  (900 MHz)  → Red    #e74c3c - 광역 커버리지
+          Unknown/NaN        → Gray   #808080
+        """
+        BAND_COLORS = {
+            'LTE BAND 1': [46,  204, 113, 255],   # Green  - 2100 MHz 도심
+            'LTE BAND 3': [155,  89, 182, 255],   # Purple - 1800 MHz 도심
+            'LTE BAND 5': [52,  152, 219, 255],   # Blue   - 850 MHz 광역
+            'LTE BAND 7': [243, 156,  18, 255],   # Orange - 2600 MHz 고속
+            'LTE BAND 8': [231,  76,  60, 255],   # Red    - 900 MHz 광역
+        }
+        UNKNOWN_COLOR = [128, 128, 128, 255]  # Gray
+
+        band_col = 'lte_network_band'
+        if band_col not in df.columns:
+            # fallback: all gray
+            return np.tile(UNKNOWN_COLOR, (len(df), 1)).astype(np.uint8)
+
+        bands = df[band_col].values
+        n = len(bands)
+        colors = np.zeros((n, 4), dtype=np.uint8)
+
+        for i, band in enumerate(bands):
+            if band is None or (isinstance(band, float) and np.isnan(band)):
+                colors[i] = UNKNOWN_COLOR
+            else:
+                colors[i] = BAND_COLORS.get(str(band).strip(), UNKNOWN_COLOR)
+
+        # Store metadata for legend (categorical mode)
+        unique_bands = [b for b in pd.Series(bands).dropna().unique() if str(b).strip() in BAND_COLORS]
+        self._color_metadata = {
+            'column': 'lte_band',
+            'min': 0.0,
+            'max': 0.0,
+            'unit': 'categorical',
+            'categorical': True,
+            'legend': {str(k): f'#{r:02x}{g:02x}{b:02x}' for k, (r, g, b, _) in BAND_COLORS.items()
+                       if k in [str(x).strip() for x in unique_bands]}
+        }
+        print(f"📊 LTE Band colors: {dict(pd.Series(bands).value_counts())}")
+
+        return colors
+
     def _calculate_lte_quality_combined(self, df) -> np.ndarray:
         """
         Calculate combined LTE quality score
@@ -617,6 +668,10 @@ class CZMLGenerator:
         """
         # Determine which column to use
         column_name = color_by  # Track selected column name for error messages
+
+        # Categorical mode: LTE Band - bypass normalization pipeline, return directly
+        if color_by == 'lte_band':
+            return self._calculate_lte_band_colors(df)
 
         if color_by == 'altitude':
             values = df['altitude'].values
