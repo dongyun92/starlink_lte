@@ -810,9 +810,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       // Check if this tower is GPS-based estimation (vs OpenCellID)
       const isGPSBased = props.id?.startsWith('GPS-') || false;
       const isConnected = props.is_connected === true;
+      const isLGUPlus = props.operator === 'LG U+' || props.mnc === 6;
 
-      // Different colors: GPS-based (red) vs OpenCellID (blue)
-      const iconColor = isGPSBased ? '#ff4444' : '#3498db'; // Red for GPS-based, Blue for OpenCellID
+      // Color by operator: LG U+ = yellow, GPS-based = red, OpenCellID = blue
+      const iconColor = isLGUPlus ? '#f1c40f' : (isGPSBased ? '#ff4444' : '#3498db');
       const iconSize = isGPSBased ? 40 : 28; // Larger for GPS-based towers
 
       // Generate SVG with dynamic color
@@ -851,7 +852,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         description: `
           <div style="font-family: monospace; font-size: 12px;">
             <b>📡 Cell Tower</b><br/>
-            ${isGPSBased ? '<b style="color: #ff4444;">🔴 GPS-BASED ESTIMATION</b><br/>' : '<b style="color: #3498db;">🔵 OpenCellID Data</b><br/>'}
+            ${isLGUPlus ? '<b style="color: #f1c40f;">🟡 LG U+</b><br/>' : (isGPSBased ? '<b style="color: #ff4444;">🔴 GPS-BASED ESTIMATION</b><br/>' : '<b style="color: #3498db;">🔵 OpenCellID Data</b><br/>')}
             ${isConnected ? '<b style="color: #00ff00;">✅ CONNECTED DURING FLIGHT</b><br/>' : ''}
             <b>Cell ID:</b> ${props.id}<br/>
             <b>Radio:</b> ${props.radio}<br/>
@@ -893,10 +894,13 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       const props = feature.properties;
       const lon = coords[0];
       const lat = coords[1];
+      const isLGUPlus = props.operator === 'LG U+' || props.mnc === 6;
 
-      // 파란색 SVG 아이콘 (OpenCellID 전용)
+      // Color by operator: LG U+ = yellow, others = blue
+      const iconColor = isLGUPlus ? '#f1c40f' : '#3498db';
+
       const svgIcon = `data:image/svg+xml;base64,${btoa(`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="12" cy="12" r="10" fill="#3498db" stroke="#fff" stroke-width="1.5"/>
+  <circle cx="12" cy="12" r="10" fill="${iconColor}" stroke="#fff" stroke-width="1.5"/>
   <path d="M12 6V18" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
   <path d="M9 9H12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
   <path d="M12 9H15" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
@@ -916,7 +920,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         description: `
           <div style="font-family: monospace; font-size: 12px;">
             <b>📡 OpenCellID Tower</b><br/>
-            <b style="color: #3498db;">🔵 OpenCellID Database</b><br/>
+            ${isLGUPlus ? '<b style="color: #f1c40f;">🟡 LG U+</b><br/>' : '<b style="color: #3498db;">🔵 OpenCellID Database</b><br/>'}
             <b>Radio:</b> ${props.radio || 'LTE'}<br/>
             <b>Operator:</b> ${props.operator || 'Unknown'}<br/>
             <b>MCC:</b> ${props.mcc} <b>MNC:</b> ${props.mnc}<br/>
