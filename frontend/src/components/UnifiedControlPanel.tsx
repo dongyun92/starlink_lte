@@ -52,9 +52,13 @@ interface UnifiedControlPanelProps {
   colorMetadata: {column: string; min: number; max: number; unit: string} | null;
   heatmapMetadata: {lteColumn: string | null; starlinkColumn: string | null};
 
-  // Cell tower controls
+  // Cell tower controls (GPS-based estimation, red)
   showCellTowers: boolean;
   onCellTowersToggle: (enabled: boolean) => void;
+
+  // OpenCellID tower controls (blue)
+  showOpenCellIDTowers: boolean;
+  onOpenCellIDTowersToggle: (enabled: boolean) => void;
 
   // Analytics controls
   showAnalytics: boolean;
@@ -118,6 +122,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   heatmapMetadata,
   showCellTowers,
   onCellTowersToggle,
+  showOpenCellIDTowers,
+  onOpenCellIDTowersToggle,
   showSatelliteDirection,
   onSatelliteDirectionToggle,
   showTowerConnections,
@@ -679,8 +685,21 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 onChange={(e) => onCellTowersToggle(e.target.checked)}
                 className="w-3 h-3"
               />
-              <span className="text-xs">Show LTE Towers</span>
+              <span className="text-xs">🔴 LTE Towers (GPS-Estimated)</span>
             </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOpenCellIDTowers}
+                onChange={(e) => onOpenCellIDTowersToggle(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span className="text-xs">🔵 LTE Towers (OpenCellID)</span>
+            </label>
+            <p className="text-[10px] text-gray-500 ml-5">
+              All cell towers in flight area from OpenCellID database
+            </p>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input

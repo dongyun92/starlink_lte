@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML, getTowerConnectionsCZML, getSignalLossSegments } from '@/services/api';
+import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getCellTowersOpenCellID, getSatelliteDirectionCZML, getTowerConnectionsCZML, getSignalLossSegments } from '@/services/api';
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
@@ -34,6 +34,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // Cell tower refs
   const cellTowerEntitiesRef = useRef<any[]>([]);
+
+  // OpenCellID tower refs
+  const openCellIDTowerEntitiesRef = useRef<any[]>([]);
 
   // Satellite direction ref
   const satelliteDirectionSourceRef = useRef<any>(null);
@@ -106,9 +109,13 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     starlinkColumn: null
   });
 
-  // Cell tower states
+  // Cell tower states (GPS-based estimation, red)
   const [showCellTowers, setShowCellTowers] = useState<boolean>(false);
   const [cellTowerData, setCellTowerData] = useState<any>(null);
+
+  // OpenCellID tower states (blue)
+  const [showOpenCellIDTowers, setShowOpenCellIDTowers] = useState<boolean>(false);
+  const [openCellIDTowerData, setOpenCellIDTowerData] = useState<any>(null);
 
   // Analytics panel state
   const [showAnalytics, setShowAnalytics] = useState<boolean>(false);
@@ -745,6 +752,32 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadCellTowers();
   }, [selectedSessionId, showCellTowers, selectedFlightId]);
 
+  // OpenCellID 기지국 데이터 로드
+  useEffect(() => {
+    if (!selectedSessionId || !showOpenCellIDTowers) {
+      setOpenCellIDTowerData(null);
+      return;
+    }
+
+    const loadOpenCellIDTowers = async () => {
+      try {
+        console.log('🔵 Loading OpenCellID tower data...');
+        const data = await getCellTowersOpenCellID(selectedSessionId, {
+          radio: 'LTE',
+          use_cache: true,
+          flight_id: selectedFlightId !== null ? selectedFlightId : undefined
+        });
+        setOpenCellIDTowerData(data);
+        console.log(`✅ OpenCellID tower data loaded: ${data.features?.length || 0} towers`);
+      } catch (error) {
+        console.error('❌ Failed to load OpenCellID tower data (silently ignored):', error);
+        setOpenCellIDTowerData(null);
+      }
+    };
+
+    loadOpenCellIDTowers();
+  }, [selectedSessionId, showOpenCellIDTowers, selectedFlightId]);
+
   // Cell Tower 시각화
   useEffect(() => {
     if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
@@ -834,6 +867,72 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
     console.log(`✅ ${cellTowerEntitiesRef.current.length} cell tower entities rendered`);
   }, [cellTowerData, showCellTowers]);
+
+  // OpenCellID 기지국 시각화 (파란색)
+  useEffect(() => {
+    if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+
+    const Cesium = window.Cesium;
+
+    // 기존 OpenCellID 기지국 엔티티 제거
+    openCellIDTowerEntitiesRef.current.forEach(entity => {
+      cesiumViewerRef.current.entities.remove(entity);
+    });
+    openCellIDTowerEntitiesRef.current = [];
+
+    if (!openCellIDTowerData || !showOpenCellIDTowers || !openCellIDTowerData.features) {
+      return;
+    }
+
+    console.log(`🔵 Rendering ${openCellIDTowerData.features.length} OpenCellID towers...`);
+
+    openCellIDTowerData.features.forEach((feature: any) => {
+      const coords = feature.geometry.coordinates;
+      const props = feature.properties;
+      const lon = coords[0];
+      const lat = coords[1];
+
+      // 파란색 SVG 아이콘 (OpenCellID 전용)
+      const svgIcon = `data:image/svg+xml;base64,${btoa(`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="12" cy="12" r="10" fill="#3498db" stroke="#fff" stroke-width="1.5"/>
+  <path d="M12 6V18" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M9 9H12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M12 9H15" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M9 12H12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M12 12H15" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`)}`;
+
+      const towerEntity = cesiumViewerRef.current.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, 10),
+        billboard: {
+          image: svgIcon,
+          width: 24,
+          height: 24,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+        },
+        description: `
+          <div style="font-family: monospace; font-size: 12px;">
+            <b>📡 OpenCellID Tower</b><br/>
+            <b style="color: #3498db;">🔵 OpenCellID Database</b><br/>
+            <b>Radio:</b> ${props.radio || 'LTE'}<br/>
+            <b>Operator:</b> ${props.operator || 'Unknown'}<br/>
+            <b>MCC:</b> ${props.mcc} <b>MNC:</b> ${props.mnc}<br/>
+            <b>LAC:</b> ${props.lac} <b>CID:</b> ${props.cid}<br/>
+            <b>Range:</b> ${props.range ? Math.round(props.range) + 'm' : 'N/A'}<br/>
+            <b>Samples:</b> ${props.samples || 0}<br/>
+            <b>Location:</b> ${typeof lat === 'number' && !isNaN(lat) ? lat.toFixed(5) : 'N/A'}, ${typeof lon === 'number' && !isNaN(lon) ? lon.toFixed(5) : 'N/A'}
+          </div>
+        `
+      });
+
+      openCellIDTowerEntitiesRef.current.push(towerEntity);
+    });
+
+    console.log(`✅ ${openCellIDTowerEntitiesRef.current.length} OpenCellID tower entities rendered`);
+  }, [openCellIDTowerData, showOpenCellIDTowers]);
 
   // Load satellite direction arrows
   useEffect(() => {
@@ -1221,6 +1320,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         heatmapMetadata={heatmapMetadata}
         showCellTowers={showCellTowers}
         onCellTowersToggle={setShowCellTowers}
+        showOpenCellIDTowers={showOpenCellIDTowers}
+        onOpenCellIDTowersToggle={setShowOpenCellIDTowers}
         showSatelliteDirection={showSatelliteDirection}
         onSatelliteDirectionToggle={setShowSatelliteDirection}
         showTowerConnections={showTowerConnections}

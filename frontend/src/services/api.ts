@@ -282,6 +282,37 @@ export async function getCellTowers(
 }
 
 /**
+ * Get cell towers from OpenCellID API for a flight session (blue markers)
+ */
+export async function getCellTowersOpenCellID(
+  sessionId: string,
+  options: {
+    radio?: string;
+    use_cache?: boolean;
+    flight_id?: number;
+  } = {}
+): Promise<any> {
+  const { radio = 'LTE', use_cache = true, flight_id } = options;
+
+  const params = new URLSearchParams({
+    radio,
+    use_cache: use_cache.toString(),
+  });
+
+  if (flight_id !== undefined) {
+    params.append('flight_id', flight_id.toString());
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/3d/cell-towers-opencellid/${sessionId}?${params}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch OpenCellID towers: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Chart information interface
  */
 export interface ChartInfo {

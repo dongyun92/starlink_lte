@@ -900,6 +900,101 @@ def get_cell_towers(session_id):
         return jsonify({'error': f'Failed to fetch cell towers: {str(e)}'}), 500
 
 
+@api_3d_bp.route('/cell-towers-opencellid/<session_id>', methods=['GET'])
+def get_cell_towers_opencellid(session_id):
+    """
+    Get nearby cell towers from OpenCellID API for a flight session.
+    Returns blue markers showing towers in the flight area from OpenCellID database.
+
+    Query Parameters:
+        - use_cache: Use cached data if available (true/false) [default: true]
+        - flight_id: Optional flight ID to filter by
+        - radio: Radio type filter (LTE, UMTS, GSM, NR, ALL) [default: LTE]
+
+    Response:
+        GeoJSON FeatureCollection with cell tower locations (id does NOT start with GPS-)
+    """
+    try:
+        use_cache = request.args.get('use_cache', 'true', type=str) == 'true'
+        flight_id = request.args.get('flight_id', None, type=int)
+        radio = request.args.get('radio', 'LTE', type=str)
+
+        cache_key = f"opencellid:{session_id}:{flight_id}:{radio}"
+
+        # Check cache (1 hour TTL)
+        if use_cache and redis_client:
+            try:
+                cached = redis_client.get(cache_key)
+                if cached:
+                    print(f"✅ OpenCellID cache HIT: {cache_key}")
+                    return jsonify(json.loads(cached)), 200
+            except Exception as e:
+                print(f"⚠️ Cache read error: {e}")
+
+        # Validate session
+        session = Session.get_by_id(session_id)
+        if not session or session.status != 'completed':
+            return jsonify({'error': 'Session not found or not completed'}), 404
+
+        # Read merged data to get flight bounding box
+        results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
+        merged_data_path = results_dir / 'merged_data.csv'
+
+        if not merged_data_path.exists():
+            return jsonify({'error': 'No flight data found'}), 404
+
+        import pandas as pd
+        df = pd.read_csv(merged_data_path, low_memory=False)
+
+        if flight_id is not None and 'flight_id' in df.columns:
+            df = df[df['flight_id'] == flight_id]
+
+        if df.empty or 'latitude' not in df.columns:
+            return jsonify({'error': 'No GPS data available'}), 404
+
+        # Compute bounding box with ~2km buffer
+        lat_buffer = 0.018
+        lon_buffer = 0.018
+        lat_min = float(df['latitude'].min()) - lat_buffer
+        lat_max = float(df['latitude'].max()) + lat_buffer
+        lon_min = float(df['longitude'].min()) - lon_buffer
+        lon_max = float(df['longitude'].max()) + lon_buffer
+
+        print(f"📐 Flight bbox: ({lat_min:.4f},{lon_min:.4f}) → ({lat_max:.4f},{lon_max:.4f})")
+
+        # Get OpenCellID client
+        client = get_opencellid_client()
+        if not client:
+            return jsonify({'error': 'OpenCellID API key not configured. Set OPENCELLID_API_KEY env var.'}), 503
+
+        # Grid search over flight bounding box
+        towers = client.get_cell_towers_grid_search(
+            min_lat=lat_min, max_lat=lat_max,
+            min_lon=lon_min, max_lon=lon_max,
+            radio=radio
+        )
+
+        print(f"✅ OpenCellID returned {len(towers)} towers")
+
+        # Convert to GeoJSON (ids do NOT start with GPS-, so frontend renders blue)
+        geojson = _convert_towers_to_geojson(towers)
+
+        # Cache result (1 hour)
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 3600, json.dumps(geojson))
+                print(f"💾 OpenCellID towers cached: {cache_key}")
+            except Exception as e:
+                print(f"⚠️ Cache write error: {e}")
+
+        return jsonify(geojson), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to fetch OpenCellID towers: {str(e)}'}), 500
+
+
 def _convert_towers_to_geojson(towers: list, connected_lacs: set = None) -> dict:
     """
     Convert OpenCellID tower list to GeoJSON FeatureCollection
