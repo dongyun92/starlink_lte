@@ -6,5 +6,6 @@ from .sessions import sessions_bp
 from .results import results_bp
 from .compare import compare_bp
 from .convert_csv import convert_csv_bp
+from .ulg_converter import ulg_converter_bp
 
-__all__ = ['upload_bp', 'sessions_bp', 'results_bp', 'compare_bp', 'convert_csv_bp']
+__all__ = ['upload_bp', 'sessions_bp', 'results_bp', 'compare_bp', 'convert_csv_bp', 'ulg_converter_bp']

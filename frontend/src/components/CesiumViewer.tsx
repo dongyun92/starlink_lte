@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getCellTowersOpenCellID, getSatelliteDirectionCZML, getTowerConnectionsCZML, getSignalLossSegments } from '@/services/api';
+import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML, getTowerConnectionsCZML, getSignalLossSegments } from '@/services/api';
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
@@ -35,8 +35,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Cell tower refs
   const cellTowerEntitiesRef = useRef<any[]>([]);
 
-  // OpenCellID tower refs
-  const openCellIDTowerEntitiesRef = useRef<any[]>([]);
 
   // Satellite direction ref
   const satelliteDirectionSourceRef = useRef<any>(null);
@@ -92,6 +90,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   // Path color mode
   type PathColorMode = 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
+    'combined_connectivity' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
@@ -109,13 +108,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     starlinkColumn: null
   });
 
-  // Cell tower states (GPS-based estimation, red)
+  // 공식 기지국 표시 (과기부 무선국 데이터)
   const [showCellTowers, setShowCellTowers] = useState<boolean>(false);
   const [cellTowerData, setCellTowerData] = useState<any>(null);
-
-  // OpenCellID tower states (blue)
-  const [showOpenCellIDTowers, setShowOpenCellIDTowers] = useState<boolean>(false);
-  const [openCellIDTowerData, setOpenCellIDTowerData] = useState<any>(null);
 
   // Analytics panel state
   const [showAnalytics, setShowAnalytics] = useState<boolean>(false);
@@ -752,33 +747,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadCellTowers();
   }, [selectedSessionId, showCellTowers, selectedFlightId]);
 
-  // OpenCellID 기지국 데이터 로드
-  useEffect(() => {
-    if (!selectedSessionId || !showOpenCellIDTowers) {
-      setOpenCellIDTowerData(null);
-      return;
-    }
-
-    const loadOpenCellIDTowers = async () => {
-      try {
-        console.log('🔵 Loading OpenCellID tower data...');
-        const data = await getCellTowersOpenCellID(selectedSessionId, {
-          radio: 'LTE',
-          use_cache: true,
-          flight_id: selectedFlightId !== null ? selectedFlightId : undefined
-        });
-        setOpenCellIDTowerData(data);
-        console.log(`✅ OpenCellID tower data loaded: ${data.features?.length || 0} towers`);
-      } catch (error) {
-        console.error('❌ Failed to load OpenCellID tower data (silently ignored):', error);
-        setOpenCellIDTowerData(null);
-      }
-    };
-
-    loadOpenCellIDTowers();
-  }, [selectedSessionId, showOpenCellIDTowers, selectedFlightId]);
-
-  // Cell Tower 시각화
+  // 기지국 시각화 (과기부 공식 고흥 무선국 데이터)
   useEffect(() => {
     if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
       return;
@@ -786,79 +755,58 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
     const Cesium = window.Cesium;
 
-    // 기존 기지국 엔티티 제거
     cellTowerEntitiesRef.current.forEach(entity => {
       cesiumViewerRef.current.entities.remove(entity);
     });
     cellTowerEntitiesRef.current = [];
 
-    // 데이터가 없거나 표시 비활성화 시 종료
     if (!cellTowerData || !showCellTowers || !cellTowerData.features) {
       return;
     }
 
-    console.log(`📡 Rendering ${cellTowerData.features.length} cell towers...`);
+    console.log(`📡 Rendering ${cellTowerData.features.length} official cell towers...`);
 
-    // 각 기지국을 Cesium Entity로 추가
+    const OPERATOR_COLORS: Record<string, string> = {
+      'SK Telecom': '#FFD700',
+      'KT':         '#E3007E',
+      'LG U+':      '#0064FF',
+    };
+
     cellTowerData.features.forEach((feature: any) => {
       const coords = feature.geometry.coordinates;
       const props = feature.properties;
       const lon = coords[0];
       const lat = coords[1];
-      const height = 30; // 기지국 높이 (지면에서 30m)
+      const alt = coords[2] || 30;
 
-      // Check if this tower is GPS-based estimation (vs OpenCellID)
-      const isGPSBased = props.id?.startsWith('GPS-') || false;
-      const isConnected = props.is_connected === true;
-      const isLGUPlus = props.operator === 'LG U+' || props.mnc === 6;
+      const color = OPERATOR_COLORS[props.operator] || '#888888';
 
-      // Color by operator: LG U+ = yellow, GPS-based = red, OpenCellID = blue
-      const iconColor = isLGUPlus ? '#f1c40f' : (isGPSBased ? '#ff4444' : '#3498db');
-      const iconSize = isGPSBased ? 40 : 28; // Larger for GPS-based towers
-
-      // Generate SVG with dynamic color
-      const svgIcon = `data:image/svg+xml;base64,${btoa(`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="16" cy="16" r="14" fill="${iconColor}" stroke="#fff" stroke-width="2"/>
-  <path d="M16 8V24" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-  <path d="M12 12H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-  <path d="M16 12H20" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-  <path d="M12 16H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-  <path d="M16 16H20" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-  <path d="M12 20H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-  <path d="M16 20H20" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+      const svgIcon = `data:image/svg+xml;base64,${btoa(`<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="14" cy="14" r="12" fill="${color}" stroke="#fff" stroke-width="2"/>
+  <path d="M14 6V22" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <path d="M10 10H14M14 10H18" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M10 14H14M14 14H18" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M10 18H14M14 18H18" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
 </svg>`)}`;
 
-      // 기지국 마커 (Billboard) with Label
       const towerEntity = cesiumViewerRef.current.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
         billboard: {
           image: svgIcon,
-          width: iconSize,
-          height: iconSize,
+          width: 28,
+          height: 28,
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
         },
-        label: {
-          text: props.id || 'Unknown',
-          font: '12px monospace',
-          fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          verticalOrigin: Cesium.VerticalOrigin.TOP,
-          pixelOffset: new Cesium.Cartesian2(0, 10),
-          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
-        },
         description: `
-          <div style="font-family: monospace; font-size: 12px;">
-            <b>📡 Cell Tower</b><br/>
-            ${isLGUPlus ? '<b style="color: #f1c40f;">🟡 LG U+</b><br/>' : (isGPSBased ? '<b style="color: #ff4444;">🔴 GPS-BASED ESTIMATION</b><br/>' : '<b style="color: #3498db;">🔵 OpenCellID Data</b><br/>')}
-            ${isConnected ? '<b style="color: #00ff00;">✅ CONNECTED DURING FLIGHT</b><br/>' : ''}
-            <b>Cell ID:</b> ${props.id}<br/>
-            <b>Radio:</b> ${props.radio}<br/>
-            <b>Operator:</b> ${props.operator || 'Unknown'}<br/>
-            <b>MCC:</b> ${props.mcc} <b>MNC:</b> ${props.mnc}<br/>
-            <b>Location:</b> ${typeof lat === 'number' && !isNaN(lat) ? lat.toFixed(5) : 'N/A'}, ${typeof lon === 'number' && !isNaN(lon) ? lon.toFixed(5) : 'N/A'}
+          <div style="font-family: sans-serif; font-size: 12px; min-width: 220px;">
+            <b style="color:${color};">📡 ${props.operator}</b><br/>
+            <b>밴드:</b> ${props.band_label || '-'}<br/>
+            <b>주파수:</b> ${props.freq_label || '-'}<br/>
+            <b>장치:</b> ${props.device_count}개<br/>
+            <b>주소:</b> ${props.address || '-'}<br/>
+            <b>좌표:</b> ${lat.toFixed(5)}, ${lon.toFixed(5)}<br/>
+            <small style="color:#888;">출처: 과학기술정보통신부 무선국 현황</small>
           </div>
         `
       });
@@ -866,77 +814,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
       cellTowerEntitiesRef.current.push(towerEntity);
     });
 
-    console.log(`✅ ${cellTowerEntitiesRef.current.length} cell tower entities rendered`);
+    console.log(`✅ ${cellTowerEntitiesRef.current.length} official cell tower entities rendered`);
   }, [cellTowerData, showCellTowers]);
 
-  // OpenCellID 기지국 시각화 (파란색)
-  useEffect(() => {
-    if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
-      return;
-    }
 
-    const Cesium = window.Cesium;
-
-    // 기존 OpenCellID 기지국 엔티티 제거
-    openCellIDTowerEntitiesRef.current.forEach(entity => {
-      cesiumViewerRef.current.entities.remove(entity);
-    });
-    openCellIDTowerEntitiesRef.current = [];
-
-    if (!openCellIDTowerData || !showOpenCellIDTowers || !openCellIDTowerData.features) {
-      return;
-    }
-
-    console.log(`🔵 Rendering ${openCellIDTowerData.features.length} OpenCellID towers...`);
-
-    openCellIDTowerData.features.forEach((feature: any) => {
-      const coords = feature.geometry.coordinates;
-      const props = feature.properties;
-      const lon = coords[0];
-      const lat = coords[1];
-      const isLGUPlus = props.operator === 'LG U+' || props.mnc === 6;
-
-      // Color by operator: LG U+ = yellow, others = blue
-      const iconColor = isLGUPlus ? '#f1c40f' : '#3498db';
-
-      const svgIcon = `data:image/svg+xml;base64,${btoa(`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="12" cy="12" r="10" fill="${iconColor}" stroke="#fff" stroke-width="1.5"/>
-  <path d="M12 6V18" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-  <path d="M9 9H12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-  <path d="M12 9H15" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-  <path d="M9 12H12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-  <path d="M12 12H15" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-</svg>`)}`;
-
-      const towerEntity = cesiumViewerRef.current.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(lon, lat, 10),
-        billboard: {
-          image: svgIcon,
-          width: 24,
-          height: 24,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
-        },
-        description: `
-          <div style="font-family: monospace; font-size: 12px;">
-            <b>📡 OpenCellID Tower</b><br/>
-            ${isLGUPlus ? '<b style="color: #f1c40f;">🟡 LG U+</b><br/>' : '<b style="color: #3498db;">🔵 OpenCellID Database</b><br/>'}
-            <b>Radio:</b> ${props.radio || 'LTE'}<br/>
-            <b>Operator:</b> ${props.operator || 'Unknown'}<br/>
-            <b>MCC:</b> ${props.mcc} <b>MNC:</b> ${props.mnc}<br/>
-            <b>LAC:</b> ${props.lac} <b>CID:</b> ${props.cid}<br/>
-            <b>Range:</b> ${props.range ? Math.round(props.range) + 'm' : 'N/A'}<br/>
-            <b>Samples:</b> ${props.samples || 0}<br/>
-            <b>Location:</b> ${typeof lat === 'number' && !isNaN(lat) ? lat.toFixed(5) : 'N/A'}, ${typeof lon === 'number' && !isNaN(lon) ? lon.toFixed(5) : 'N/A'}
-          </div>
-        `
-      });
-
-      openCellIDTowerEntitiesRef.current.push(towerEntity);
-    });
-
-    console.log(`✅ ${openCellIDTowerEntitiesRef.current.length} OpenCellID tower entities rendered`);
-  }, [openCellIDTowerData, showOpenCellIDTowers]);
 
   // Load satellite direction arrows
   useEffect(() => {
@@ -1324,8 +1205,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         heatmapMetadata={heatmapMetadata}
         showCellTowers={showCellTowers}
         onCellTowersToggle={setShowCellTowers}
-        showOpenCellIDTowers={showOpenCellIDTowers}
-        onOpenCellIDTowersToggle={setShowOpenCellIDTowers}
         showSatelliteDirection={showSatelliteDirection}
         onSatelliteDirectionToggle={setShowSatelliteDirection}
         showTowerConnections={showTowerConnections}

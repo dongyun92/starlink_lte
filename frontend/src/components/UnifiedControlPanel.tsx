@@ -1,5 +1,33 @@
 import React, { useState } from 'react';
 import type { FlightScenario, FlightSession } from '@/types/flight';
+
+// UTC ISO string → KST { date: 'MM/DD', time: 'HH:MM' } (UTC+9)
+function toKST(isoStr: string): { date: string; time: string } | null {
+  try {
+    const d = new Date(isoStr.replace(' ', 'T'));
+    if (isNaN(d.getTime())) return null;
+    const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    const mo = String(kst.getUTCMonth() + 1).padStart(2, '0');
+    const dy = String(kst.getUTCDate()).padStart(2, '0');
+    const h  = String(kst.getUTCHours()).padStart(2, '0');
+    const m  = String(kst.getUTCMinutes()).padStart(2, '0');
+    return { date: `${mo}/${dy}`, time: `${h}:${m}` };
+  } catch {
+    return null;
+  }
+}
+
+function formatTimeRange(timeRange: { start: string; end: string } | null): string {
+  if (!timeRange) return '';
+  const s = toKST(timeRange.start);
+  const e = toKST(timeRange.end);
+  if (!s || !e) return '';
+  // 날짜가 같으면 날짜 한번만, 다르면 각각 표시
+  if (s.date === e.date) {
+    return ` ${s.date} ${s.time}~${e.time}`;
+  }
+  return ` ${s.date} ${s.time}~${e.date} ${e.time}`;
+}
 import { CustomQualityBuilder } from './CustomQualityBuilder';
 
 interface UnifiedControlPanelProps {
@@ -38,12 +66,14 @@ interface UnifiedControlPanelProps {
   // Path color controls
   pathColorMode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
+    'combined_connectivity' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime';
   onPathColorModeChange: (mode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
+    'combined_connectivity' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
@@ -56,9 +86,6 @@ interface UnifiedControlPanelProps {
   showCellTowers: boolean;
   onCellTowersToggle: (enabled: boolean) => void;
 
-  // OpenCellID tower controls (blue)
-  showOpenCellIDTowers: boolean;
-  onOpenCellIDTowersToggle: (enabled: boolean) => void;
 
   // Analytics controls
   showAnalytics: boolean;
@@ -122,8 +149,6 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   heatmapMetadata,
   showCellTowers,
   onCellTowersToggle,
-  showOpenCellIDTowers,
-  onOpenCellIDTowersToggle,
   showSatelliteDirection,
   onSatelliteDirectionToggle,
   showTowerConnections,
@@ -190,7 +215,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 <option value="" disabled>세션을 선택하세요</option>
                 {sessions.map((session) => (
                   <option key={session.id} value={session.id}>
-                    {session.name} ({session.file_count.flight_logs} flights)
+                    {session.name}{formatTimeRange(session.time_range)} ({session.file_count.flight_logs}flights)
                   </option>
                 ))}
               </select>
@@ -215,7 +240,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                   </option>
                   {scenarios.map((scenario) => (
                     <option key={scenario.flight_id} value={scenario.flight_id}>
-                      Flight {scenario.flight_id + 1}: {scenario.scenario_name} ({scenario.data_points.toLocaleString()})
+                      Flight {scenario.flight_id + 1}: {scenario.scenario_name}{formatTimeRange(scenario.time_range)} ({scenario.data_points.toLocaleString()})
                     </option>
                   ))}
                 </select>
@@ -227,6 +252,22 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
           <div className="pb-3 border-b">
             <div className="text-xs font-bold text-gray-700 mb-2">Path Color Mode</div>
             <div className="space-y-1.5">
+
+              {/* Combined Connectivity Score */}
+              <div className="bg-purple-50 border border-purple-200 rounded p-1.5 mb-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    value="combined_connectivity"
+                    checked={pathColorMode === 'combined_connectivity'}
+                    onChange={() => onPathColorModeChange('combined_connectivity')}
+                    className="w-3 h-3"
+                  />
+                  <span className="text-xs font-semibold text-purple-800">통합 연결 품질 (LTE + Starlink)</span>
+                </label>
+                <div className="text-[10px] text-purple-600 mt-0.5 ml-5">LTE RSRP + Starlink DL 쓰루풋 평균</div>
+              </div>
+
               {/* Altitude */}
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -542,6 +583,12 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                     background: 'linear-gradient(to right, rgb(48,18,59), rgb(62,73,137), rgb(33,145,140), rgb(53,183,121), rgb(144,215,67), rgb(253,231,37), rgb(246,173,59), rgb(229,109,61), rgb(189,48,57))'
                   }}></div>
                 )}
+                {/* Combined Connectivity: Red(bad) → Yellow → Green(good) */}
+                {pathColorMode === 'combined_connectivity' && (
+                  <div className="h-3 rounded mb-1" style={{
+                    background: 'linear-gradient(to right, #d73027, #f46d43, #fdae61, #fee08b, #ffffbf, #d9ef8b, #a6d96a, #66bd63, #1a9850)'
+                  }}></div>
+                )}
                 {/* LTE/Starlink Quality: Traffic Light (Red → Yellow → Green) */}
                 {(pathColorMode.startsWith('lte_') || pathColorMode.startsWith('starlink_')) && pathColorMode !== 'lte_band' && (
                   <div className="h-3 rounded mb-1" style={{
@@ -567,7 +614,12 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 )}
                 {pathColorMode !== 'lte_band' && (
                 <div className="flex justify-between text-[10px] text-gray-600">
-                  {colorMetadata ? (
+                  {pathColorMode === 'combined_connectivity' ? (
+                    <>
+                      <span className="text-blue-600">◀ 불량 (LTE약+SL낮음)</span>
+                      <span className="text-red-600">(LTE강+SL높음) 우수 ▶</span>
+                    </>
+                  ) : colorMetadata ? (
                     <>
                       <span>{colorMetadata.min.toFixed(1)} {colorMetadata.unit}</span>
                       <span>{colorMetadata.max.toFixed(1)} {colorMetadata.unit}</span>
@@ -727,7 +779,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
 
           {/* Cell Towers */}
           <div className="space-y-2 pt-3 border-t">
-            <div className="text-xs font-bold text-gray-700 mb-2">📡 Cell Towers & Satellite</div>
+            <div className="text-xs font-bold text-gray-700 mb-2">📡 기지국 & Satellite</div>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -736,20 +788,10 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 onChange={(e) => onCellTowersToggle(e.target.checked)}
                 className="w-3 h-3"
               />
-              <span className="text-xs">🔴 LTE Towers (GPS-Estimated)</span>
-            </label>
-
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showOpenCellIDTowers}
-                onChange={(e) => onOpenCellIDTowersToggle(e.target.checked)}
-                className="w-3 h-3"
-              />
-              <span className="text-xs">🔵 LTE Towers (OpenCellID)</span>
+              <span className="text-xs">📡 고흥 기지국 (과기부 공식)</span>
             </label>
             <p className="text-[10px] text-gray-500 ml-5">
-              All cell towers in flight area from OpenCellID database
+              SKT·KT·LGU+ 341개 위치 — 과기부 공식
             </p>
 
             <label className="flex items-center gap-2 cursor-pointer">

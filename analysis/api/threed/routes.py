@@ -16,7 +16,6 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from models.session import Session
 from .czml_generator import CZMLGenerator
-from .opencellid_client import OpenCellIDClient
 from .tower_estimation import (
     estimate_tower_hybrid,
     estimate_tower_by_enodeb,
@@ -42,20 +41,6 @@ except Exception as e:
     print(f"⚠️ Redis connection failed: {e}")
     redis_client = None
 
-# OpenCellID client (singleton)
-opencellid_client = None
-
-def get_opencellid_client():
-    """Get or create OpenCellID client"""
-    global opencellid_client
-    if opencellid_client is None:
-        try:
-            opencellid_client = OpenCellIDClient()
-        except ValueError as e:
-            print(f"⚠️ OpenCellID client not available: {e}")
-            return None
-    return opencellid_client
-
 
 @api_3d_bp.route('/flights', methods=['GET'])
 def list_flights():
@@ -80,6 +65,23 @@ def list_flights():
                 lte_data_count = len(list((session_path / 'lte_data').glob('*.csv'))) if (session_path / 'lte_data').exists() else 0
                 starlink_data_count = len(list((session_path / 'starlink_data').glob('*.csv'))) if (session_path / 'starlink_data').exists() else 0
 
+                # Extract actual flight time range from merged_data.csv
+                flight_time_range = None
+                try:
+                    import pandas as pd
+                    results_dir = Path(__file__).parent.parent.parent / 'results' / session.id
+                    merged_data_path = results_dir / 'merged_data.csv'
+                    if merged_data_path.exists():
+                        df_times = pd.read_csv(merged_data_path, usecols=['timestamp'])
+                        df_times = df_times.dropna()
+                        if len(df_times) > 0:
+                            flight_time_range = {
+                                'start': str(df_times['timestamp'].min()),
+                                'end': str(df_times['timestamp'].max())
+                            }
+                except Exception:
+                    pass
+
                 flights.append({
                     'id': session.id,
                     'name': session.name or f"Flight {session.id}",
@@ -88,7 +90,8 @@ def list_flights():
                         'flight_logs': flight_logs_count,
                         'lte_data': lte_data_count,
                         'starlink_data': starlink_data_count
-                    }
+                    },
+                    'time_range': flight_time_range
                 })
 
         return jsonify(flights), 200
@@ -492,574 +495,21 @@ def get_heatmap_czml(session_id):
         return jsonify({'error': str(e)}), 500
 
 
-def get_cell_towers_geojson_internal(session_id: str, flight_id: int = None) -> dict:
-    """
-    Internal function to compute cell tower positions (for use by other modules)
-
-    Args:
-        session_id: Session identifier
-        flight_id: Optional flight ID to filter by
-
-    Returns:
-        GeoJSON FeatureCollection dict (not a Flask response)
-    """
-    # Load session data
-    session = Session.get_by_id(session_id)
-
-    if not session or session.status != 'completed':
-        return {'type': 'FeatureCollection', 'features': []}
-
-    # Read merged data
-    results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
-    merged_data_path = results_dir / 'merged_data.csv'
-
-    if not merged_data_path.exists():
-        return {'type': 'FeatureCollection', 'features': []}
-
-    # Read CSV and compute tower positions
-    import pandas as pd
-    df = pd.read_csv(merged_data_path, low_memory=False)
-
-    if df.empty:
-        return {'type': 'FeatureCollection', 'features': []}
-
-    # Filter by flight_id if specified
-    if flight_id is not None and 'flight_id' in df.columns:
-        df = df[df['flight_id'] == flight_id].copy()
-
-    # Filter LTE data
-    if 'lte_cell_id' not in df.columns:
-        return {'type': 'FeatureCollection', 'features': []}
-
-    df_lte = df[df['lte_cell_id'].notna()].copy()
-
-    if df_lte.empty:
-        return {'type': 'FeatureCollection', 'features': []}
-
-    # Load original LTE CSV for detailed cell information
-    uploads_dir = Path(__file__).parent.parent.parent / 'uploads' / session_id / 'lte_data'
-    lte_csv_files = list(uploads_dir.glob('*.csv')) if uploads_dir.exists() else []
-
-    # Operator mapping
-    OPERATORS = {5: 'SK Telecom', 6: 'LG U+', 8: 'KT'}
-
-    # Helper function to safely convert to int
-    def safe_int(value):
-        if pd.isna(value):
-            return None
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            try:
-                return int(str(value), 16)
-            except (ValueError, TypeError):
-                return None
-
-    # Read original LTE data for cell details from ALL LTE CSV files
-    lte_details = {}
-    if lte_csv_files:
-        print(f"\n🔍 Reading {len(lte_csv_files)} LTE CSV files for cell details...")
-
-        for lte_file in lte_csv_files:
-            # Force cell_id to be read as string to preserve hex values
-            lte_original = pd.read_csv(lte_file, dtype={'cell_id': str})
-
-            for cell_id in lte_original['cell_id'].unique():
-                if pd.isna(cell_id) or cell_id in ['0', 'FFFFFFFF', 'nan']:
-                    continue
-
-                # Convert to uppercase for consistent matching
-                cell_id_key = str(cell_id).upper()
-
-                # Skip if already processed
-                if cell_id_key in lte_details:
-                    continue
-
-                cell_rows = lte_original[lte_original['cell_id'] == cell_id]
-                first_row = cell_rows.iloc[0]
-
-                lte_details[cell_id_key] = {
-                    'mcc': safe_int(first_row.get('mcc')) or 450,
-                    'mnc': safe_int(first_row.get('mnc')),
-                    'lac': safe_int(first_row.get('lac')),
-                    'pcid': safe_int(first_row.get('pcid')),
-                    'enodeb_id': safe_int(first_row.get('enodeb_id')),
-                    'cell_sector_id': safe_int(first_row.get('cell_sector_id')),
-                }
-
-        print(f"✅ Built lte_details dictionary with {len(lte_details)} unique cell IDs")
-
-    # ═══════════════════════════════════════════════════════════════
-    # P1: eNodeB-Based Tower Position Estimation
-    # ═══════════════════════════════════════════════════════════════
-    # Physical Reality: Same eNodeB = Same physical tower location
-    # Multiple sectors (0, 1, 2, ...) are directional antennas on the same tower
-    # Combining all sector data dramatically improves estimation accuracy
-    # ═══════════════════════════════════════════════════════════════
-
-    tower_features = []
-    unique_cells = df_lte['lte_cell_id'].unique()
-    print(f"📡 Found {len(unique_cells)} unique cell IDs in merged data")
-
-    # Step 1: Group cells by eNodeB ID (same physical tower)
-    enodeb_groups = {}  # enodeb_id → { sector_id → cell_id }
-    cells_without_enodeb = []
-
-    for cell_id in unique_cells:
-        if cell_id in ['0', 'FFFFFFFF', 'nan'] or pd.isna(cell_id):
-            continue
-
-        cell_id_key = str(cell_id).upper()
-        details = lte_details.get(cell_id_key, {})
-        enodeb_id = details.get('enodeb_id')
-        sector_id = details.get('cell_sector_id')
-
-        if enodeb_id is not None and sector_id is not None:
-            # Group by eNodeB
-            if enodeb_id not in enodeb_groups:
-                enodeb_groups[enodeb_id] = {}
-            enodeb_groups[enodeb_id][sector_id] = cell_id
-        else:
-            # No eNodeB info - process individually
-            cells_without_enodeb.append(cell_id)
-
-    print(f"  📊 eNodeB grouping: {len(enodeb_groups)} physical towers, {sum(len(s) for s in enodeb_groups.values())} total sectors")
-    print(f"  ⚠️  {len(cells_without_enodeb)} cells without eNodeB info (will process individually)")
-
-    # Compute flight path boundary for physical validation
-    flight_boundary = compute_flight_boundary(df_lte, buffer_km=5.0)
-    flight_center_lat = float(df_lte['latitude'].mean())
-    flight_center_lon = float(df_lte['longitude'].mean())
-
-    # Step 2: Estimate tower positions by eNodeB (combined sectors)
-    for enodeb_id, sector_cells in enodeb_groups.items():
-        # Get details from first sector (all sectors share same MCC, MNC, LAC)
-        first_cell_id = list(sector_cells.values())[0]
-        cell_id_key = str(first_cell_id).upper()
-        details = lte_details.get(cell_id_key, {})
-
-        # Estimate tower position using ALL sectors of this eNodeB
-        estimation = estimate_tower_by_enodeb(df_lte, enodeb_id, sector_cells, verbose=True)
-
-        if estimation is None:
-            continue
-
-        tower_lat = estimation['latitude']
-        tower_lon = estimation['longitude']
-        tower_alt = estimation.get('altitude', 30.0)
-        uncertainty_m = estimation['uncertainty_m']
-        position_method = estimation['position_method']
-
-        # Physical validation
-        is_valid, validation_reason = validate_tower_position(
-            tower_lat, tower_lon, flight_boundary,
-            flight_center_lat, flight_center_lon,
-            max_distance_km=15.0
-        )
-
-        if not is_valid:
-            print(f"  ❌ eNodeB {enodeb_id} rejected: {validation_reason}")
-            continue
-
-        # Get signal statistics (combined across all sectors)
-        all_sector_data = []
-        for cell_id in sector_cells.values():
-            sector_data = df_lte[df_lte['lte_cell_id'] == cell_id]
-            if len(sector_data) > 0:
-                all_sector_data.append(sector_data)
-
-        if len(all_sector_data) == 0:
-            continue
-
-        combined_data = pd.concat(all_sector_data, ignore_index=True)
-        avg_rsrp = float(combined_data['lte_rsrp'].mean()) if 'lte_rsrp' in combined_data.columns else -100
-        connection_count = len(combined_data)
-
-        # Get cell information
-        mcc = details.get('mcc', 450)
-        mnc = details.get('mnc')
-        lac = details.get('lac')
-
-        # Generate tower name
-        operator_name = OPERATORS.get(mnc, 'Unknown') if mnc else 'GPS Computed'
-        sector_list = ', '.join([str(s) for s in sorted(sector_cells.keys())])
-        tower_name = f"{operator_name} - eNB {enodeb_id} ({len(sector_cells)} sectors: {sector_list})"
-
-        # Create primary tower ID (use first sector's cell_id for ID)
-        primary_cell_id = list(sector_cells.values())[0]
-
-        # Collect ALL cell_ids for this eNodeB (all sectors)
-        all_cell_ids = [str(cell_id).upper() for cell_id in sector_cells.values()]
-
-        # Create GeoJSON feature for this physical tower
-        tower_features.append({
-            'type': 'Feature',
-            'geometry': {
-                'type': 'Point',
-                'coordinates': [tower_lon, tower_lat, 50]
-            },
-            'properties': {
-                'id': f"GPS-{mcc}-{mnc}-{lac}-eNB{enodeb_id}",
-                'name': tower_name,
-                'radio': 'LTE',
-                'operator': operator_name,
-                'mcc': mcc,
-                'mnc': mnc,
-                'lac': lac,
-                'cid': str(primary_cell_id),  # Use first sector's cell_id
-                'all_cell_ids': all_cell_ids,  # ✨ ALL cell_ids for this tower
-                'enodeb_id': enodeb_id,
-                'sector_count': estimation['sector_count'],
-                'sectors': list(sector_cells.keys()),  # List of all sectors
-                'connection_count': connection_count,
-                'avg_rsrp': avg_rsrp,
-                'position_method': position_method,
-                'uncertainty_m': uncertainty_m,
-                'estimation_confidence': estimation.get('avg_confidence', 0.0),
-                'num_estimation_methods': estimation.get('num_methods', 1),
-                'is_connected': True
-            }
-        })
-
-    # Step 3: Process cells without eNodeB info (fallback to old method)
-    print(f"\n  🔧 Processing {len(cells_without_enodeb)} cells without eNodeB info...")
-    for cell_id in cells_without_enodeb:
-        # Skip invalid cell IDs
-        if cell_id in ['0', 'FFFFFFFF', 'nan'] or pd.isna(cell_id):
-            continue
-
-        # Get all positions where drone was connected to this cell
-        cell_data = df_lte[df_lte['lte_cell_id'] == cell_id].copy()
-
-        # ✅ CONNECTED TOWER: This cell was actually connected during flight
-        is_connected_tower = True  # If it appears in merged data, it was connected
-
-        # Require RSRP data for accurate estimation
-        if 'lte_rsrp' not in cell_data.columns or cell_data['lte_rsrp'].notna().sum() < 3:
-            # Skip only if not connected or insufficient data
-            if not is_connected_tower:
-                continue
-            # For connected towers with insufficient data, use all available points
-            print(f"⚠️  Connected tower {cell_id} has only {cell_data['lte_rsrp'].notna().sum()} RSRP samples")
-
-        # Filter to valid RSRP range
-        cell_data_filtered = cell_data[(cell_data['lte_rsrp'] >= -140) & (cell_data['lte_rsrp'] <= -40)]
-
-        # Signal quality filtering (use top 50% RSRP only)
-        cell_data_quality = filter_by_signal_quality(cell_data_filtered, rsrp_percentile=50.0)
-
-        # ⚠️ CRITICAL: Relax minimum data requirement from 5 → 3
-        # Connected towers must be displayed even with limited data
-        if len(cell_data_quality) < 3:
-            if is_connected_tower and len(cell_data_filtered) >= 2:
-                # Use all filtered data for connected towers
-                cell_data_quality = cell_data_filtered
-                print(f"⚠️  Connected tower {cell_id}: Using {len(cell_data_quality)} samples (relaxed)")
-            else:
-                continue
-
-        # Use the quality-filtered data for estimation
-        cell_data = cell_data_quality
-
-        # Hybrid estimation: Trilateration + Weighted Centroid + Top-3 Average
-        estimation = estimate_tower_hybrid(cell_data, verbose=False)
-
-        tower_lat = estimation['latitude']
-        tower_lon = estimation['longitude']
-        tower_alt = estimation.get('altitude', 30.0)
-        uncertainty_m = estimation['uncertainty_m']
-        position_method = estimation['position_method']
-
-        # Physical validation (boundary + distance check)
-        is_valid, validation_reason = validate_tower_position(
-            tower_lat, tower_lon,
-            flight_boundary,
-            flight_center_lat, flight_center_lon,
-            max_distance_km=15.0
-        )
-
-        if not is_valid:
-            continue
-
-        # Get signal statistics
-        all_cell_data = df_lte[df_lte['lte_cell_id'] == cell_id]
-        avg_rsrp = float(all_cell_data['lte_rsrp'].mean()) if 'lte_rsrp' in all_cell_data.columns else -100
-        connection_count = len(all_cell_data)
-
-        # Get detailed cell information (cell_id is already uppercase string)
-        cell_id_key = str(cell_id).upper()
-        details = lte_details.get(cell_id_key, {})
-
-        if not details:
-            print(f"⚠️  No LTE details found for cell_id '{cell_id}' (normalized: '{cell_id_key}')")
-
-        mcc = details.get('mcc', 450)
-        mnc = details.get('mnc')
-        lac = details.get('lac')
-        pcid = details.get('pcid')
-        enodeb_id = details.get('enodeb_id')
-        sector_id = details.get('cell_sector_id')
-
-        # Generate meaningful name
-        operator_name = OPERATORS.get(mnc, 'Unknown') if mnc else 'GPS Computed'
-        if enodeb_id and sector_id is not None:
-            tower_name = f"{operator_name} - eNB {enodeb_id} - Sector {sector_id}"
-        else:
-            tower_name = f"{operator_name} - Cell {cell_id}"
-
-        # Create GeoJSON feature
-        tower_features.append({
-            'type': 'Feature',
-            'geometry': {
-                'type': 'Point',
-                'coordinates': [tower_lon, tower_lat, 50]
-            },
-            'properties': {
-                'id': f"GPS-{mcc}-{mnc}-{lac}-{cell_id}",
-                'name': tower_name,
-                'radio': 'LTE',
-                'operator': operator_name,
-                'mcc': mcc,
-                'mnc': mnc,
-                'lac': lac,
-                'cid': str(cell_id),
-                'pcid': pcid,
-                'enodeb_id': enodeb_id,
-                'sector_id': sector_id,
-                'connection_count': connection_count,
-                'avg_rsrp': avg_rsrp,
-                'position_method': position_method,
-                'uncertainty_m': uncertainty_m,
-                'estimation_confidence': estimation.get('avg_confidence', 0.0),
-                'num_estimation_methods': estimation.get('num_methods', 1),
-                'is_connected': True
-            }
-        })
-
-    # Create GeoJSON FeatureCollection
-    return {
-        'type': 'FeatureCollection',
-        'features': tower_features
-    }
-
 
 @api_3d_bp.route('/cell-towers/<session_id>', methods=['GET'])
 def get_cell_towers(session_id):
     """
-    Get cell tower data for visualization
-    Computes tower locations from actual drone connection data (GPS-based)
-
-    Query Parameters:
-        - use_cache: Use cached data if available (true/false) [default: true]
-        - flight_id: Optional flight ID to filter by (for multi-flight sessions)
-
-    Response:
-        GeoJSON FeatureCollection with cell tower locations
+    Return official cell tower locations from Korean MSIT data (고흥읍 기지국)
     """
     try:
-        # Get query parameters
-        use_cache = request.args.get('use_cache', 'true', type=str) == 'true'
-        flight_id = request.args.get('flight_id', None, type=int)
-
-        # Cache key (include flight_id if specified)
-        cache_key = f"cell_towers:{session_id}:LTE" if flight_id is None else f"cell_towers:{session_id}:{flight_id}:LTE"
-
-        # Check cache (24 hour TTL)
-        if use_cache and redis_client:
-            try:
-                cached = redis_client.get(cache_key)
-                if cached:
-                    print(f"✅ Cell towers cache HIT: {cache_key}")
-                    return jsonify(json.loads(cached)), 200
-            except Exception as e:
-                print(f"⚠️ Redis cache read error: {e}")
-
-        # Call internal function to compute tower positions
-        print(f"📡 Computing tower positions from GPS data...")
-        geojson = get_cell_towers_geojson_internal(session_id, flight_id=flight_id)
-
-        # Check if any towers found
-        if not geojson or not geojson.get('features'):
-            return jsonify({'error': 'No LTE connection data available'}), 404
-
-        print(f"✅ Computed {len(geojson['features'])} tower positions")
-
-        # Cache result (24 hours)
-        if redis_client:
-            try:
-                redis_client.setex(cache_key, 86400, json.dumps(geojson))
-                print(f"💾 Cell towers cached: {cache_key}")
-            except Exception as e:
-                print(f"⚠️ Redis cache write error: {e}")
-
+        data_path = Path(__file__).parent.parent.parent / 'data' / 'goheung_cell_towers.json'
+        if not data_path.exists():
+            return jsonify({'type': 'FeatureCollection', 'features': []}), 200
+        with open(data_path, 'r', encoding='utf-8') as f:
+            geojson = json.load(f)
         return jsonify(geojson), 200
-
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Failed to fetch cell towers: {str(e)}'}), 500
-
-
-@api_3d_bp.route('/cell-towers-opencellid/<session_id>', methods=['GET'])
-def get_cell_towers_opencellid(session_id):
-    """
-    Get nearby cell towers from OpenCellID API for a flight session.
-    Returns blue markers showing towers in the flight area from OpenCellID database.
-
-    Query Parameters:
-        - use_cache: Use cached data if available (true/false) [default: true]
-        - flight_id: Optional flight ID to filter by
-        - radio: Radio type filter (LTE, UMTS, GSM, NR, ALL) [default: LTE]
-
-    Response:
-        GeoJSON FeatureCollection with cell tower locations (id does NOT start with GPS-)
-    """
-    try:
-        use_cache = request.args.get('use_cache', 'true', type=str) == 'true'
-        flight_id = request.args.get('flight_id', None, type=int)
-        radio = request.args.get('radio', 'LTE', type=str)
-
-        cache_key = f"opencellid:{session_id}:{flight_id}:{radio}"
-
-        # Check cache (1 hour TTL)
-        if use_cache and redis_client:
-            try:
-                cached = redis_client.get(cache_key)
-                if cached:
-                    print(f"✅ OpenCellID cache HIT: {cache_key}")
-                    return jsonify(json.loads(cached)), 200
-            except Exception as e:
-                print(f"⚠️ Cache read error: {e}")
-
-        # Validate session
-        session = Session.get_by_id(session_id)
-        if not session or session.status != 'completed':
-            return jsonify({'error': 'Session not found or not completed'}), 404
-
-        # Read merged data to get flight bounding box
-        results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
-        merged_data_path = results_dir / 'merged_data.csv'
-
-        if not merged_data_path.exists():
-            return jsonify({'error': 'No flight data found'}), 404
-
-        import pandas as pd
-        df = pd.read_csv(merged_data_path, low_memory=False)
-
-        if flight_id is not None and 'flight_id' in df.columns:
-            df = df[df['flight_id'] == flight_id]
-
-        if df.empty or 'latitude' not in df.columns:
-            return jsonify({'error': 'No GPS data available'}), 404
-
-        # Compute bounding box with ~2km buffer
-        lat_buffer = 0.018
-        lon_buffer = 0.018
-        lat_min = float(df['latitude'].min()) - lat_buffer
-        lat_max = float(df['latitude'].max()) + lat_buffer
-        lon_min = float(df['longitude'].min()) - lon_buffer
-        lon_max = float(df['longitude'].max()) + lon_buffer
-
-        print(f"📐 Flight bbox: ({lat_min:.4f},{lon_min:.4f}) → ({lat_max:.4f},{lon_max:.4f})")
-
-        # Get OpenCellID client
-        client = get_opencellid_client()
-        if not client:
-            return jsonify({'error': 'OpenCellID API key not configured. Set OPENCELLID_API_KEY env var.'}), 503
-
-        # Grid search over flight bounding box
-        towers = client.get_cell_towers_grid_search(
-            min_lat=lat_min, max_lat=lat_max,
-            min_lon=lon_min, max_lon=lon_max,
-            radio=radio
-        )
-
-        print(f"✅ OpenCellID returned {len(towers)} towers")
-
-        # Convert to GeoJSON (ids do NOT start with GPS-, so frontend renders blue)
-        geojson = _convert_towers_to_geojson(towers)
-
-        # Cache result (1 hour)
-        if redis_client:
-            try:
-                redis_client.setex(cache_key, 3600, json.dumps(geojson))
-                print(f"💾 OpenCellID towers cached: {cache_key}")
-            except Exception as e:
-                print(f"⚠️ Cache write error: {e}")
-
-        return jsonify(geojson), 200
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Failed to fetch OpenCellID towers: {str(e)}'}), 500
-
-
-def _convert_towers_to_geojson(towers: list, connected_lacs: set = None) -> dict:
-    """
-    Convert OpenCellID tower list to GeoJSON FeatureCollection
-
-    Args:
-        towers: List of tower dicts from OpenCellID
-        connected_lacs: Set of LAC (Location Area Code) values that were connected during flight
-
-    Returns:
-        GeoJSON FeatureCollection
-    """
-    if connected_lacs is None:
-        connected_lacs = set()
-
-    # Operator mapping (MCC 450 = Korea)
-    OPERATORS = {
-        5: 'SK Telecom',
-        6: 'LG U+',
-        8: 'KT'
-    }
-
-    features = []
-
-    for tower in towers:
-        # Skip towers without coordinates
-        if not tower.get('lat') or not tower.get('lon'):
-            continue
-
-        # Check if this tower's LAC was connected during flight
-        tower_lac = tower.get('lac')
-        is_connected = tower_lac in connected_lacs
-
-        # Create feature
-        feature = {
-            'type': 'Feature',
-            'geometry': {
-                'type': 'Point',
-                'coordinates': [
-                    float(tower['lon']),
-                    float(tower['lat']),
-                    0  # Ground level
-                ]
-            },
-            'properties': {
-                'id': f"{tower.get('mcc', 'unknown')}-{tower.get('mnc', 'unknown')}-{tower.get('lac', 'unknown')}-{tower.get('cid', 'unknown')}",
-                'radio': tower.get('radio', 'unknown'),
-                'operator': OPERATORS.get(tower.get('mnc'), 'Unknown'),
-                'mcc': tower.get('mcc'),
-                'mnc': tower.get('mnc'),
-                'lac': tower.get('lac'),
-                'cid': tower.get('cid'),
-                'range': tower.get('range', 1000),  # Default 1km
-                'samples': tower.get('samples', 0),
-                'signal': tower.get('averageSignal'),
-                'updated': tower.get('updated'),
-                'is_connected': is_connected  # Flag for towers used during flight
-            }
-        }
-
-        features.append(feature)
-
-    return {
-        'type': 'FeatureCollection',
-        'features': features
-    }
+        return jsonify({'error': str(e)}), 500
 
 
 @api_3d_bp.route('/satellite-direction/<session_id>', methods=['GET'])
