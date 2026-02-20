@@ -296,10 +296,10 @@ def get_czml_data(session_id):
         # Convert to JSON
         czml_json = json.dumps(czml_data)
 
-        # Cache the JSON data (5 minutes TTL)
+        # Cache the JSON data (1 hour TTL — uploaded data is immutable)
         if redis_client:
             try:
-                redis_client.setex(cache_key, 300, czml_json)
+                redis_client.setex(cache_key, 3600, czml_json)
                 print(f"💾 Cache MISS: {cache_key} saved ({len(czml_json)} bytes)")
             except Exception as e:
                 print(f"⚠️ Cache write error: {e}")
@@ -471,10 +471,10 @@ def get_heatmap_czml(session_id):
         # Convert to JSON
         czml_json = json.dumps(czml_data)
 
-        # Cache the JSON data (5 minutes TTL)
+        # Cache the JSON data (1 hour TTL — uploaded data is immutable)
         if redis_client:
             try:
-                redis_client.setex(cache_key, 300, czml_json)
+                redis_client.setex(cache_key, 3600, czml_json)
                 print(f"💾 Cache MISS: {cache_key} saved ({len(czml_json)} bytes)")
             except Exception as e:
                 print(f"⚠️ Cache write error: {e}")
@@ -582,10 +582,10 @@ def get_satellite_direction_czml(session_id):
         # Convert to JSON
         czml_json = json.dumps(czml_data)
 
-        # Cache the JSON data (5 minutes TTL)
+        # Cache the JSON data (1 hour TTL — uploaded data is immutable)
         if redis_client:
             try:
-                redis_client.setex(cache_key, 300, czml_json)
+                redis_client.setex(cache_key, 3600, czml_json)
                 print(f"💾 Cache MISS: {cache_key} saved ({len(czml_json)} bytes)")
             except Exception as e:
                 print(f"⚠️ Cache write error: {e}")
@@ -665,10 +665,10 @@ def get_tower_connections_czml(session_id):
         # Convert to JSON
         czml_json = json.dumps(czml_data)
 
-        # Cache the JSON data (5 minutes TTL)
+        # Cache the JSON data (1 hour TTL — uploaded data is immutable)
         if redis_client:
             try:
-                redis_client.setex(cache_key, 300, czml_json)
+                redis_client.setex(cache_key, 3600, czml_json)
                 print(f"💾 Cache MISS: {cache_key} saved ({len(czml_json)} bytes)")
             except Exception as e:
                 print(f"⚠️ Cache write error: {e}")

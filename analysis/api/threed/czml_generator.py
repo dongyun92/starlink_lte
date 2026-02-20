@@ -121,7 +121,9 @@ class CZMLGenerator:
 
         # Skip sampling for binary/quality modes to preserve rare events
         # Binary modes (connection_quality, roaming, alerts) have few positive samples that must not be lost
-        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any', 'lte_quality_combined', 'starlink_quality_combined', 'lte_band', 'lte_outage', 'lap_number']
+        # NOTE: lte_outage is intentionally excluded — outages last 30+ seconds so downsampling
+        #       is safe, and keeping all 16k+ points makes the CZML 3× larger (6.5MB vs 2MB).
+        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any', 'lte_quality_combined', 'starlink_quality_combined', 'lte_band', 'lap_number']
         should_skip_sampling = color_by in skip_sampling_modes or color_by.startswith('starlink_alert_')
 
         # Apply sampling if needed (fraction-based sampling)
