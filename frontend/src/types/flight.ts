@@ -11,6 +11,10 @@ export interface FlightSession {
     lte_data: number;
     starlink_data: number;
   };
+  time_range: {
+    start: string;
+    end: string;
+  } | null;
 }
 
 export interface FlightMetadata {

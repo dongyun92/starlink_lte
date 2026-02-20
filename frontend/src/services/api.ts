@@ -54,11 +54,12 @@ export async function getCZMLData(
     sample_rate?: number;
     color_by?: 'altitude' | 'speed' |
                 'pitch' | 'roll' | 'pitch_performance' |
-                'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' |
+                'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_band' | 'lte_outage' |
                 'starlink_quality_combined' | 'starlink_latency' |
                 'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
-                'starlink_obstruction' | 'starlink_uptime';
+                'starlink_obstruction' | 'starlink_uptime' | 'lap_number' | 'combined_connectivity';
     flight_id?: number;
+    lap?: number;
     custom_metrics?: Record<string, number>;
     heading_offset?: number;
     pitch_offset?: number;
@@ -77,6 +78,10 @@ export async function getCZMLData(
 
   if (options?.flight_id !== undefined) {
     params.append('flight_id', options.flight_id.toString());
+  }
+
+  if (options?.lap !== undefined && options.lap !== 0) {
+    params.append('lap', options.lap.toString());
   }
 
   if (options?.custom_metrics) {
@@ -281,36 +286,6 @@ export async function getCellTowers(
   return response.json();
 }
 
-/**
- * Get cell towers from OpenCellID API for a flight session (blue markers)
- */
-export async function getCellTowersOpenCellID(
-  sessionId: string,
-  options: {
-    radio?: string;
-    use_cache?: boolean;
-    flight_id?: number;
-  } = {}
-): Promise<any> {
-  const { radio = 'LTE', use_cache = true, flight_id } = options;
-
-  const params = new URLSearchParams({
-    radio,
-    use_cache: use_cache.toString(),
-  });
-
-  if (flight_id !== undefined) {
-    params.append('flight_id', flight_id.toString());
-  }
-
-  const response = await fetch(`${API_BASE_URL}/api/3d/cell-towers-opencellid/${sessionId}?${params}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch OpenCellID towers: ${response.statusText}`);
-  }
-
-  return response.json();
-}
 
 /**
  * Chart information interface

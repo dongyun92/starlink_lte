@@ -734,6 +734,7 @@ class AnalysisPipeline:
 
                 # 기본 통신 품질 차트
                 self._plot_quality_over_time()
+                self._plot_lte_rsrp_timeline()
                 self._plot_quality_heatmap()
                 self._plot_statistics_summary()
 
@@ -2149,6 +2150,167 @@ class AnalysisPipeline:
         plt.tight_layout()
         plt.savefig(self.charts_folder / 'quality_over_time.png', dpi=150)
         plt.close()
+
+    def _get_lte_outage_spans(self):
+        """
+        Read raw LTE source files to find real outage spans (rsrp=rsrq=sinr=-999).
+        Returns list of (start_dt, end_dt) tuples in UTC.
+        Cannot use merged_data because the pipeline converts -999 to NaN before saving.
+        """
+        import glob as _glob
+        lte_files = sorted(_glob.glob(str(self.lte_data_dir / 'lte_data_*.csv')))
+        if not lte_files:
+            return []
+
+        dfs = []
+        for f in lte_files:
+            try:
+                dfs.append(pd.read_csv(f, low_memory=False))
+            except Exception:
+                pass
+        if not dfs:
+            return []
+
+        raw = pd.concat(dfs, ignore_index=True)
+        raw['dt'] = pd.to_datetime(raw['timestamp'], errors='coerce', utc=True)
+        raw = raw.dropna(subset=['dt']).sort_values('dt').reset_index(drop=True)
+
+        # Real outage = all three signal metrics are -999 simultaneously
+        bad = raw[(raw['rsrp'] == -999) & (raw['rsrq'] == -999) & (raw['sinr'] == -999)].copy()
+        if len(bad) == 0:
+            return []
+
+        # Group consecutive -999 rows into spans (merge gaps <= 3 seconds)
+        bad = bad.sort_values('dt').reset_index(drop=True)
+        spans = []
+        span_start = bad['dt'].iloc[0]
+        span_end = bad['dt'].iloc[0]
+        for i in range(1, len(bad)):
+            gap = (bad['dt'].iloc[i] - span_end).total_seconds()
+            if gap <= 3.0:
+                span_end = bad['dt'].iloc[i]
+            else:
+                if (span_end - span_start).total_seconds() >= 0.5:
+                    spans.append((span_start, span_end))
+                span_start = bad['dt'].iloc[i]
+                span_end = bad['dt'].iloc[i]
+        if (span_end - span_start).total_seconds() >= 0.5:
+            spans.append((span_start, span_end))
+
+        return spans
+
+    def _plot_lte_rsrp_timeline(self):
+        """LTE RSRP timeline with real outage bands from raw source files"""
+        if 'lte_rsrp' not in self.merged_data.columns:
+            return
+
+        df = self.merged_data.copy()
+        df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed', utc=True, errors='coerce')
+        df = df.dropna(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
+
+        valid = df[df['lte_rsrp'].notna()][['timestamp', 'lte_rsrp', 'altitude']].copy()
+        if len(valid) < 2:
+            return
+
+        t0 = valid['timestamp'].iloc[0]
+        valid['elapsed_min'] = (valid['timestamp'] - t0).dt.total_seconds() / 60
+
+        # Load outage spans from raw LTE files
+        outage_spans = self._get_lte_outage_spans()
+
+        fig, axes = plt.subplots(2, 1, figsize=(16, 10),
+                                  gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+        ax = axes[0]
+
+        # Signal quality background bands
+        bands = [
+            (-70,   0,   '#2ecc71', 'Good (> -80 dBm)'),
+            (-80,  -70,  '#2ecc71', None),
+            (-100,  -80, '#f39c12', 'Fair (-80 ~ -100)'),
+            (-110, -100, '#e67e22', 'Weak (-100 ~ -110)'),
+            (-120, -110, '#e74c3c', 'Very Weak (-110 ~ -120)'),
+            (-150, -120, '#7b0000', 'Critical (< -120)'),
+        ]
+        ymin, ymax = -135, -60
+        for y_lo, y_hi, color, label in bands:
+            y_lo_clip = max(y_lo, ymin)
+            y_hi_clip = min(y_hi, ymax)
+            if y_hi_clip <= y_lo_clip:
+                continue
+            ax.axhspan(y_lo_clip, y_hi_clip, color=color, alpha=0.12,
+                       label=label if label else '_nolegend_')
+
+        # Reference lines
+        for val, ls, color, lbl in [
+            (-80,  '--', '#2ecc71', '-80 dBm (Good threshold)'),
+            (-100, '--', '#f39c12', '-100 dBm (Fair threshold)'),
+            (-110, '-.',  '#e74c3c', '-110 dBm (Outage threshold)'),
+        ]:
+            ax.axhline(val, linestyle=ls, color=color, linewidth=1.2, alpha=0.7, label=lbl)
+
+        # Overlay real outage spans as red vertical bands
+        outage_label_added = False
+        for span_start, span_end in outage_spans:
+            s_min = (span_start - t0).total_seconds() / 60
+            e_min = (span_end - t0).total_seconds() / 60
+            x_max = valid['elapsed_min'].max()
+            if e_min < 0 or s_min > x_max:
+                continue
+            label = 'LTE Signal Lost (rsrp=rsrq=sinr=-999)' if not outage_label_added else '_nolegend_'
+            ax.axvspan(s_min, e_min, color='red', alpha=0.35, label=label, zorder=5)
+            outage_label_added = True
+            dur = (span_end - span_start).total_seconds()
+            if dur >= 5:
+                mid = (s_min + e_min) / 2
+                ax.text(mid, ymax - 3, f'{dur:.0f}s', ha='center', va='top',
+                        fontsize=7, color='darkred', fontweight='bold')
+
+        # RSRP line - split at gaps > 5 seconds
+        valid['gap'] = (valid['timestamp'] - valid['timestamp'].shift()).dt.total_seconds().fillna(0)
+        valid['seg'] = (valid['gap'] > 5).cumsum()
+
+        for seg_id, seg in valid.groupby('seg'):
+            avg = seg['lte_rsrp'].mean()
+            if avg >= -80:
+                c = '#27ae60'
+            elif avg >= -100:
+                c = '#e67e22'
+            elif avg >= -110:
+                c = '#c0392b'
+            else:
+                c = '#7b0000'
+            ax.plot(seg['elapsed_min'], seg['lte_rsrp'], color=c, linewidth=1.0, alpha=0.85)
+
+        ax.set_ylabel('RSRP (dBm)', fontsize=12)
+        ax.set_ylim(ymin, ymax)
+        n_outages = len(outage_spans)
+        total_outage_sec = sum((e - s).total_seconds() for s, e in outage_spans)
+        title = f'LTE RSRP Signal Quality Over Time  ({n_outages} outage events, {total_outage_sec:.0f}s total)'
+        ax.set_title(title, fontsize=13, fontweight='bold')
+        ax.legend(loc='lower left', fontsize=9, ncol=2)
+        ax.grid(True, alpha=0.3)
+
+        # Altitude subplot
+        ax2 = axes[1]
+        df_alt = df[df['altitude'].notna()].copy()
+        df_alt['elapsed_min'] = (df_alt['timestamp'] - t0).dt.total_seconds() / 60
+        ax2.fill_between(df_alt['elapsed_min'], df_alt['altitude'],
+                         color='#3498db', alpha=0.5, linewidth=0)
+        for span_start, span_end in outage_spans:
+            s_min = (span_start - t0).total_seconds() / 60
+            e_min = (span_end - t0).total_seconds() / 60
+            ax2.axvspan(s_min, e_min, color='red', alpha=0.25)
+        ax2.set_ylabel('Altitude (m)', fontsize=10)
+        ax2.set_xlabel('Elapsed Time (min)', fontsize=12)
+        ax2.grid(True, alpha=0.3)
+
+        x_max = valid['elapsed_min'].max()
+        ax2.set_xlim(0, x_max)
+
+        plt.tight_layout()
+        plt.savefig(self.charts_folder / 'lte_rsrp_timeline.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"  ✓ LTE RSRP timeline: {n_outages} outage spans, {total_outage_sec:.0f}s total")
 
     def _plot_quality_heatmap(self):
         """품질 히트맵"""

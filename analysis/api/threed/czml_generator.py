@@ -59,7 +59,7 @@ class CZMLGenerator:
             return 1.0, 1  # 100% of data, 1-point segments → all points
 
 
-    def generate(self, sample_rate: int = 1, color_by: str = 'altitude', flight_id: int = None, custom_metrics: dict = None) -> list:
+    def generate(self, sample_rate: int = 1, color_by: str = 'altitude', flight_id: int = None, custom_metrics: dict = None, lap: int = 0) -> list:
         """
         Generate CZML data for the flight session
 
@@ -70,6 +70,7 @@ class CZMLGenerator:
             custom_metrics: Optional custom metric weights for quality calculation
                            Format: {'rsrp': 0.3, 'sinr': 0.5, 'rsrq': 0.2} for LTE
                                    or {'snr': 0.3, 'latency': 0.2, ...} for Starlink
+            lap: Lap filter (0=all, 1=first lap, 2=second lap)
 
         Returns:
             CZML data as list of dictionaries
@@ -102,13 +103,25 @@ class CZMLGenerator:
         if df.empty:
             raise ValueError("No flight data available")
 
+        # Filter by lap if specified (lap=1 or lap=2)
+        if lap in (1, 2):
+            lap_boundary = self._detect_lap_boundary(df)
+            if lap_boundary is not None:
+                if lap == 1:
+                    df = df.loc[:lap_boundary].copy()
+                else:
+                    df = df.loc[lap_boundary:].copy()
+                print(f"🏁 Lap {lap} filter: {len(df)} points (boundary={lap_boundary})")
+            else:
+                print(f"⚠️ Lap boundary not detected, showing all data")
+
         # Calculate optimal sampling parameters based on data size
         original_len = len(df)
         auto_sampling_rate, auto_segment_interval = self._calculate_sampling_params(original_len)
 
         # Skip sampling for binary/quality modes to preserve rare events
         # Binary modes (connection_quality, roaming, alerts) have few positive samples that must not be lost
-        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any', 'lte_quality_combined', 'starlink_quality_combined', 'lte_band']
+        skip_sampling_modes = ['starlink_connection_quality', 'starlink_roaming', 'starlink_alerts_any', 'lte_quality_combined', 'starlink_quality_combined', 'lte_band', 'lte_outage', 'lap_number']
         should_skip_sampling = color_by in skip_sampling_modes or color_by.startswith('starlink_alert_')
 
         # Apply sampling if needed (fraction-based sampling)
@@ -232,6 +245,10 @@ class CZMLGenerator:
         # Use dynamically calculated segment interval for optimal performance
         # This was calculated based on total data size in _calculate_sampling_params()
         segment_interval = self._segment_interval
+        # For binary/outage modes, force interval=1 so every point's color is respected
+        if color_by in ('lte_outage', 'lte_band', 'starlink_connection_quality',
+                        'starlink_roaming', 'starlink_alerts_any') or color_by.startswith('starlink_alert_'):
+            segment_interval = 1
 
         estimated_segments = num_points // segment_interval
         print(f"🎨 Creating gradient segments: {num_points} points, interval={segment_interval}, ~{estimated_segments} segments")
@@ -477,6 +494,118 @@ class CZMLGenerator:
 
         return colors
 
+    def _calculate_lte_outage_colors(self, df) -> np.ndarray:
+        """
+        Color path by LTE signal availability:
+          - Normal signal  → Green  [46, 204, 113, 255]
+          - Signal lost (-999) → Red [231, 76, 60, 255]
+
+        Detects outages from raw LTE source files (merged_data replaces -999 with NaN).
+        Falls back to lte_rsrp NaN detection if raw files unavailable.
+        """
+        import glob as _glob
+
+        GREEN  = [46,  204, 113, 255]  # good
+        RED    = [231,  76,  60, 255]  # outage
+        GRAY   = [128, 128, 128, 180]  # no LTE data at all
+
+        n = len(df)
+        colors = np.tile(GREEN, (n, 1)).astype(np.uint8)
+
+        # Mark rows with no LTE data at all as gray
+        if 'lte_rsrp' in df.columns:
+            no_lte = df['lte_rsrp'].isna().values
+            colors[no_lte] = GRAY
+
+        # Load raw LTE source files to find actual -999 spans
+        upload_dir = Path(__file__).parent.parent.parent / 'uploads' / self.session_id / 'lte_data'
+        lte_files = sorted(_glob.glob(str(upload_dir / 'lte_data_*.csv')))
+
+        outage_timestamps = set()
+        if lte_files:
+            raw_dfs = []
+            for f in lte_files:
+                try:
+                    raw_dfs.append(pd.read_csv(f, low_memory=False))
+                except Exception:
+                    pass
+            if raw_dfs:
+                raw = pd.concat(raw_dfs, ignore_index=True)
+                raw['dt'] = pd.to_datetime(raw['timestamp'], errors='coerce', utc=True)
+                raw = raw.dropna(subset=['dt'])
+                raw_sorted = raw.sort_values('dt').reset_index(drop=True)
+
+                # Pre-compute df timestamps once (shared for gap + outage marking)
+                df_ts = pd.to_datetime(df.index, format='mixed', utc=True, errors='coerce')
+
+                # ── Step 1: detect raw LTE silence gaps (modem completely silent) ──
+                # LTE logs at ~0.5Hz → consecutive rows ~2s apart.
+                # A gap > 10s means the modem produced NO rows at all.
+                # merged_data.csv interpolates over these gaps → they appear GREEN
+                # but should be GRAY (no real data). Mark GRAY first; RED will
+                # override any overlapping -999 outage spans below.
+                SILENCE_GAP_SEC = 10.0
+                time_diffs = raw_sorted['dt'].diff()
+                gap_indices = raw_sorted.index[time_diffs.dt.total_seconds() > SILENCE_GAP_SEC]
+                silence_spans = []
+                for i in gap_indices:
+                    if i > 0:
+                        silence_spans.append((raw_sorted['dt'].iloc[i - 1],
+                                              raw_sorted['dt'].iloc[i]))
+
+                for span_start, span_end in silence_spans:
+                    in_gap = (df_ts > span_start) & (df_ts < span_end)
+                    colors[in_gap] = GRAY
+
+                print(f"📊 LTE Silence gaps: {len(silence_spans)} gaps → {np.sum(np.all(colors == GRAY, axis=1))} path points marked gray")
+
+                # ── Step 2: detect -999 outage spans (modem active but no signal) ──
+                bad = raw_sorted[
+                    (raw_sorted['rsrp'] == -999) &
+                    (raw_sorted['rsrq'] == -999) &
+                    (raw_sorted['sinr'] == -999)
+                ]
+
+                # Build outage spans (merge gaps <= 30 seconds)
+                # LTE samples at 0.5Hz; brief valid readings between -999 rows
+                # are modem artifacts, not real recovery. 30s window absorbs them.
+                GAP_TOLERANCE_SEC = 30.0
+                outage_spans = []
+                if len(bad) > 0:
+                    bad_sorted = bad.reset_index(drop=True)
+                    span_start = bad_sorted['dt'].iloc[0]
+                    span_end   = bad_sorted['dt'].iloc[0]
+                    for i in range(1, len(bad_sorted)):
+                        gap = (bad_sorted['dt'].iloc[i] - span_end).total_seconds()
+                        if gap <= GAP_TOLERANCE_SEC:
+                            span_end = bad_sorted['dt'].iloc[i]
+                        else:
+                            outage_spans.append((span_start, span_end))
+                            span_start = bad_sorted['dt'].iloc[i]
+                            span_end   = bad_sorted['dt'].iloc[i]
+                    outage_spans.append((span_start, span_end))
+
+                # Map outage spans to df rows (RED overrides GRAY if overlapping)
+                for span_start, span_end in outage_spans:
+                    in_span = (df_ts >= span_start) & (df_ts <= span_end)
+                    colors[in_span] = RED
+
+                print(f"📊 LTE Outage: {len(outage_spans)} spans → {np.sum(np.all(colors == RED, axis=1))} path points marked red")
+
+        self._color_metadata = {
+            'column': 'lte_outage',
+            'min': 0.0,
+            'max': 1.0,
+            'unit': 'binary',
+            'categorical': True,
+            'legend': {
+                'Signal OK': '#2ecc71',
+                'Signal Lost': '#e74c3c',
+                'No LTE data': '#808080',
+            }
+        }
+        return colors
+
     def _calculate_lte_quality_combined(self, df) -> np.ndarray:
         """
         Calculate combined LTE quality score
@@ -655,6 +784,166 @@ class CZMLGenerator:
 
         return combined
 
+    def _detect_lap_boundary(self, df) -> object:
+        """
+        Detect the timestamp where the aircraft completes lap 1 and begins lap 2.
+
+        Algorithm: Find the FIRST time the path returns close to the start point
+        AFTER having flown far away — independent of where the global distance
+        peak occurs.  This handles flights where the global peak is in lap 2
+        (the old "after-the-peak" approach missed those cases).
+
+        Returns:
+            Timestamp (index value) of the lap boundary, or None if not detected.
+        """
+        gps = df[['latitude', 'longitude']].dropna()
+        if len(gps) < 100:
+            return None
+
+        start_lat = gps['latitude'].iloc[0]
+        start_lon = gps['longitude'].iloc[0]
+
+        dlat = (gps['latitude'] - start_lat) * 111000
+        dlon = (gps['longitude'] - start_lon) * 111000 * np.cos(np.radians(start_lat))
+        dist = np.sqrt(dlat**2 + dlon**2)
+
+        window = min(30, len(dist) // 20)
+        dist_smooth = dist.rolling(window, center=True, min_periods=1).mean()
+        max_dist = dist_smooth.max()
+
+        # threshold: within 10% of max range = "back at start"
+        threshold = max_dist * 0.10
+
+        # Find FIRST return to start AFTER the path has gone far (> 30% of max).
+        # was_far is a monotonically increasing cumsum — once it's > 0 the aircraft
+        # has previously been far away, regardless of which lap the global peak is in.
+        was_far = (dist_smooth > max_dist * 0.30).cumsum()
+        is_close = dist_smooth <= threshold
+        candidates = dist_smooth[is_close & (was_far > 0)]
+
+        if len(candidates) == 0:
+            # Loosen threshold to 20%
+            candidates = dist_smooth[(dist_smooth <= max_dist * 0.20) & (was_far > 0)]
+
+        if len(candidates) == 0:
+            print(f"⚠️ Lap boundary not found: path never returns close to start")
+            return None
+
+        lap_boundary_idx = candidates.index[0]
+        boundary_dist = dist_smooth.loc[lap_boundary_idx]
+
+        # Verify lap 2 exists: after the boundary, the path should go far again
+        after_boundary = dist_smooth.loc[lap_boundary_idx:]
+        if len(after_boundary) < 20 or after_boundary.max() < max_dist * 0.3:
+            print(f"⚠️ Lap 2 not significant after boundary (max={after_boundary.max():.0f}m)")
+            return None
+
+        print(f"🏁 Lap boundary detected: {lap_boundary_idx} (dist={boundary_dist:.0f}m from start, threshold={threshold:.0f}m)")
+        return lap_boundary_idx
+
+    def _calculate_lap_number_colors(self, df) -> np.ndarray:
+        """
+        Color path by lap number:
+          - Lap 1 → Blue   [52, 152, 219, 255]
+          - Lap 2 → Orange [230, 126, 34, 255]
+        """
+        BLUE   = [52,  152, 219, 255]  # lap 1
+        ORANGE = [230, 126,  34, 255]  # lap 2
+
+        n = len(df)
+        colors = np.tile(BLUE, (n, 1)).astype(np.uint8)
+
+        lap_boundary = self._detect_lap_boundary(df)
+        if lap_boundary is not None:
+            # Find integer position of boundary in df
+            try:
+                boundary_pos = df.index.get_loc(lap_boundary)
+                if isinstance(boundary_pos, slice):
+                    boundary_pos = boundary_pos.start
+            except KeyError:
+                # nearest index
+                boundary_pos = df.index.searchsorted(lap_boundary)
+
+            colors[boundary_pos:] = ORANGE
+            lap1_count = boundary_pos
+            lap2_count = n - boundary_pos
+            print(f"🏁 Lap colors: Lap1={lap1_count} (blue), Lap2={lap2_count} (orange)")
+        else:
+            print("⚠️ Could not detect lap boundary for lap_number coloring")
+
+        self._color_metadata = {
+            'column': 'lap_number',
+            'min': 1,
+            'max': 2,
+            'unit': 'lap',
+            'categorical': True,
+            'legend': {
+                'Lap 1': '#3498db',
+                'Lap 2': '#e67e22',
+            }
+        }
+        return colors
+
+    def _calculate_combined_connectivity(self, df) -> np.ndarray:
+        """
+        LTE RSRP + Starlink DL throughput 통합 연결 품질 점수 (0~1, 높을수록 좋음)
+
+        정규화 기준:
+          LTE RSRP:       -110 dBm → 0.0 (불량),  -70 dBm → 1.0 (우수)
+          Starlink DL:       0 Mbps → 0.0 (없음),    5 Mbps → 1.0 (우수)
+
+        NaN 처리:
+          둘 다 유효 → 평균 (50:50)
+          하나만 유효 → 유효한 값만 사용
+          둘 다 NaN  → NaN (회색)
+        """
+        has_rsrp = 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all()
+        has_dl   = 'starlink_downlink_throughput_bps' in df.columns and not df['starlink_downlink_throughput_bps'].isna().all()
+
+        if not has_rsrp and not has_dl:
+            raise ValueError("❌ LTE RSRP와 Starlink DL 데이터가 모두 없습니다")
+
+        n = len(df)
+        scores = np.full(n, np.nan)
+
+        lte_score = np.full(n, np.nan)
+        sl_score  = np.full(n, np.nan)
+
+        if has_rsrp:
+            rsrp = df['lte_rsrp'].values.astype(float)
+            rsrp = np.where(rsrp >= 0, np.nan, rsrp)  # 0 이상 이상값 제거
+            lte_score = np.clip((rsrp - (-110.0)) / ((-70.0) - (-110.0)), 0.0, 1.0)
+
+        if has_dl:
+            dl_mbps = df['starlink_downlink_throughput_bps'].values.astype(float) / 1_000_000.0
+            # 0.3 Mbps = 실데이터 p95 기준 (한국 throttling 환경에 맞춤)
+            sl_score = np.clip(dl_mbps / 0.3, 0.0, 1.0)
+
+        both_valid = ~np.isnan(lte_score) & ~np.isnan(sl_score)
+        lte_only   = ~np.isnan(lte_score) & np.isnan(sl_score)
+        sl_only    = np.isnan(lte_score) & ~np.isnan(sl_score)
+
+        scores[both_valid] = (lte_score[both_valid] + sl_score[both_valid]) / 2.0
+        scores[lte_only]   = lte_score[lte_only]
+        scores[sl_only]    = sl_score[sl_only]
+
+        valid_both = int(both_valid.sum())
+        valid_lte  = int(lte_only.sum())
+        valid_sl   = int(sl_only.sum())
+        print(f"📊 통합 연결 점수: 양쪽={valid_both}, LTE만={valid_lte}, Starlink만={valid_sl}")
+
+        self._color_metadata = {
+            'mode': 'combined_connectivity',
+            'label': '통합 연결 품질',
+            'min_label': 'LTE -110dBm / SL 0Mbps',
+            'max_label': 'LTE -70dBm / SL 5Mbps',
+            'min': 0.0,
+            'max': 1.0,
+            'unit': 'score',
+        }
+
+        return scores
+
     def _calculate_colors(self, df, color_by: str) -> np.ndarray:
         """
         Calculate colors for each position based on parameter
@@ -672,6 +961,30 @@ class CZMLGenerator:
         # Categorical mode: LTE Band - bypass normalization pipeline, return directly
         if color_by == 'lte_band':
             return self._calculate_lte_band_colors(df)
+
+        # Outage mode: Red where LTE signal is completely lost (rsrp=rsrq=sinr=-999 in raw files)
+        if color_by == 'lte_outage':
+            return self._calculate_lte_outage_colors(df)
+
+        # Lap number mode: Blue=Lap1, Orange=Lap2
+        if color_by == 'lap_number':
+            return self._calculate_lap_number_colors(df)
+
+        # Combined connectivity score - already normalized to [0,1]
+        if color_by == 'combined_connectivity':
+            values = self._calculate_combined_connectivity(df)
+            column_name = 'combined_connectivity'
+            # values already in [0,1], map directly to colormap
+            nan_mask = np.isnan(values)
+            colors = np.zeros((len(values), 4), dtype=np.uint8)
+            colors[:, 3] = 255
+            valid = ~nan_mask
+            if valid.any():
+                cmap = cm.RdYlGn  # 빨강(0=불량) → 노랑 → 초록(1=우수)
+                rgba = (cmap(values[valid]) * 255).astype(np.uint8)
+                colors[valid] = rgba
+            colors[nan_mask] = [128, 128, 128, 180]  # 회색 (데이터 없음)
+            return colors
 
         if color_by == 'altitude':
             values = df['altitude'].values

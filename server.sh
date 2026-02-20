@@ -34,7 +34,7 @@ start_backend() {
 
     echo -e "${GREEN}🚀 Starting Backend (Flask) on port $BACKEND_PORT...${NC}"
     cd "$BACKEND_DIR"
-    nohup python3 -m flask run --host=0.0.0.0 --port=$BACKEND_PORT > /tmp/flask_3d.log 2>&1 &
+    nohup /Users/dykim/dev/starlink/analysis_env/bin/python3 -m flask run --host=0.0.0.0 --port=$BACKEND_PORT > /tmp/flask_3d.log 2>&1 &
     sleep 2
 
     if check_backend; then

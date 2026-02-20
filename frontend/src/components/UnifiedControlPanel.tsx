@@ -67,17 +67,20 @@ interface UnifiedControlPanelProps {
   pathColorMode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' | 'lte_outage' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
-    'starlink_obstruction' | 'starlink_uptime';
+    'starlink_obstruction' | 'starlink_uptime' | 'lap_number';
   onPathColorModeChange: (mode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' | 'lte_outage' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
-    'starlink_obstruction' | 'starlink_uptime') => void;
+    'starlink_obstruction' | 'starlink_uptime' | 'lap_number') => void;
+  lapFilter: 0 | 1 | 2;
+  onLapFilterChange: (lap: 0 | 1 | 2) => void;
+  lapInfo: {has_laps: boolean; lap_boundary?: string; lap1_points?: number; lap2_points?: number} | null;
   onCustomMetricsChange: (metrics: Record<string, number> | null) => void;
   colorMetadata: {column: string; min: number; max: number; unit: string} | null;
   heatmapMetadata: {lteColumn: string | null; starlinkColumn: string | null};
@@ -144,6 +147,9 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onCameraModeToggle,
   pathColorMode,
   onPathColorModeChange,
+  lapFilter,
+  onLapFilterChange,
+  lapInfo,
   onCustomMetricsChange,
   colorMetadata,
   heatmapMetadata,
@@ -248,6 +254,26 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
             </div>
           )}
 
+          {/* Lap Filter - independent section, works with any color mode */}
+          {lapInfo?.has_laps && (
+            <div className="pb-3 border-b">
+              <div className="text-xs font-bold text-gray-700 mb-1.5">🏁 Lap 필터</div>
+              <div className="flex gap-1">
+                {([0, 1, 2] as const).map(l => (
+                  <button
+                    key={l}
+                    onClick={() => onLapFilterChange(l)}
+                    className={`text-[11px] px-3 py-1 rounded border font-medium transition-colors ${lapFilter === l
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50'}`}
+                  >
+                    {l === 0 ? '전체' : `Lap ${l} (${l === 1 ? lapInfo.lap1_points?.toLocaleString() : lapInfo.lap2_points?.toLocaleString()}pts)`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Path Color Mode */}
           <div className="pb-3 border-b">
             <div className="text-xs font-bold text-gray-700 mb-2">Path Color Mode</div>
@@ -267,6 +293,25 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                 </label>
                 <div className="text-[10px] text-purple-600 mt-0.5 ml-5">LTE RSRP + Starlink DL 쓰루풋 평균</div>
               </div>
+
+              {/* Lap Number */}
+              {lapInfo?.has_laps && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={pathColorMode === 'lap_number'}
+                    onChange={() => onPathColorModeChange('lap_number')}
+                    className="w-3 h-3"
+                  />
+                  <span className="text-xs">Lap Number 🏁
+                    {pathColorMode === 'lap_number' && (
+                      <span className="ml-1 text-[10px] text-gray-500">
+                        (<span style={{color:'#3498db'}}>■</span> Lap1 <span style={{color:'#e67e22'}}>■</span> Lap2)
+                      </span>
+                    )}
+                  </span>
+                </label>
+              )}
 
               {/* Altitude */}
               <label className="flex items-center gap-2 cursor-pointer">
@@ -404,6 +449,31 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                       />
                       <span className="text-xs">LTE Band (주파수 대역)</span>
                     </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'lte_outage'}
+                        onChange={() => onPathColorModeChange('lte_outage')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">Signal Outage 🔴 (단절 구간)</span>
+                    </label>
+                    {pathColorMode === 'lte_outage' && (
+                      <div className="ml-1 mt-1 p-1.5 bg-red-50 rounded border border-red-200 space-y-0.5">
+                        <div className="text-[9px] font-semibold text-gray-500 mb-1">색상 범례</div>
+                        {[
+                          { color: '#e74c3c', label: 'Signal Lost', desc: 'rsrp=rsrq=sinr=-999' },
+                          { color: '#2ecc71', label: 'Signal OK',   desc: '정상 수신' },
+                          { color: '#808080', label: 'No LTE data', desc: 'LTE 데이터 없음' },
+                        ].map(({ color, label, desc }) => (
+                          <div key={label} className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
+                            <span className="text-[9px] text-gray-700 font-medium">{label}</span>
+                            <span className="text-[9px] text-gray-400">{desc}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {/* Band 범례 (lte_band 모드일 때만 표시) */}
                     {pathColorMode === 'lte_band' && (
                       <div className="ml-1 mt-1 p-1.5 bg-gray-50 rounded border border-gray-200 space-y-0.5">

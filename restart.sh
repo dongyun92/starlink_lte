@@ -64,7 +64,7 @@ echo ""
 # Step 4: Flask 서버 시작 + PID 저장
 echo "🚀 Step 4/6: Starting Flask server (port 5002)..."
 cd /Users/dykim/dev/starlink/analysis
-nohup python3 app.py > flask.log 2>&1 &
+nohup /Users/dykim/dev/starlink/analysis_env/bin/python3 app.py > flask.log 2>&1 &
 echo $! > "$FLASK_PID_FILE"
 
 echo "  ├─ Waiting for Flask to start..."

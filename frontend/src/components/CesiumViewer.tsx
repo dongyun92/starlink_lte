@@ -26,6 +26,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const cesiumViewerRef = useRef<any>(null);
   const czmlDataSourceRef = useRef<any>(null);
   const aircraftEntityRef = useRef<any>(null);
+  const lapBoundarySegmentRef = useRef<number | null>(null); // segment index where lap 2 starts
+  const lapFilterRef = useRef<0 | 1 | 2>(0);               // always-current lapFilter value
 
   // Heatmap data source refs
   const lteHeatmapSourceRef = useRef<any>(null);
@@ -91,11 +93,13 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   type PathColorMode = 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' | 'lte_outage' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
-    'starlink_obstruction' | 'starlink_uptime';
+    'starlink_obstruction' | 'starlink_uptime' | 'lap_number';
   const [pathColorMode, setPathColorMode] = useState<PathColorMode>('altitude');
+  const [lapFilter, setLapFilter] = useState<0 | 1 | 2>(0);  // 0=all, 1=lap1, 2=lap2
+  const [lapInfo, setLapInfo] = useState<{has_laps: boolean; lap_boundary?: string; lap1_points?: number; lap2_points?: number} | null>(null);
   const [colorMetadata, setColorMetadata] = useState<{column: string; min: number; max: number; unit: string} | null>(null);
   const [customMetrics, setCustomMetrics] = useState<Record<string, number> | null>(null);
 
@@ -302,19 +306,32 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     loadScenarios();
   }, [selectedSessionId]);
 
+  // Fetch lap info when session changes
+  useEffect(() => {
+    if (!selectedSessionId) { setLapInfo(null); setLapFilter(0); return; }
+    const params = selectedFlightId !== null ? `?flight_id=${selectedFlightId}` : '';
+    fetch(`http://localhost:5002/api/3d/lap-info/${selectedSessionId}${params}`)
+      .then(r => r.json())
+      .then(data => { setLapInfo(data); if (!data.has_laps) setLapFilter(0); })
+      .catch(() => setLapInfo(null));
+  }, [selectedSessionId, selectedFlightId]);
+
   // 선택된 세션의 CZML 데이터 로드
   useEffect(() => {
     if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
       return;
     }
 
+    // Race condition guard: if effect re-runs before fetch completes, cancel stale result
+    let cancelled = false;
+
     const loadFlightData = async () => {
       try {
-        console.log(`📡 Loading CZML data for session: ${selectedSessionId}`);
+        console.log(`📡 Loading CZML data for session: ${selectedSessionId}, lap=${lapFilter}`);
 
-        // 기존 CZML 데이터 소스 제거
+        // 기존 CZML 데이터 소스 제거 (destroy=true로 GPU 리소스까지 해제)
         if (czmlDataSourceRef.current) {
-          cesiumViewerRef.current.dataSources.remove(czmlDataSourceRef.current);
+          cesiumViewerRef.current.dataSources.remove(czmlDataSourceRef.current, true);
           czmlDataSourceRef.current = null;
         }
 
@@ -326,6 +343,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           flight_id: selectedFlightId !== null ? selectedFlightId : undefined,
           custom_metrics: customMetrics || undefined,
         });
+
+        // Fetch completed after a newer request started — discard stale result
+        if (cancelled) return;
 
         console.log('📦 CZML data loaded:', czmlData);
 
@@ -352,6 +372,23 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         // Find aircraft entity (always has 'aircraft_' prefix)
         const aircraft = entities.find((e: any) => e.id.includes('aircraft_'));
         aircraftEntityRef.current = aircraft;
+
+        // Calculate lap boundary segment index for show/hide filtering
+        lapBoundarySegmentRef.current = null;
+        if (lapInfo?.has_laps && lapInfo.lap1_points && lapInfo.lap2_points) {
+          const totalPoints = lapInfo.lap1_points + lapInfo.lap2_points;
+          const pathSegs = Array.from(entities).filter((e: any) => e.id?.startsWith('path_seg_'));
+          const ratio = lapInfo.lap1_points / totalPoints;
+          lapBoundarySegmentRef.current = Math.round(pathSegs.length * ratio);
+          console.log(`🏁 Lap boundary: seg ${lapBoundarySegmentRef.current} / ${pathSegs.length} (ratio=${ratio.toFixed(3)})`);
+        }
+
+        // Re-apply current lap filter immediately after CZML reload.
+        // The lapFilter useEffect only fires when lapFilter *changes*, so if the
+        // CZML reloads (color mode change, flight change, etc.) while lapFilter
+        // is already set to 1 or 2, the filter would not be re-applied — causing
+        // both laps to appear. Apply it now using lapFilterRef (always-current).
+        applyLapFilter(lapFilterRef.current, lapBoundarySegmentRef.current);
 
         // Get first position from aircraft
         let lon, lat, alt;
@@ -455,7 +492,38 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     };
 
     loadFlightData();
-  }, [selectedSessionId, selectedFlightId, pathColorMode, customMetrics]);
+
+    // Cleanup: cancel stale fetch and remove data source on re-run
+    return () => {
+      cancelled = true;
+      if (czmlDataSourceRef.current && cesiumViewerRef.current) {
+        cesiumViewerRef.current.dataSources.remove(czmlDataSourceRef.current, true);
+        czmlDataSourceRef.current = null;
+      }
+    };
+  }, [selectedSessionId, selectedFlightId, pathColorMode, customMetrics, lapInfo]);
+
+  // Keep lapFilterRef always current so CZML reload can apply the latest filter
+  useEffect(() => { lapFilterRef.current = lapFilter; }, [lapFilter]);
+
+  // Apply lap filter to currently loaded path_seg entities
+  const applyLapFilter = (filter: 0 | 1 | 2, boundary: number | null) => {
+    if (!czmlDataSourceRef.current) return;
+    const entities = czmlDataSourceRef.current.entities.values;
+    const pathSegs = Array.from(entities).filter((e: any) => e.id?.startsWith('path_seg_'));
+    if (filter === 0 || boundary === null) {
+      pathSegs.forEach((e: any) => { e.show = true; });
+    } else {
+      pathSegs.forEach((e: any, i: number) => {
+        e.show = filter === 1 ? i < boundary : i >= boundary;
+      });
+    }
+  };
+
+  // Lap filter: show/hide existing entities without re-fetching
+  useEffect(() => {
+    applyLapFilter(lapFilter, lapBoundarySegmentRef.current);
+  }, [lapFilter]);
 
   // 카메라 모드 전환 효과
   useEffect(() => {
@@ -1200,6 +1268,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onCameraModeToggle={toggleCameraMode}
         pathColorMode={pathColorMode}
         onPathColorModeChange={setPathColorMode}
+        lapFilter={lapFilter}
+        onLapFilterChange={setLapFilter}
+        lapInfo={lapInfo}
         onCustomMetricsChange={setCustomMetrics}
         colorMetadata={colorMetadata}
         heatmapMetadata={heatmapMetadata}

@@ -62,6 +62,8 @@ def get_results(session_id: str):
 
     if charts_dir.exists():
         chart_files = {
+            # LTE 신호 분석
+            'lte_rsrp_timeline': 'LTE RSRP Signal Quality Over Time',
             # 기본 차트
             'statistics_summary': '통계 요약',
             'quality_over_time': '시간대별 통신 품질',

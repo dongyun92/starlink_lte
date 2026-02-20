@@ -37,7 +37,7 @@ echo ""
 # Step 2: Start Flask server
 echo "🚀 Step 2/3: Starting Flask server (port 5002)..."
 cd /Users/dykim/dev/starlink/analysis
-nohup python3 app.py > flask.log 2>&1 &
+nohup /Users/dykim/dev/starlink/analysis_env/bin/python3 app.py > flask.log 2>&1 &
 
 # Wait for Flask to start (max 10 seconds)
 echo "  ├─ Waiting for Flask to start..."

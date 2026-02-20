@@ -61,6 +61,13 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
   const categorizeCharts = (): ChartCategory[] => {
     const categories: ChartCategory[] = [
       {
+        title: 'LTE Signal',
+        icon: '',
+        charts: charts.filter(c =>
+          ['lte_rsrp_timeline'].includes(c.name)
+        )
+      },
+      {
         title: 'Basic Analysis',
         icon: '',
         charts: charts.filter(c =>

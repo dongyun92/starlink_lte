@@ -242,6 +242,7 @@ def get_czml_data(session_id):
         sample_rate = request.args.get('sample_rate', 1.0, type=float)
         color_by = request.args.get('color_by', 'altitude', type=str)
         flight_id = request.args.get('flight_id', None, type=int)
+        lap = request.args.get('lap', 0, type=int)  # 0=all, 1=lap1, 2=lap2
         custom_metrics_str = request.args.get('custom_metrics', None, type=str)
 
         # Parse custom_metrics JSON if provided
@@ -254,7 +255,7 @@ def get_czml_data(session_id):
 
         # Create cache key (include custom_metrics hash for unique caching)
         custom_metrics_hash = hashlib.md5(custom_metrics_str.encode()).hexdigest()[:8] if custom_metrics_str else 'none'
-        cache_key = f"czml:{session_id}:{sample_rate}:{color_by}:{flight_id}:{custom_metrics_hash}"
+        cache_key = f"czml:{session_id}:{sample_rate}:{color_by}:{flight_id}:{lap}:{custom_metrics_hash}"
 
         # Try to get from cache
         if redis_client:
@@ -286,7 +287,8 @@ def get_czml_data(session_id):
             sample_rate=sample_rate,
             color_by=color_by,
             flight_id=flight_id,
-            custom_metrics=custom_metrics
+            custom_metrics=custom_metrics,
+            lap=lap
         )
         generation_time = (time.time() - start_time) * 1000  # Convert to ms
         print(f"⏱️ CZML generation time: {generation_time:.1f}ms")
@@ -1032,6 +1034,100 @@ def get_attitude_analysis(session_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@api_3d_bp.route('/lap-info/<session_id>', methods=['GET'])
+def get_lap_info(session_id: str):
+    """
+    Detect and return lap boundary information for a flight path.
+    Supports flight_id query param to detect laps per flight, not per session.
+
+    Returns:
+        JSON with lap boundary timestamp and lap point counts.
+    """
+    try:
+        import pandas as pd
+        import numpy as np
+        from pathlib import Path
+
+        flight_id = request.args.get('flight_id', None, type=int)
+
+        results_dir = Path(__file__).parent.parent.parent / 'results' / session_id
+        merged_data_path = results_dir / 'merged_data.csv'
+
+        if not merged_data_path.exists():
+            return jsonify({'error': 'No merged data found', 'has_laps': False}), 404
+
+        df = pd.read_csv(merged_data_path, parse_dates=['timestamp'])
+        df = df.dropna(subset=['latitude', 'longitude'])
+        df.set_index('timestamp', inplace=True)
+        df.sort_index(inplace=True)
+
+        # Filter by flight_id if specified (lap detection per flight, not per session)
+        if flight_id is not None and 'flight_id' in df.columns:
+            df = df[df['flight_id'] == flight_id]
+            if df.empty:
+                return jsonify({'has_laps': False, 'reason': f'No data for flight_id {flight_id}'})
+
+        gps = df[['latitude', 'longitude']].dropna()
+        if len(gps) < 100:
+            return jsonify({'has_laps': False, 'reason': 'Not enough GPS data'})
+
+        start_lat = gps['latitude'].iloc[0]
+        start_lon = gps['longitude'].iloc[0]
+
+        dlat = (gps['latitude'] - start_lat) * 111000
+        dlon = (gps['longitude'] - start_lon) * 111000 * np.cos(np.radians(start_lat))
+        dist = np.sqrt(dlat**2 + dlon**2)
+
+        window = min(30, len(dist) // 20)
+        dist_smooth = dist.rolling(window, center=True, min_periods=1).mean()
+
+        max_dist = dist_smooth.max()
+
+        # Find FIRST return to start AFTER having flown far away.
+        # Uses was_far cumsum (not global peak) so it works even when the global
+        # peak occurs in lap 2 rather than lap 1.
+        threshold = max_dist * 0.10
+        was_far = (dist_smooth > max_dist * 0.30).cumsum()
+        is_close = dist_smooth <= threshold
+        close_to_start = dist_smooth[is_close & (was_far > 0)]
+        if len(close_to_start) == 0:
+            close_to_start = dist_smooth[(dist_smooth <= max_dist * 0.20) & (was_far > 0)]
+        if len(close_to_start) == 0:
+            return jsonify({'has_laps': False, 'reason': 'Path does not return close to start'})
+
+        lap_boundary_idx = close_to_start.index[0]
+        min_dist = dist_smooth.loc[lap_boundary_idx]
+
+        # Verify lap 2 exists after boundary
+        after_boundary = dist_smooth.loc[lap_boundary_idx:]
+        if len(after_boundary) < 20 or after_boundary.max() < max_dist * 0.3:
+            return jsonify({'has_laps': False, 'reason': 'No significant lap 2 after boundary'})
+
+        # Calculate boundary position
+        boundary_pos = df.index.get_loc(lap_boundary_idx) if lap_boundary_idx in df.index else df.index.searchsorted(lap_boundary_idx)
+        if isinstance(boundary_pos, slice):
+            boundary_pos = boundary_pos.start
+
+        # Format boundary timestamp as ISO string
+        boundary_str = str(lap_boundary_idx)
+
+        return jsonify({
+            'has_laps': True,
+            'lap_boundary': boundary_str,
+            'lap1_points': int(boundary_pos),
+            'lap2_points': int(len(df) - boundary_pos),
+            'total_points': int(len(df)),
+            'lap1_start': str(df.index[0]),
+            'lap2_start': boundary_str,
+            'lap_end': str(df.index[-1]),
+        }), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'has_laps': False}), 500
 
 
 @api_3d_bp.route('/health', methods=['GET'])
