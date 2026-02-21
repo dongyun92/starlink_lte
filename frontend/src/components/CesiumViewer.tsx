@@ -206,7 +206,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         const currentJulian = cesiumViewerRef.current.clock.currentTime;
         setCurrentTime(formatTime(currentJulian));
       }
-    }, 100); // Update every 100ms for smooth display
+    }, 1000); // 1초마다 업데이트 (100ms → 리렌더 90% 감소)
 
     return () => clearInterval(interval);
   }, [cesiumViewerRef.current]);
@@ -252,6 +252,9 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           selectionIndicator: true,
           navigationHelpButton: true,
           navigationInstructionsInitiallyVisible: false,
+          // 데이터 변경 시에만 렌더링 (60fps 지속 렌더링 방지)
+          requestRenderMode: true,
+          maximumRenderTimeChange: Infinity,
         });
 
         // 초기 카메라 위치 설정 (대한민국 상공)
@@ -363,6 +366,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         czmlDataSourceRef.current = dataSource;
 
         await cesiumViewerRef.current.dataSources.add(dataSource);
+        cesiumViewerRef.current.scene.requestRender();
 
         // CZML 데이터에서 엔티티 정보 추출
         // Dual mode (gradient): Multiple segments + aircraft
@@ -602,6 +606,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         lteHeatmapSourceRef.current = dataSource;
 
         await cesiumViewerRef.current.dataSources.add(dataSource);
+        cesiumViewerRef.current.scene.requestRender();
         console.log('✅ LTE heatmap loaded');
       } catch (error) {
         // 🛡️ Silently ignore heatmap errors (bad data should not crash UI)
@@ -684,6 +689,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         starlinkHeatmapSourceRef.current = dataSource;
 
         await cesiumViewerRef.current.dataSources.add(dataSource);
+        cesiumViewerRef.current.scene.requestRender();
         console.log('✅ Starlink heatmap loaded');
       } catch (error) {
         // 🛡️ Silently ignore heatmap errors (bad data should not crash UI)
@@ -766,6 +772,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         combinedHeatmapSourceRef.current = dataSource;
 
         await cesiumViewerRef.current.dataSources.add(dataSource);
+        cesiumViewerRef.current.scene.requestRender();
         console.log('✅ Combined heatmap loaded');
       } catch (error) {
         // 🛡️ Silently ignore heatmap errors (bad data should not crash UI)
@@ -883,6 +890,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     });
 
     console.log(`✅ ${cellTowerEntitiesRef.current.length} official cell tower entities rendered`);
+    cesiumViewerRef.current?.scene.requestRender();
   }, [cellTowerData, showCellTowers]);
 
 
@@ -923,6 +931,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         // Load CZML into Cesium
         const dataSource = await Cesium.CzmlDataSource.load(czmlData);
         cesiumViewerRef.current.dataSources.add(dataSource);
+        cesiumViewerRef.current.scene.requestRender();
         satelliteDirectionSourceRef.current = dataSource;
 
         console.log('✅ Satellite direction arrows rendered');
@@ -992,6 +1001,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         console.log('✅ CZML loaded, adding to data sources...');
 
         cesiumViewerRef.current.dataSources.add(dataSource);
+        cesiumViewerRef.current.scene.requestRender();
         towerConnectionsSourceRef.current = dataSource;
 
         console.log('✅ Tower connections rendered successfully');
@@ -1116,6 +1126,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
         console.log(`✅ ${signalLossEntitiesRef.current.length} signal loss cylinders rendered`);
         console.log(`📊 Total signal loss: ${data.total_percentage.toFixed(2)}% (${data.total_segments} segments)`);
+        cesiumViewerRef.current?.scene.requestRender();
       } catch (error) {
         // 🛡️ Silently ignore signal loss segment errors
         console.error('❌ Failed to load signal loss segments (silently ignored):', error);

@@ -239,60 +239,66 @@ class CZMLGenerator:
             alt = positions[i+3]
             polyline_positions.extend([lon, lat, alt])
 
-        # Create multiple polyline segments for gradient effect
-        # Note: Data is already sampled, now use dynamic segment interval
+        # Create polyline segments using run-length encoding:
+        # Merge consecutive same-color points into ONE entity.
+        # "안되는걸 잘보여주면" — problem segments stay fine-grained, normal runs collapse.
         segment_entities = []
         num_points = len(polyline_positions) // 3
 
-        # Use dynamically calculated segment interval for optimal performance
-        # This was calculated based on total data size in _calculate_sampling_params()
         segment_interval = self._segment_interval
-        # For binary/outage modes, force interval=1 so every point's color is respected
-        if color_by in ('lte_outage', 'lte_band', 'starlink_connection_quality',
+        # For binary/categorical modes keep interval=1 so every color change is captured
+        if color_by in ('lte_outage', 'lte_band', 'lte_composite_quality',
+                        'lte_packet_loss_rate', 'starlink_connection_quality',
                         'starlink_roaming', 'starlink_alerts_any') or color_by.startswith('starlink_alert_'):
             segment_interval = 1
 
-        estimated_segments = num_points // segment_interval
-        print(f"🎨 Creating gradient segments: {num_points} points, interval={segment_interval}, ~{estimated_segments} segments")
+        print(f"🎨 Merging segments by color (RLE): {num_points} points, interval={segment_interval}")
 
-        # Use list comprehension for better performance
-        for i in range(0, num_points - 1, segment_interval):
-            # Get current and next point (or skip to interval point)
-            start_idx = i * 3
-            end_idx = min((i + segment_interval) * 3, (num_points - 1) * 3)
+        # Build (color_key → run of point indices) using run-length encoding
+        seg_id = 0
+        run_color = None
+        run_pts = []   # list of (lon, lat, alt) for current run
 
-            segment_positions = [
-                polyline_positions[start_idx],     # lon1
-                polyline_positions[start_idx + 1], # lat1
-                polyline_positions[start_idx + 2], # alt1
-                polyline_positions[end_idx],       # lon2
-                polyline_positions[end_idx + 1],   # lat2
-                polyline_positions[end_idx + 2]    # alt2
-            ]
-
-            # Use color from start point
-            segment_color = colors[i].tolist()
-
-            segment_entities.append({
-                "id": f"path_seg_{i}",  # Shorter ID for performance
+        def flush_run(color_key, pts, eid):
+            """Emit one polyline entity for the accumulated run."""
+            if len(pts) < 2:
+                return None
+            flat = [c for p in pts for c in p]
+            return {
+                "id": f"path_seg_{eid}",
                 "polyline": {
-                    "positions": {
-                        "cartographicDegrees": segment_positions
-                    },
+                    "positions": {"cartographicDegrees": flat},
                     "show": True,
                     "width": 8,
-                    "material": {
-                        "solidColor": {
-                            "color": {
-                                "rgba": segment_color
-                            }
-                        }
-                    },
+                    "material": {"solidColor": {"color": {"rgba": list(color_key)}}},
                     "clampToGround": False
                 }
-            })
+            }
 
-        print(f"✅ Created {len(segment_entities)} gradient segments (reduced from {num_points-1})")
+        for i in range(0, num_points, segment_interval):
+            pt = (polyline_positions[i*3], polyline_positions[i*3+1], polyline_positions[i*3+2])
+            color_key = tuple(colors[min(i, len(colors)-1)].tolist())
+
+            if run_color is None:
+                run_color = color_key
+                run_pts = [pt]
+            elif color_key == run_color:
+                run_pts.append(pt)
+            else:
+                # Color changed — flush current run
+                entity = flush_run(run_color, run_pts, seg_id)
+                if entity:
+                    segment_entities.append(entity)
+                    seg_id += 1
+                run_color = color_key
+                run_pts = [run_pts[-1], pt]  # overlap last point for continuity
+
+        # Flush final run
+        entity = flush_run(run_color, run_pts, seg_id)
+        if entity:
+            segment_entities.append(entity)
+
+        print(f"✅ Created {len(segment_entities)} merged segments (was ~{num_points-1} before RLE)")
 
         # Entity 2: 움직이는 point (비행기)
         import pandas as pd
