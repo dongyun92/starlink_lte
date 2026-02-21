@@ -416,14 +416,18 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                       <span className="text-xs">Composite Quality (CQS)</span>
                     </label>
                     {pathColorMode === 'lte_composite_quality' && (
-                      <div className="ml-1 mt-1 p-1.5 bg-blue-50 rounded border border-blue-200 space-y-0.5">
+                      <div className="ml-1 mt-1 p-1.5 bg-green-50 rounded border border-green-200 space-y-0.5">
                         <div className="text-[9px] font-semibold text-gray-500 mb-1">RSRP 25% + RSRQ 25% + SINR 30% + Throughput 20%</div>
-                        <div className="flex items-center gap-1">
-                          <div className="h-2 flex-1 rounded" style={{ background: 'linear-gradient(to right, #00008b, #00aaff, #00ff00, #ffff00, #ff0000)' }} />
-                        </div>
-                        <div className="flex justify-between text-[9px] text-gray-500">
-                          <span>불량</span><span>보통</span><span>양호</span>
-                        </div>
+                        {[
+                          { color: '#d7191c', label: '불량' },
+                          { color: '#f4d013', label: '보통' },
+                          { color: '#1a9641', label: '양호' },
+                        ].map(({ color, label }) => (
+                          <div key={label} className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
+                            <span className="text-[9px] text-gray-700 font-medium">{label}</span>
+                          </div>
+                        ))}
                       </div>
                     )}
                     <label className="flex items-center gap-2 cursor-pointer">

@@ -718,12 +718,15 @@ class CZMLGenerator:
         Based on 3GPP / GSMA ACJA BVLOS C2 link quality standards.
 
         Returns:
-            Combined quality score (0-1, higher = better)
+            RGBA colors: Red (bad) → Yellow → Green (good), no blue
         """
         required = ['lte_rsrp', 'lte_sinr', 'lte_rsrq']
         missing = [col for col in required if col not in df.columns]
         if missing:
             raise ValueError(f"❌ CQS requires: {', '.join(missing)}")
+
+        n = len(df)
+        GRAY = np.array([128, 128, 128, 180], dtype=np.uint8)
 
         rsrp = df['lte_rsrp'].values.astype(float)
         sinr = df['lte_sinr'].values.astype(float)
@@ -743,7 +746,7 @@ class CZMLGenerator:
         if 'rx_bytes' in df.columns and 'tx_bytes' in df.columns:
             rx = df['rx_bytes'].values.astype(float)
             tx = df['tx_bytes'].values.astype(float)
-            rx_diff = np.diff(rx, prepend=rx[0]).clip(min=0)  # ignore counter resets
+            rx_diff = np.diff(rx, prepend=rx[0]).clip(min=0)
             tx_diff = np.diff(tx, prepend=tx[0]).clip(min=0)
             total_flow = rx_diff + tx_diff
             positive = total_flow[total_flow > 0]
@@ -756,13 +759,35 @@ class CZMLGenerator:
                         0.20 * throughput_norm)
             print("📊 CQS: RSRP(25%) + RSRQ(25%) + SINR(30%) + Throughput(20%)")
         else:
-            # Redistribute throughput weight across RF metrics
             combined = (0.3125 * np.nan_to_num(rsrp_norm) +
                         0.3125 * np.nan_to_num(rsrq_norm) +
                         0.375  * np.nan_to_num(sinr_norm))
             print("📊 CQS: RSRP(31%) + RSRQ(31%) + SINR(38%) [throughput N/A]")
 
-        return combined
+        # Apply RdYlGn colormap: Red(0=bad) → Yellow(0.5) → Green(1=good)
+        cmap = cm.RdYlGn
+        no_data = np.isnan(rsrp) & np.isnan(sinr) & np.isnan(rsrq)
+        colors = np.zeros((n, 4), dtype=np.uint8)
+        for i, score in enumerate(combined):
+            if no_data[i]:
+                colors[i] = GRAY
+            else:
+                r, g, b, a = cmap(float(np.clip(score, 0, 1)))
+                colors[i] = [int(r * 255), int(g * 255), int(b * 255), 255]
+
+        self._color_metadata = {
+            'column': 'lte_composite_quality',
+            'min': 0.0,
+            'max': 1.0,
+            'unit': 'score',
+            'categorical': True,
+            'legend': {
+                '불량 (0.0)': '#d7191c',
+                '보통 (0.5)': '#f4d013',
+                '양호 (1.0)': '#1a9641',
+            }
+        }
+        return colors
 
     def _calculate_lte_packet_loss_colors(self, df) -> np.ndarray:
         """
@@ -1151,6 +1176,10 @@ class CZMLGenerator:
         if color_by == 'lte_outage':
             return self._calculate_lte_outage_colors(df)
 
+        # Composite Quality Score: Red(bad) → Yellow → Green(good)
+        if color_by == 'lte_composite_quality':
+            return self._calculate_lte_composite_quality(df)
+
         # Packet loss rate: Green=OK, Yellow=50%, Red=100% (from tx/rx byte flow)
         if color_by == 'lte_packet_loss_rate':
             return self._calculate_lte_packet_loss_colors(df)
@@ -1203,9 +1232,6 @@ class CZMLGenerator:
             column_name = 'pitch_performance'
 
         # LTE modes
-        elif color_by == 'lte_composite_quality':
-            values = self._calculate_lte_composite_quality(df)
-            column_name = 'lte_composite_quality'
         elif color_by == 'lte_quality_combined':
             values = self._calculate_lte_quality_combined(df)
             column_name = 'lte_quality_combined'
