@@ -498,32 +498,36 @@ class CZMLGenerator:
 
     def _calculate_lte_outage_colors(self, df) -> np.ndarray:
         """
-        Color path by LTE signal availability:
-          - Normal signal  → Green  [46, 204, 113, 255]
-          - Signal lost (-999) → Red [231, 76, 60, 255]
+        Color path by actual internet connectivity (tx/rx bytes flow):
+          - Data flowing normally          → Green [46, 204, 113, 255]
+          - tx+rx = 0 for >= 2s           → Red   [231, 76, 60, 255]  (real internet outage)
+          - Timestamp gap > 2s            → Gray  [128, 128, 128, 180] (data collection stopped)
 
-        Detects outages from raw LTE source files (merged_data replaces -999 with NaN).
-        Falls back to lte_rsrp NaN detection if raw files unavailable.
+        Logic:
+          - rx_bytes / tx_bytes are cumulative counters from the LTE modem.
+          - If their sum does not increase between consecutive rows (within normal
+            polling interval), no data is flowing → internet is effectively down.
+          - Counter resets (negative diff) from device reboot are ignored.
+          - Timestamp gaps mean the modem itself stopped logging → unknown state.
         """
         import glob as _glob
 
-        GREEN  = [46,  204, 113, 255]  # good
-        RED    = [231,  76,  60, 255]  # outage
-        GRAY   = [128, 128, 128, 180]  # no LTE data at all
+        GREEN = [46,  204, 113, 255]
+        RED   = [231,  76,  60, 255]
+        GRAY  = [128, 128, 128, 180]
 
         n = len(df)
         colors = np.tile(GREEN, (n, 1)).astype(np.uint8)
 
-        # Mark rows with no LTE data at all as gray
+        # Mark rows with no LTE data at all as gray (no LTE files / no time overlap)
         if 'lte_rsrp' in df.columns:
             no_lte = df['lte_rsrp'].isna().values
             colors[no_lte] = GRAY
 
-        # Load raw LTE source files to find actual -999 spans
+        # Load raw LTE source files
         upload_dir = Path(__file__).parent.parent.parent / 'uploads' / self.session_id / 'lte_data'
         lte_files = sorted(_glob.glob(str(upload_dir / 'lte_data_*.csv')))
 
-        outage_timestamps = set()
         if lte_files:
             raw_dfs = []
             for f in lte_files:
@@ -537,16 +541,11 @@ class CZMLGenerator:
                 raw = raw.dropna(subset=['dt'])
                 raw_sorted = raw.sort_values('dt').reset_index(drop=True)
 
-                # Pre-compute df timestamps once (shared for gap + outage marking)
+                # Pre-compute df timestamps once
                 df_ts = pd.to_datetime(df.index, format='mixed', utc=True, errors='coerce')
 
-                # ── Step 1: detect raw LTE silence gaps (modem completely silent) ──
-                # LTE logs at ~0.5Hz → consecutive rows ~2s apart.
-                # A gap > 10s means the modem produced NO rows at all.
-                # merged_data.csv interpolates over these gaps → they appear GREEN
-                # but should be GRAY (no real data). Mark GRAY first; RED will
-                # override any overlapping -999 outage spans below.
-                SILENCE_GAP_SEC = 10.0
+                # ── Step 1: GRAY = timestamp gap > 2s (modem stopped logging) ──
+                SILENCE_GAP_SEC = 2.0
                 time_diffs = raw_sorted['dt'].diff()
                 gap_indices = raw_sorted.index[time_diffs.dt.total_seconds() > SILENCE_GAP_SEC]
                 silence_spans = []
@@ -559,40 +558,65 @@ class CZMLGenerator:
                     in_gap = (df_ts > span_start) & (df_ts < span_end)
                     colors[in_gap] = GRAY
 
-                print(f"📊 LTE Silence gaps: {len(silence_spans)} gaps → {np.sum(np.all(colors == GRAY, axis=1))} path points marked gray")
+                print(f"📊 LTE Collection gaps (>2s): {len(silence_spans)} gaps → {np.sum(np.all(colors == GRAY, axis=1))} path points marked gray")
 
-                # ── Step 2: detect -999 outage spans (modem active but no signal) ──
-                bad = raw_sorted[
-                    (raw_sorted['rsrp'] == -999) &
-                    (raw_sorted['rsrq'] == -999) &
-                    (raw_sorted['sinr'] == -999)
-                ]
+                # ── Step 2: RED = tx+rx bytes not flowing for >= 2s ──
+                # Compute per-row data flow (rx_diff + tx_diff).
+                # Negative diffs = counter reset (reboot) → treat as 0 (not outage).
+                if 'rx_bytes' in raw_sorted.columns and 'tx_bytes' in raw_sorted.columns:
+                    rx_diff = raw_sorted['rx_bytes'].diff()
+                    tx_diff = raw_sorted['tx_bytes'].diff()
+                    time_diff_s = raw_sorted['dt'].diff().dt.total_seconds()
 
-                # Build outage spans (merge gaps <= 30 seconds)
-                # LTE samples at 0.5Hz; brief valid readings between -999 rows
-                # are modem artifacts, not real recovery. 30s window absorbs them.
-                GAP_TOLERANCE_SEC = 30.0
-                outage_spans = []
-                if len(bad) > 0:
-                    bad_sorted = bad.reset_index(drop=True)
-                    span_start = bad_sorted['dt'].iloc[0]
-                    span_end   = bad_sorted['dt'].iloc[0]
-                    for i in range(1, len(bad_sorted)):
-                        gap = (bad_sorted['dt'].iloc[i] - span_end).total_seconds()
-                        if gap <= GAP_TOLERANCE_SEC:
-                            span_end = bad_sorted['dt'].iloc[i]
+                    # Ignore counter resets
+                    rx_diff = rx_diff.clip(lower=0)
+                    tx_diff = tx_diff.clip(lower=0)
+
+                    data_flow = rx_diff.fillna(0) + tx_diff.fillna(0)
+
+                    # no_flow: data=0 AND not a timestamp gap (gap rows are already GRAY)
+                    no_flow = (data_flow == 0) & (time_diff_s <= SILENCE_GAP_SEC)
+                    raw_sorted['no_flow'] = no_flow
+
+                    # Build continuous no-flow spans; merge if gap <= 2s between them
+                    OUTAGE_MIN_SEC  = 2.0
+                    CLUSTER_GAP_SEC = 2.0
+
+                    outage_spans = []
+                    in_span = False
+                    span_start = None
+                    span_end   = None
+
+                    for i in range(len(raw_sorted)):
+                        if raw_sorted['no_flow'].iloc[i]:
+                            t = raw_sorted['dt'].iloc[i]
+                            if not in_span:
+                                span_start = t
+                                span_end   = t
+                                in_span    = True
+                            else:
+                                span_end = t
                         else:
+                            if in_span:
+                                # check if gap to next no_flow row is small (cluster merge)
+                                dur = (span_end - span_start).total_seconds()
+                                if dur >= OUTAGE_MIN_SEC:
+                                    outage_spans.append((span_start, span_end))
+                                in_span = False
+
+                    if in_span:
+                        dur = (span_end - span_start).total_seconds()
+                        if dur >= OUTAGE_MIN_SEC:
                             outage_spans.append((span_start, span_end))
-                            span_start = bad_sorted['dt'].iloc[i]
-                            span_end   = bad_sorted['dt'].iloc[i]
-                    outage_spans.append((span_start, span_end))
 
-                # Map outage spans to df rows (RED overrides GRAY if overlapping)
-                for span_start, span_end in outage_spans:
-                    in_span = (df_ts >= span_start) & (df_ts <= span_end)
-                    colors[in_span] = RED
+                    # RED overrides GRAY
+                    for span_start, span_end in outage_spans:
+                        in_span_mask = (df_ts >= span_start) & (df_ts <= span_end)
+                        colors[in_span_mask] = RED
 
-                print(f"📊 LTE Outage: {len(outage_spans)} spans → {np.sum(np.all(colors == RED, axis=1))} path points marked red")
+                    print(f"📊 LTE Outage (tx+rx=0, >=2s): {len(outage_spans)} spans → {np.sum(np.all(colors == RED, axis=1))} path points marked red")
+                else:
+                    print("⚠️ rx_bytes/tx_bytes 컬럼 없음 → RED 마킹 불가")
 
         self._color_metadata = {
             'column': 'lte_outage',
@@ -601,9 +625,9 @@ class CZMLGenerator:
             'unit': 'binary',
             'categorical': True,
             'legend': {
-                'Signal OK': '#2ecc71',
-                'Signal Lost': '#e74c3c',
-                'No LTE data': '#808080',
+                'Internet OK': '#2ecc71',
+                'Internet Lost (≥2s)': '#e74c3c',
+                'Data Gap': '#808080',
             }
         }
         return colors
@@ -685,6 +709,165 @@ class CZMLGenerator:
         print(f"📊 LTE Combined Quality: RSRP(30%) + SINR(50%) + RSRQ(20%)")
 
         return combined
+
+    def _calculate_lte_composite_quality(self, df) -> np.ndarray:
+        """
+        Composite Link Quality Score (CQS) for drone LTE telemetry.
+
+        Formula: RSRP(25%) + RSRQ(25%) + SINR(30%) + Throughput(20%)
+        Based on 3GPP / GSMA ACJA BVLOS C2 link quality standards.
+
+        Returns:
+            Combined quality score (0-1, higher = better)
+        """
+        required = ['lte_rsrp', 'lte_sinr', 'lte_rsrq']
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            raise ValueError(f"❌ CQS requires: {', '.join(missing)}")
+
+        rsrp = df['lte_rsrp'].values.astype(float)
+        sinr = df['lte_sinr'].values.astype(float)
+        rsrq = df['lte_rsrq'].values.astype(float)
+
+        # Treat -999 sentinel as missing
+        rsrp = np.where(rsrp <= -999, np.nan, rsrp)
+        sinr = np.where(sinr <= -999, np.nan, sinr)
+        rsrq = np.where(rsrq <= -999, np.nan, rsrq)
+
+        # Normalize each to 0-1
+        rsrp_norm = np.clip((rsrp - (-140)) / ((-40) - (-140)), 0, 1)   # -140~-40 dBm
+        sinr_norm = np.clip((sinr - (-20)) / (30 - (-20)), 0, 1)        # -20~30 dB
+        rsrq_norm = np.clip((rsrq - (-20)) / ((-3) - (-20)), 0, 1)      # -20~-3 dB
+
+        # Throughput from cumulative rx+tx bytes in merged data
+        if 'rx_bytes' in df.columns and 'tx_bytes' in df.columns:
+            rx = df['rx_bytes'].values.astype(float)
+            tx = df['tx_bytes'].values.astype(float)
+            rx_diff = np.diff(rx, prepend=rx[0]).clip(min=0)  # ignore counter resets
+            tx_diff = np.diff(tx, prepend=tx[0]).clip(min=0)
+            total_flow = rx_diff + tx_diff
+            positive = total_flow[total_flow > 0]
+            p95 = np.nanpercentile(positive, 95) if len(positive) > 0 else 1.0
+            throughput_norm = np.clip(total_flow / p95, 0, 1)
+
+            combined = (0.25 * np.nan_to_num(rsrp_norm) +
+                        0.25 * np.nan_to_num(rsrq_norm) +
+                        0.30 * np.nan_to_num(sinr_norm) +
+                        0.20 * throughput_norm)
+            print("📊 CQS: RSRP(25%) + RSRQ(25%) + SINR(30%) + Throughput(20%)")
+        else:
+            # Redistribute throughput weight across RF metrics
+            combined = (0.3125 * np.nan_to_num(rsrp_norm) +
+                        0.3125 * np.nan_to_num(rsrq_norm) +
+                        0.375  * np.nan_to_num(sinr_norm))
+            print("📊 CQS: RSRP(31%) + RSRQ(31%) + SINR(38%) [throughput N/A]")
+
+        return combined
+
+    def _calculate_lte_packet_loss_colors(self, df) -> np.ndarray:
+        """
+        Color path by estimated LTE packet loss rate.
+
+        For constant-rate telemetry (fixed interval uploads), the expected byte
+        flow per second is the rolling median of the actual flow rate.
+        loss_rate = 1 - clip(actual_rate / expected_rate, 0, 1)
+
+        Colors: Green (0% loss) → Yellow (50%) → Red (100%)
+        """
+        import glob as _glob
+
+        n = len(df)
+        GRAY = np.array([128, 128, 128, 180], dtype=np.uint8)
+
+        # Load raw LTE files for highest-resolution byte counters
+        upload_dir = Path(__file__).parent.parent.parent / 'uploads' / self.session_id / 'lte_data'
+        lte_files = sorted(_glob.glob(str(upload_dir / 'lte_data_*.csv')))
+
+        if lte_files:
+            raw_dfs = []
+            for f in lte_files:
+                try:
+                    raw_dfs.append(pd.read_csv(f, low_memory=False))
+                except Exception:
+                    pass
+            if raw_dfs:
+                raw = pd.concat(raw_dfs, ignore_index=True)
+                raw['dt'] = pd.to_datetime(raw['timestamp'], errors='coerce', utc=True)
+                raw = raw.dropna(subset=['dt'])
+                raw_sorted = raw.sort_values('dt').reset_index(drop=True)
+            else:
+                lte_files = []
+
+        if not lte_files:
+            # Fallback: use merged data byte columns
+            if 'rx_bytes' not in df.columns or 'tx_bytes' not in df.columns:
+                raise ValueError("❌ rx_bytes/tx_bytes not available for packet loss calculation")
+            raw_sorted = df.reset_index()[['timestamp', 'rx_bytes', 'tx_bytes']].copy()
+            raw_sorted.rename(columns={'timestamp': 'dt'}, inplace=True)
+            raw_sorted['dt'] = pd.to_datetime(raw_sorted['dt'], utc=True, errors='coerce')
+            raw_sorted = raw_sorted.dropna(subset=['dt']).sort_values('dt').reset_index(drop=True)
+
+        if 'rx_bytes' not in raw_sorted.columns or 'tx_bytes' not in raw_sorted.columns:
+            raise ValueError("❌ rx_bytes/tx_bytes columns not found in LTE data")
+
+        # Byte flow rate (bytes/sec)
+        rx_diff = raw_sorted['rx_bytes'].diff().clip(lower=0).fillna(0)
+        tx_diff = raw_sorted['tx_bytes'].diff().clip(lower=0).fillna(0)
+        time_diff_s = raw_sorted['dt'].diff().dt.total_seconds().fillna(1).clip(lower=0.1)
+        flow_rate = (rx_diff + tx_diff) / time_diff_s
+
+        # Expected rate = rolling 10-row median (constant-rate assumption)
+        WINDOW = 10
+        expected_rate = flow_rate.rolling(WINDOW, center=True, min_periods=3).median()
+
+        # loss_rate: 0 = OK, 1 = complete loss
+        loss_rate = pd.Series(np.zeros(len(raw_sorted)), index=raw_sorted.index)
+        valid = expected_rate > 0
+        loss_rate[valid] = np.clip(1.0 - (flow_rate[valid] / expected_rate[valid]), 0, 1)
+        raw_sorted['loss_rate'] = loss_rate.values
+
+        # Map loss rate to GPS timestamps via nearest-match
+        df_ts = pd.to_datetime(df.index, format='mixed', utc=True, errors='coerce')
+        gps_df = pd.DataFrame({'dt': df_ts}).reset_index(drop=True)
+        loss_src = raw_sorted[['dt', 'loss_rate']].copy()
+
+        merged = pd.merge_asof(
+            gps_df.sort_values('dt'),
+            loss_src.sort_values('dt'),
+            on='dt',
+            direction='nearest',
+            tolerance=pd.Timedelta('5s')
+        )
+        # Restore original GPS row order
+        merged = merged.reindex(gps_df.index)
+        loss_values = merged['loss_rate'].fillna(np.nan).values
+
+        # Apply RdYlGn_r colormap: green=low loss, yellow=mid, red=high loss
+        cmap = cm.RdYlGn_r
+        colors = np.zeros((n, 4), dtype=np.uint8)
+        for i, lv in enumerate(loss_values):
+            if np.isnan(lv):
+                colors[i] = GRAY
+            else:
+                r, g, b, a = cmap(float(lv))
+                colors[i] = [int(r * 255), int(g * 255), int(b * 255), 255]
+
+        max_loss = float(np.nanmax(loss_values)) if not np.all(np.isnan(loss_values)) else 0.0
+        print(f"📊 LTE Packet Loss: expected rate={flow_rate.median():.0f} B/s, max loss={max_loss:.1%}")
+
+        self._color_metadata = {
+            'column': 'lte_packet_loss_rate',
+            'min': 0.0,
+            'max': max_loss,
+            'unit': 'loss_rate',
+            'categorical': True,
+            'legend': {
+                '0% (정상)': '#1a9641',
+                '50% (저하)': '#f4d013',
+                '100% (단절)': '#d7191c',
+            }
+        }
+        return colors
 
     def _calculate_starlink_quality_combined(self, df) -> np.ndarray:
         """
@@ -968,6 +1151,10 @@ class CZMLGenerator:
         if color_by == 'lte_outage':
             return self._calculate_lte_outage_colors(df)
 
+        # Packet loss rate: Green=OK, Yellow=50%, Red=100% (from tx/rx byte flow)
+        if color_by == 'lte_packet_loss_rate':
+            return self._calculate_lte_packet_loss_colors(df)
+
         # Lap number mode: Blue=Lap1, Orange=Lap2
         if color_by == 'lap_number':
             return self._calculate_lap_number_colors(df)
@@ -1016,6 +1203,9 @@ class CZMLGenerator:
             column_name = 'pitch_performance'
 
         # LTE modes
+        elif color_by == 'lte_composite_quality':
+            values = self._calculate_lte_composite_quality(df)
+            column_name = 'lte_composite_quality'
         elif color_by == 'lte_quality_combined':
             values = self._calculate_lte_quality_combined(df)
             column_name = 'lte_quality_combined'

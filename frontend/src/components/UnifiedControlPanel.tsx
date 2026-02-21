@@ -67,6 +67,7 @@ interface UnifiedControlPanelProps {
   pathColorMode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
+    'lte_composite_quality' | 'lte_packet_loss_rate' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' | 'lte_outage' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
@@ -74,6 +75,7 @@ interface UnifiedControlPanelProps {
   onPathColorModeChange: (mode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
+    'lte_composite_quality' | 'lte_packet_loss_rate' |
     'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' | 'lte_outage' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
@@ -387,7 +389,7 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                   <input
                     type="radio"
                     checked={pathColorMode.startsWith('lte_')}
-                    onChange={() => onPathColorModeChange('lte_quality_combined')}
+                    onChange={() => onPathColorModeChange('lte_composite_quality')}
                     className="w-3 h-3"
                   />
                   <span className="text-xs font-semibold">LTE Quality ▼</span>
@@ -407,12 +409,48 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
-                        checked={pathColorMode === 'lte_quality_combined'}
-                        onChange={() => onPathColorModeChange('lte_quality_combined')}
+                        checked={pathColorMode === 'lte_composite_quality'}
+                        onChange={() => onPathColorModeChange('lte_composite_quality')}
                         className="w-2.5 h-2.5"
                       />
-                      <span className="text-xs">Combined (RSRP + SINR + RSRQ) ⭐</span>
+                      <span className="text-xs">Composite Quality (CQS)</span>
                     </label>
+                    {pathColorMode === 'lte_composite_quality' && (
+                      <div className="ml-1 mt-1 p-1.5 bg-blue-50 rounded border border-blue-200 space-y-0.5">
+                        <div className="text-[9px] font-semibold text-gray-500 mb-1">RSRP 25% + RSRQ 25% + SINR 30% + Throughput 20%</div>
+                        <div className="flex items-center gap-1">
+                          <div className="h-2 flex-1 rounded" style={{ background: 'linear-gradient(to right, #00008b, #00aaff, #00ff00, #ffff00, #ff0000)' }} />
+                        </div>
+                        <div className="flex justify-between text-[9px] text-gray-500">
+                          <span>불량</span><span>보통</span><span>양호</span>
+                        </div>
+                      </div>
+                    )}
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'lte_packet_loss_rate'}
+                        onChange={() => onPathColorModeChange('lte_packet_loss_rate')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">Packet Loss Rate</span>
+                    </label>
+                    {pathColorMode === 'lte_packet_loss_rate' && (
+                      <div className="ml-1 mt-1 p-1.5 bg-red-50 rounded border border-red-200 space-y-0.5">
+                        <div className="text-[9px] font-semibold text-gray-500 mb-1">tx+rx 바이트 흐름 기반 손실률</div>
+                        {[
+                          { color: '#1a9641', label: '0% 손실', desc: '정상' },
+                          { color: '#f4d013', label: '50% 손실', desc: '저하' },
+                          { color: '#d7191c', label: '100% 손실', desc: '단절' },
+                        ].map(({ color, label, desc }) => (
+                          <div key={label} className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
+                            <span className="text-[9px] text-gray-700 font-medium">{label}</span>
+                            <span className="text-[9px] text-gray-400">{desc}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
@@ -456,15 +494,15 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                         onChange={() => onPathColorModeChange('lte_outage')}
                         className="w-2.5 h-2.5"
                       />
-                      <span className="text-xs">Signal Outage 🔴 (단절 구간)</span>
+                      <span className="text-xs">Internet Outage (관제 단절)</span>
                     </label>
                     {pathColorMode === 'lte_outage' && (
                       <div className="ml-1 mt-1 p-1.5 bg-red-50 rounded border border-red-200 space-y-0.5">
                         <div className="text-[9px] font-semibold text-gray-500 mb-1">색상 범례</div>
                         {[
-                          { color: '#e74c3c', label: 'Signal Lost', desc: 'rsrp=rsrq=sinr=-999' },
-                          { color: '#2ecc71', label: 'Signal OK',   desc: '정상 수신' },
-                          { color: '#808080', label: 'No LTE data', desc: 'LTE 데이터 없음' },
+                          { color: '#e74c3c', label: 'Internet Lost', desc: 'tx+rx 없음 ≥2초' },
+                          { color: '#2ecc71', label: 'Internet OK',   desc: '데이터 정상' },
+                          { color: '#808080', label: 'Data Gap',      desc: '로그 수집 끊김' },
                         ].map(({ color, label, desc }) => (
                           <div key={label} className="flex items-center gap-1.5">
                             <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />

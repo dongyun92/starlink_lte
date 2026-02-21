@@ -54,6 +54,7 @@ export async function getCZMLData(
     sample_rate?: number;
     color_by?: 'altitude' | 'speed' |
                 'pitch' | 'roll' | 'pitch_performance' |
+                'lte_composite_quality' | 'lte_packet_loss_rate' |
                 'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_band' | 'lte_outage' |
                 'starlink_quality_combined' | 'starlink_latency' |
                 'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
