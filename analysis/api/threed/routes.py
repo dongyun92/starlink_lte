@@ -15,7 +15,7 @@ import time
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from models.session import Session
-from .czml_generator import CZMLGenerator
+from .czml_generator import CZMLGenerator, compute_lte_cqs_scores
 from .tower_estimation import (
     estimate_tower_hybrid,
     estimate_tower_by_enodeb,
@@ -344,7 +344,7 @@ def get_heatmap_czml(session_id):
     try:
         # Get query parameters
         mode = request.args.get('mode', 'lte', type=str)
-        style = request.args.get('style', 'point', type=str)
+        style = 'hexagon'  # Only hexagon style supported
         flight_id = request.args.get('flight_id', None, type=int)
         resolution = request.args.get('resolution', 8, type=int)
         aggregation = request.args.get('aggregation', 'mean', type=str)
@@ -353,10 +353,6 @@ def get_heatmap_czml(session_id):
         # Validate mode
         if mode not in ['lte', 'starlink', 'combined']:
             return jsonify({'error': 'Invalid mode. Must be lte, starlink, or combined'}), 400
-
-        # Validate style
-        if style not in ['point', 'voxel', 'hexagon']:
-            return jsonify({'error': 'Invalid style. Must be point, voxel, or hexagon'}), 400
 
         # Validate hexagon-specific parameters
         if style == 'hexagon':
@@ -396,8 +392,7 @@ def get_heatmap_czml(session_id):
         # Generate heatmap CZML
         start_time = time.time()
 
-        if style == 'hexagon':
-            # Use HexagonalHeatmapGenerator for hexagon style
+        if True:  # hexagon only
             import pandas as pd
 
             # Read merged data
@@ -416,28 +411,48 @@ def get_heatmap_czml(session_id):
                     return jsonify({'error': 'Flight ID filtering not available'}), 400
                 df = df[df['flight_id'] == flight_id]
 
-            # Auto-detect available columns (consistent with CZMLGenerator)
-            lte_column = None
-            if 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all():
-                lte_column = 'lte_rsrp'
-            elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
-                lte_column = 'lte_rssi'
-            elif 'lte_sinr' in df.columns and not df['lte_sinr'].isna().all():
-                lte_column = 'lte_sinr'
+            # Hexagonal heatmap: LTE → CQS, Starlink → download speed
+            has_lte_cqs = ('lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all() and
+                           'lte_sinr' in df.columns and 'lte_rsrq' in df.columns)
+            has_starlink_dl = ('starlink_downlink_throughput_bps' in df.columns and
+                               not df['starlink_downlink_throughput_bps'].isna().all())
 
-            starlink_column = None
-            if 'starlink_snr' in df.columns and not df['starlink_snr'].isna().all():
-                starlink_column = 'starlink_snr'
-            elif 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
-                starlink_column = 'starlink_latency'
+            df = df.copy()
 
-            # Map mode to actual column
-            mode_map = {
-                'lte': lte_column,
-                'starlink': starlink_column,
-                'combined': lte_column  # Default to LTE for combined
-            }
-            quality_mode = mode_map.get(mode)
+            # Pre-compute normalized columns (0-1 scale)
+            if has_lte_cqs:
+                df['_lte_cqs'] = compute_lte_cqs_scores(df)
+                print(f"📊 Hexagon: CQS pre-computed ({df['_lte_cqs'].notna().sum()} valid rows)", flush=True)
+
+            if has_starlink_dl:
+                # 0.3 Mbps = p95 기준 (combined_connectivity와 동일한 수치)
+                dl_mbps = pd.to_numeric(df['starlink_downlink_throughput_bps'], errors='coerce') / 1_000_000.0
+                df['_starlink_dl_norm'] = (dl_mbps / 0.3).clip(0, 1)
+                print(f"📊 Hexagon: Starlink DL norm pre-computed ({df['_starlink_dl_norm'].notna().sum()} valid rows)", flush=True)
+
+            # Combined: combined_connectivity 경로 색상과 동일한 공식 (평균 50:50, 한쪽만 있으면 그쪽 사용)
+            if mode == 'combined' and has_lte_cqs and has_starlink_dl:
+                lte = df['_lte_cqs']
+                sl = df['_starlink_dl_norm']
+                both = lte.notna() & sl.notna()
+                lte_only = lte.notna() & sl.isna()
+                sl_only = lte.isna() & sl.notna()
+                combined = pd.Series(float('nan'), index=df.index)
+                combined[both] = (lte[both] + sl[both]) / 2.0
+                combined[lte_only] = lte[lte_only]
+                combined[sl_only] = sl[sl_only]
+                df['_combined_score'] = combined
+                quality_mode = '_combined_score'
+            elif mode == 'combined' and has_lte_cqs:
+                quality_mode = '_lte_cqs'
+            elif mode == 'combined' and has_starlink_dl:
+                quality_mode = '_starlink_dl_norm'
+            elif mode == 'lte':
+                quality_mode = '_lte_cqs' if has_lte_cqs else None
+            elif mode == 'starlink':
+                quality_mode = '_starlink_dl_norm' if has_starlink_dl else None
+            else:
+                quality_mode = None
 
             # Check if requested mode has data
             if quality_mode is None:
@@ -461,12 +476,6 @@ def get_heatmap_czml(session_id):
             print(f"⏱️ 3D Hexagonal Voxel Grid generation time: {generation_time:.1f}ms")
             print(f"   Resolution: {resolution}, Voxels: {voxel_count}, Altitude Bins: {altitude_bin_size}m")
             print(f"   Mode: {quality_mode}, Aggregation: {aggregation}")
-        else:
-            # Use existing CZMLGenerator for point/voxel styles
-            generator = CZMLGenerator(session_id)
-            czml_data = generator.create_heatmap_czml(mode=mode, style=style, flight_id=flight_id, altitude_bin_size=altitude_bin_size)
-            generation_time = (time.time() - start_time) * 1000
-            print(f"⏱️ Heatmap generation time: {generation_time:.1f}ms (mode={mode}, style={style}, altitude_bin_size={altitude_bin_size}m)")
 
         # Convert to JSON
         czml_json = json.dumps(czml_data)

@@ -15,6 +15,55 @@ import matplotlib.colors as mcolors
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 
+def compute_lte_cqs_scores(df) -> pd.Series:
+    """
+    Compute LTE Composite Quality Score (CQS) as a pd.Series (0-1 range).
+
+    Formula: RSRP(25%) + RSRQ(25%) + SINR(30%) + Throughput(20%)
+    Fallback without throughput: RSRP(31%) + RSRQ(31%) + SINR(38%)
+
+    Returns:
+        pd.Series indexed by df.index, values 0-1 (NaN where all signals missing)
+    """
+    required = ['lte_rsrp', 'lte_sinr', 'lte_rsrq']
+    if any(col not in df.columns for col in required):
+        return pd.Series(np.nan, index=df.index)
+
+    rsrp = df['lte_rsrp'].values.astype(float)
+    sinr = df['lte_sinr'].values.astype(float)
+    rsrq = df['lte_rsrq'].values.astype(float)
+
+    rsrp = np.where((rsrp <= -999) | (rsrp >= 0), np.nan, rsrp)   # 0 이상도 무효 (LTE 미연결)
+    sinr = np.where(sinr <= -999, np.nan, sinr)
+    rsrq = np.where((rsrq <= -999) | (rsrq >= 0), np.nan, rsrq)  # 0 이상도 무효
+
+    rsrp_norm = np.clip((rsrp - (-140)) / ((-40) - (-140)), 0, 1)
+    sinr_norm = np.clip((sinr - (-20)) / (30 - (-20)), 0, 1)
+    rsrq_norm = np.clip((rsrq - (-20)) / ((-3) - (-20)), 0, 1)
+
+    if 'rx_bytes' in df.columns and 'tx_bytes' in df.columns:
+        rx = df['rx_bytes'].values.astype(float)
+        tx = df['tx_bytes'].values.astype(float)
+        rx_diff = np.diff(rx, prepend=rx[0]).clip(min=0)
+        tx_diff = np.diff(tx, prepend=tx[0]).clip(min=0)
+        total_flow = rx_diff + tx_diff
+        positive = total_flow[total_flow > 0]
+        p95 = np.nanpercentile(positive, 95) if len(positive) > 0 else 1.0
+        throughput_norm = np.clip(total_flow / p95, 0, 1)
+        scores = (0.25 * np.nan_to_num(rsrp_norm) +
+                  0.25 * np.nan_to_num(rsrq_norm) +
+                  0.30 * np.nan_to_num(sinr_norm) +
+                  0.20 * throughput_norm)
+    else:
+        scores = (0.3125 * np.nan_to_num(rsrp_norm) +
+                  0.3125 * np.nan_to_num(rsrq_norm) +
+                  0.375  * np.nan_to_num(sinr_norm))
+
+    all_nan = np.isnan(rsrp) & np.isnan(sinr) & np.isnan(rsrq)
+    scores = np.where(all_nan, np.nan, scores)
+    return pd.Series(scores, index=df.index)
+
+
 class CZMLGenerator:
     """Generate CZML data from flight sessions"""
 
@@ -1102,22 +1151,23 @@ class CZMLGenerator:
 
     def _calculate_combined_connectivity(self, df) -> np.ndarray:
         """
-        LTE RSRP + Starlink DL throughput 통합 연결 품질 점수 (0~1, 높을수록 좋음)
+        LTE CQS + Starlink DL throughput 통합 연결 품질 점수 (0~1, 높을수록 좋음)
 
         정규화 기준:
-          LTE RSRP:       -110 dBm → 0.0 (불량),  -70 dBm → 1.0 (우수)
-          Starlink DL:       0 Mbps → 0.0 (없음),    5 Mbps → 1.0 (우수)
+          LTE CQS: RSRP(25%) + RSRQ(25%) + SINR(30%) + Throughput(20%) → 0~1
+          Starlink DL: 0 Mbps → 0.0 (없음),  0.3 Mbps → 1.0 (p95 기준)
 
         NaN 처리:
           둘 다 유효 → 평균 (50:50)
           하나만 유효 → 유효한 값만 사용
           둘 다 NaN  → NaN (회색)
         """
-        has_rsrp = 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all()
-        has_dl   = 'starlink_downlink_throughput_bps' in df.columns and not df['starlink_downlink_throughput_bps'].isna().all()
+        has_lte = ('lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all() and
+                   'lte_sinr' in df.columns and 'lte_rsrq' in df.columns)
+        has_dl  = 'starlink_downlink_throughput_bps' in df.columns and not df['starlink_downlink_throughput_bps'].isna().all()
 
-        if not has_rsrp and not has_dl:
-            raise ValueError("❌ LTE RSRP와 Starlink DL 데이터가 모두 없습니다")
+        if not has_lte and not has_dl:
+            raise ValueError("❌ LTE CQS 및 Starlink DL 데이터가 모두 없습니다")
 
         n = len(df)
         scores = np.full(n, np.nan)
@@ -1125,10 +1175,9 @@ class CZMLGenerator:
         lte_score = np.full(n, np.nan)
         sl_score  = np.full(n, np.nan)
 
-        if has_rsrp:
-            rsrp = df['lte_rsrp'].values.astype(float)
-            rsrp = np.where(rsrp >= 0, np.nan, rsrp)  # 0 이상 이상값 제거
-            lte_score = np.clip((rsrp - (-110.0)) / ((-70.0) - (-110.0)), 0.0, 1.0)
+        if has_lte:
+            lte_score = compute_lte_cqs_scores(df).values
+            print("📊 Combined: LTE CQS 사용 (RSRP+RSRQ+SINR+Throughput)")
 
         if has_dl:
             dl_mbps = df['starlink_downlink_throughput_bps'].values.astype(float) / 1_000_000.0
@@ -1151,8 +1200,8 @@ class CZMLGenerator:
         self._color_metadata = {
             'mode': 'combined_connectivity',
             'label': '통합 연결 품질',
-            'min_label': 'LTE -110dBm / SL 0Mbps',
-            'max_label': 'LTE -70dBm / SL 5Mbps',
+            'min_label': 'LTE CQS 0% / SL 0Mbps',
+            'max_label': 'LTE CQS 100% / SL 0.3Mbps+',
             'min': 0.0,
             'max': 1.0,
             'unit': 'score',
@@ -1923,18 +1972,16 @@ class CZMLGenerator:
         """
         entities = []
 
-        # Auto-detect available columns
-        lte_column = None
-        if 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all():
-            lte_column = 'lte_rsrp'
-        elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
-            lte_column = 'lte_rssi'
+        # Check available data
+        has_lte_cqs = ('lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all() and
+                       'lte_sinr' in df.columns and 'lte_rsrq' in df.columns)
+        has_starlink_dl = ('starlink_downlink_throughput_bps' in df.columns and
+                           not df['starlink_downlink_throughput_bps'].isna().all())
 
-        starlink_column = None
-        if 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
-            starlink_column = 'starlink_latency'
+        # Pre-compute CQS scores for entire df (0-1 scale → *100 for quality_score)
+        cqs_series = compute_lte_cqs_scores(df) if has_lte_cqs else pd.Series(np.nan, index=df.index)
 
-        print(f"🗺️ Generating {mode.upper()} heatmap: LTE={lte_column}, Starlink={starlink_column}", flush=True)
+        print(f"🗺️ Generating {mode.upper()} heatmap: LTE=CQS({has_lte_cqs}), Starlink=DL({has_starlink_dl})", flush=True)
 
         # Create point entity for each GPS coordinate
         point_count = 0
@@ -1954,15 +2001,19 @@ class CZMLGenerator:
             # Calculate quality score (0-100)
             quality_score = None
 
-            if mode == 'lte' and lte_column:
-                quality_score = self._normalize_lte_quality(row[lte_column], lte_column)
-            elif mode == 'starlink' and starlink_column:
-                quality_score = self._normalize_starlink_quality(row[starlink_column], starlink_column)
+            if mode == 'lte' and has_lte_cqs:
+                # LTE: always use CQS (0-1 → 0-100)
+                cqs_val = cqs_series.loc[idx]
+                quality_score = cqs_val * 100 if not np.isnan(cqs_val) else np.nan
+            elif mode == 'starlink' and has_starlink_dl:
+                # Starlink: always use download speed
+                quality_score = self._normalize_starlink_dl_quality(row['starlink_downlink_throughput_bps'])
             elif mode == 'combined':
-                # Redundancy logic: Use whichever signal is available (LTE OR Starlink)
-                # If both exist, use the better one (max)
-                lte_score = self._normalize_lte_quality(row[lte_column], lte_column) if lte_column else np.nan
-                starlink_score = self._normalize_starlink_quality(row[starlink_column], starlink_column) if starlink_column else np.nan
+                # Redundancy logic: Use CQS for LTE, DL for Starlink; take max of valid
+                lte_score = (cqs_series.loc[idx] * 100) if has_lte_cqs else np.nan
+                if has_lte_cqs and np.isnan(lte_score):
+                    lte_score = np.nan
+                starlink_score = self._normalize_starlink_dl_quality(row['starlink_downlink_throughput_bps']) if has_starlink_dl else np.nan
                 # np.nanmax: Ignores NaN, returns max of valid values
                 quality_score = np.nanmax([lte_score, starlink_score])
 
@@ -2048,6 +2099,23 @@ class CZMLGenerator:
         # Clamp to 0-100
         return max(0, min(100, score))
 
+    def _normalize_starlink_dl_quality(self, value) -> float:
+        """
+        Normalize Starlink downlink throughput to 0-100 quality score.
+
+        Args:
+            value: downlink_throughput_bps value
+
+        Returns:
+            Quality score (0-100), where 50 Mbps = 100
+        """
+        if np.isnan(value):
+            return np.nan
+        # 0 ~ 50 Mbps → 0 ~ 100
+        dl_mbps = value / 1_000_000.0
+        score = (dl_mbps / 50.0) * 100
+        return max(0, min(100, score))
+
     def _get_unified_quality_color(self, quality_score: float) -> list:
         """
         Get unified color based on quality score (0-100)
@@ -2092,18 +2160,16 @@ class CZMLGenerator:
         """
         entities = []
 
-        # Auto-detect available columns
-        lte_column = None
-        if 'lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all():
-            lte_column = 'lte_rsrp'
-        elif 'lte_rssi' in df.columns and not df['lte_rssi'].isna().all():
-            lte_column = 'lte_rssi'
+        # Check available data
+        has_lte_cqs = ('lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all() and
+                       'lte_sinr' in df.columns and 'lte_rsrq' in df.columns)
+        has_starlink_dl = ('starlink_downlink_throughput_bps' in df.columns and
+                           not df['starlink_downlink_throughput_bps'].isna().all())
 
-        starlink_column = None
-        if 'starlink_latency' in df.columns and not df['starlink_latency'].isna().all():
-            starlink_column = 'starlink_latency'
+        # Pre-compute CQS scores (0-1) for entire df, indexed by df.index
+        cqs_series = compute_lte_cqs_scores(df) if has_lte_cqs else pd.Series(np.nan, index=df.index)
 
-        print(f"🔲 Generating {mode.upper()} voxel heatmap: LTE={lte_column}, Starlink={starlink_column}", flush=True)
+        print(f"🔲 Generating {mode.upper()} voxel heatmap: LTE=CQS({has_lte_cqs}), Starlink=DL({has_starlink_dl})", flush=True)
 
         # Calculate bounding box
         lon_min, lon_max = df['longitude'].min(), df['longitude'].max()
@@ -2154,15 +2220,19 @@ class CZMLGenerator:
 
                     # Calculate average quality score for this voxel
                     quality_scores = []
-                    for _, row in voxel_data.iterrows():
-                        if mode == 'lte' and lte_column:
-                            score = self._normalize_lte_quality(row[lte_column], lte_column)
-                        elif mode == 'starlink' and starlink_column:
-                            score = self._normalize_starlink_quality(row[starlink_column], starlink_column)
+                    for vox_idx, row in voxel_data.iterrows():
+                        if mode == 'lte' and has_lte_cqs:
+                            # LTE: always use CQS (0-1 → 0-100)
+                            cqs_val = cqs_series.loc[vox_idx]
+                            score = cqs_val * 100 if not np.isnan(cqs_val) else np.nan
+                        elif mode == 'starlink' and has_starlink_dl:
+                            # Starlink: always use download speed
+                            score = self._normalize_starlink_dl_quality(row['starlink_downlink_throughput_bps'])
                         elif mode == 'combined':
-                            # Redundancy logic: Use whichever signal is available
-                            lte_score = self._normalize_lte_quality(row[lte_column], lte_column) if lte_column else np.nan
-                            starlink_score = self._normalize_starlink_quality(row[starlink_column], starlink_column) if starlink_column else np.nan
+                            # Use CQS for LTE, DL for Starlink; take max of valid
+                            cqs_val = cqs_series.loc[vox_idx]
+                            lte_score = (cqs_val * 100) if has_lte_cqs and not np.isnan(cqs_val) else np.nan
+                            starlink_score = self._normalize_starlink_dl_quality(row['starlink_downlink_throughput_bps']) if has_starlink_dl else np.nan
                             score = np.nanmax([lte_score, starlink_score])
                         else:
                             continue

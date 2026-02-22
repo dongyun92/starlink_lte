@@ -54,6 +54,10 @@ class HexagonalHeatmapGenerator:
         'starlink_latency': (0, 200), # ms (lower = better) - NORMAL RANGE, inverted in normalize
         'altitude': None,             # Use actual min/max
         'speed': None,                # Use actual min/max
+        '_lte_cqs': (0.0, 1.0),                          # CQS score (higher = better, no inversion)
+        '_starlink_dl_norm': (0.0, 1.0),                 # Starlink DL normalized 0-1 (higher = better)
+        '_combined_score': (0.0, 1.0),                   # Combined CQS + Starlink DL nanmax (higher = better)
+        'starlink_downlink_throughput_bps': (0.0, 50_000_000.0),  # 0~50 Mbps (higher = better)
     }
 
     def __init__(self, resolution: int = None, altitude_bin_size: float = None):

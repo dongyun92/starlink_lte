@@ -53,7 +53,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [lteHeatmap, setLteHeatmap] = useState<boolean>(false);
   const [starlinkHeatmap, setStarlinkHeatmap] = useState<boolean>(false);
   const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
-  const [heatmapStyle, setHeatmapStyle] = useState<'point' | 'voxel' | 'hexagon'>('point');
+  const [heatmapStyle, setHeatmapStyle] = useState<'hexagon'>('hexagon');
 
   // Hexagon heatmap parameters (updated defaults for 3D voxel grid)
   const [hexagonResolution, setHexagonResolution] = useState<number>(9);  // 174m edge (better for <1km paths)
@@ -585,11 +585,11 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           'lte',
           heatmapStyle,
           selectedFlightId !== null ? selectedFlightId : undefined,
-          (heatmapStyle === 'hexagon' || heatmapStyle === 'voxel') ? {
+          {
             resolution: hexagonResolution,
             aggregation: hexagonAggregation,
             altitude_bin_size: hexagonAltitudeBinSize
-          } : undefined
+          }
         );
 
         // Extract heatmap metadata from CZML document header
@@ -668,11 +668,11 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           'starlink',
           heatmapStyle,
           selectedFlightId !== null ? selectedFlightId : undefined,
-          (heatmapStyle === 'hexagon' || heatmapStyle === 'voxel') ? {
+          {
             resolution: hexagonResolution,
             aggregation: hexagonAggregation,
             altitude_bin_size: hexagonAltitudeBinSize
-          } : undefined
+          }
         );
 
         // Extract heatmap metadata from CZML document header
@@ -751,11 +751,11 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           'combined',
           heatmapStyle,
           selectedFlightId !== null ? selectedFlightId : undefined,
-          (heatmapStyle === 'hexagon' || heatmapStyle === 'voxel') ? {
+          {
             resolution: hexagonResolution,
             aggregation: hexagonAggregation,
             altitude_bin_size: hexagonAltitudeBinSize
-          } : undefined
+          }
         );
 
         // Extract heatmap metadata from CZML document header

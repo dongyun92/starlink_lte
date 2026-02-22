@@ -40,11 +40,11 @@ interface UnifiedControlPanelProps {
   lteHeatmap: boolean;
   starlinkHeatmap: boolean;
   combinedHeatmap: boolean;
-  heatmapStyle: 'point' | 'voxel' | 'hexagon';
+  heatmapStyle: 'hexagon';
   onLteHeatmapToggle: (enabled: boolean) => void;
   onStarlinkHeatmapToggle: (enabled: boolean) => void;
   onCombinedHeatmapToggle: (enabled: boolean) => void;
-  onHeatmapStyleChange: (style: 'point' | 'voxel' | 'hexagon') => void;
+  onHeatmapStyleChange: (style: 'hexagon') => void;
 
   // Hexagon heatmap controls
   hexagonResolution: number;
@@ -752,88 +752,50 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
           <div className="space-y-2">
             <div className="text-xs font-bold text-gray-700 mb-2">Quality Heatmaps</div>
 
-            <div className="flex gap-2 mb-2">
-              <label className="flex items-center gap-1 cursor-pointer text-xs">
-                <input
-                  type="radio"
-                  value="point"
-                  checked={heatmapStyle === 'point'}
-                  onChange={() => onHeatmapStyleChange('point')}
-                  className="w-3 h-3"
-                />
-                <span>Points</span>
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer text-xs">
-                <input
-                  type="radio"
-                  value="voxel"
-                  checked={heatmapStyle === 'voxel'}
-                  onChange={() => onHeatmapStyleChange('voxel')}
-                  className="w-3 h-3"
-                />
-                <span>Voxels</span>
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer text-xs">
-                <input
-                  type="radio"
-                  value="hexagon"
-                  checked={heatmapStyle === 'hexagon'}
-                  onChange={() => onHeatmapStyleChange('hexagon')}
-                  className="w-3 h-3"
-                />
-                <span>Hexagons</span>
-              </label>
-            </div>
-
-            {/* Voxel & Hexagon controls */}
-            {(heatmapStyle === 'voxel' || heatmapStyle === 'hexagon') && (
-              <div className="bg-blue-50 p-2 rounded border border-blue-200 space-y-2">
+            {/* Hexagon controls */}
+            <div className="bg-blue-50 p-2 rounded border border-blue-200 space-y-2">
                 <div className="text-xs font-semibold text-blue-900">
-                  {heatmapStyle === 'voxel' ? 'Voxel Settings' : 'Hexagon Settings'}
+                  Hexagon Settings
                 </div>
 
-                {/* Hexagon-only: Resolution Selector */}
-                {heatmapStyle === 'hexagon' && (
-                  <div>
-                    <label className="block text-[10px] text-gray-700 mb-1">
-                      Cell Size ({hexagonResolution === 7 ? '1.22km' : hexagonResolution === 8 ? '461m' : hexagonResolution === 9 ? '174m' : '66m'} edge)
-                    </label>
-                    <select
-                      value={hexagonResolution}
-                      onChange={(e) => onHexagonResolutionChange(parseInt(e.target.value, 10))}
-                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-                    >
-                      <option value={7}>7 - Very Large (1.22km)</option>
-                      <option value={8}>8 - Large (461m)</option>
-                      <option value={9}>9 - Medium (174m) ⭐</option>
-                      <option value={10}>10 - Small (66m)</option>
-                    </select>
-                    <div className="text-[9px] text-gray-500 mt-1">
-                      Smaller = More cells, slower
-                    </div>
+                {/* Resolution Selector */}
+                <div>
+                  <label className="block text-[10px] text-gray-700 mb-1">
+                    Cell Size ({hexagonResolution === 7 ? '1.22km' : hexagonResolution === 8 ? '461m' : hexagonResolution === 9 ? '174m' : '66m'} edge)
+                  </label>
+                  <select
+                    value={hexagonResolution}
+                    onChange={(e) => onHexagonResolutionChange(parseInt(e.target.value, 10))}
+                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                  >
+                    <option value={7}>7 - Very Large (1.22km)</option>
+                    <option value={8}>8 - Large (461m)</option>
+                    <option value={9}>9 - Medium (174m) ⭐</option>
+                    <option value={10}>10 - Small (66m)</option>
+                  </select>
+                  <div className="text-[9px] text-gray-500 mt-1">
+                    Smaller = More cells, slower
                   </div>
-                )}
+                </div>
 
-                {/* Hexagon-only: Aggregation Selector */}
-                {heatmapStyle === 'hexagon' && (
-                  <div>
-                    <label className="block text-[10px] text-gray-700 mb-1">
-                      Aggregation Method
-                    </label>
-                    <select
-                      value={hexagonAggregation}
-                      onChange={(e) => onHexagonAggregationChange(e.target.value as 'mean' | 'max' | 'min' | 'median')}
-                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-                    >
-                      <option value="mean">Mean (Average) ⭐</option>
-                      <option value="max">Max (Best Quality)</option>
-                      <option value="min">Min (Worst Quality)</option>
-                      <option value="median">Median (Middle Value)</option>
-                    </select>
-                  </div>
-                )}
+                {/* Aggregation Selector */}
+                <div>
+                  <label className="block text-[10px] text-gray-700 mb-1">
+                    Aggregation Method
+                  </label>
+                  <select
+                    value={hexagonAggregation}
+                    onChange={(e) => onHexagonAggregationChange(e.target.value as 'mean' | 'max' | 'min' | 'median')}
+                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                  >
+                    <option value="mean">Mean (Average) ⭐</option>
+                    <option value="max">Max (Best Quality)</option>
+                    <option value="min">Min (Worst Quality)</option>
+                    <option value="median">Median (Middle Value)</option>
+                  </select>
+                </div>
 
-                {/* Shared: Altitude Bin Size Slider */}
+                {/* Altitude Bin Size Slider */}
                 <div>
                   <label className="block text-[10px] text-gray-700 mb-1">
                     Altitude Bin Size: {hexagonAltitudeBinSize}m (3D Voxel Layers)
@@ -856,7 +818,6 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                   </div>
                 </div>
               </div>
-            )}
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input
