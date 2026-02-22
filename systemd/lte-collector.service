@@ -6,7 +6,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/pi/starlink_lte
-ExecStart=/usr/bin/python3 /home/pi/starlink_lte/lte_remote_collector_en.py --serial-port auto --data-dir /home/pi/lte-collector-data --control-port 8897 --interval 0.5
+# --ping-interface: LTE 데이터 인터페이스 지정 (예: wwan0, usb0)
+# EC25 모뎀 인터페이스 확인: ip route show | grep default
+ExecStart=/usr/bin/python3 /home/pi/starlink_lte/lte_remote_collector_en.py --serial-port auto --data-dir /home/pi/lte-collector-data --control-port 8897 --interval 0.5 --ping-target 8.8.8.8 --ping-interface wwan0
 Restart=always
 RestartSec=1
 StartLimitIntervalSec=0

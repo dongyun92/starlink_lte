@@ -18,6 +18,7 @@ from enum import Enum
 import serial
 from serial.tools import list_ports
 import re
+import subprocess
 
 # ================= Configuration =================
 CONTROL_PORT = 8897
@@ -28,6 +29,8 @@ CSV_MAX_SIZE_MB = 30
 SERIAL_PORT = "auto"
 SERIAL_BAUDRATE = 115200
 COLLECTION_INTERVAL = 1.0
+PING_TARGET = "8.8.8.8"
+PING_INTERFACE = None
 # =================================================
 
 app = Flask(__name__)
@@ -77,6 +80,54 @@ class LTEStatus:
     rsrp: int
     rsrq: int
     sinr: int
+    ping_rtt_ms: float
+    ping_loss: int
+
+
+# ================= PING MONITOR =================
+class PingMonitor:
+    """Background daemon thread that runs periodic pings; main loop reads results non-blocking."""
+
+    def __init__(self, target: str = "8.8.8.8", interface: str = None, interval: float = 1.0):
+        self.target = target
+        self.interface = interface
+        self.interval = interval
+        self._lock = threading.Lock()
+        self._rtt_ms: float = -1.0  # -1.0 = no result yet or timeout
+        self._loss: int = 0
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _ping_once(self):
+        import sys
+        if sys.platform == "darwin":
+            cmd = ["ping", "-c", "1", "-W", "2000"]  # macOS: -W in milliseconds
+        else:
+            cmd = ["ping", "-c", "1", "-W", "2"]     # Linux: -W in seconds
+        if self.interface:
+            cmd += ["-I", self.interface]
+        cmd.append(self.target)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            m = re.search(r"time[=<](\d+\.?\d*)\s*ms", result.stdout)
+            if m:
+                return float(m.group(1)), 0
+            return -1.0, 1
+        except Exception:
+            return -1.0, 1
+
+    def _run(self):
+        while True:
+            rtt, loss = self._ping_once()
+            with self._lock:
+                self._rtt_ms = rtt
+                self._loss = loss
+            time.sleep(self.interval)
+
+    def get_result(self):
+        """Returns (rtt_ms, loss) from last completed ping. rtt=-1.0 means timeout."""
+        with self._lock:
+            return self._rtt_ms, self._loss
 
 
 # ================= LTE MODULE =================
@@ -434,6 +485,7 @@ class LTEDataCollector:
         self.modem = LTEModule(SERIAL_PORT, SERIAL_BAUDRATE)
         if not self.modem.connect():
             raise RuntimeError("LTE module not available")
+        self.ping_monitor = PingMonitor(target=PING_TARGET, interface=PING_INTERFACE)
 
     def rotate_csv(self):
         if self.csv_file:
@@ -473,6 +525,7 @@ class LTEDataCollector:
             rsrp, rsrq, sinr = -999, -999, -999
         ip_address = self.modem.get_pdp_address()
 
+        ping_rtt_ms, ping_loss = self.ping_monitor.get_result()
         data = LTEStatus(
             timestamp=now,
             rssi=rssi,
@@ -511,6 +564,8 @@ class LTEDataCollector:
             rsrp=rsrp,
             rsrq=rsrq,
             sinr=sinr,
+            ping_rtt_ms=ping_rtt_ms,
+            ping_loss=ping_loss,
         )
         print(json.dumps(asdict(data), ensure_ascii=True))
         return data
@@ -609,6 +664,8 @@ if __name__ == "__main__":
     parser.add_argument("--control-port", type=int, default=CONTROL_PORT, help="Control API port")
     parser.add_argument("--serial-port", default=SERIAL_PORT, help="Serial port for LTE module (use 'auto' to detect)")
     parser.add_argument("--interval", type=float, default=COLLECTION_INTERVAL, help="Collection interval in seconds")
+    parser.add_argument("--ping-target", default="8.8.8.8", help="Ping target for internet connectivity check (default: 8.8.8.8)")
+    parser.add_argument("--ping-interface", default=None, help="Network interface for ping, e.g. wwan0 (default: auto)")
 
     args = parser.parse_args()
 
@@ -616,6 +673,8 @@ if __name__ == "__main__":
     CONTROL_PORT = args.control_port
     SERIAL_PORT = args.serial_port
     COLLECTION_INTERVAL = args.interval
+    PING_TARGET = args.ping_target
+    PING_INTERFACE = args.ping_interface
 
     print("=" * 60)
     print("LTE REMOTE DATA COLLECTOR")
