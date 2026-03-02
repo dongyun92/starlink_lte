@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCZMLData, getHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML, getTowerConnectionsCZML, getSignalLossSegments } from '@/services/api';
+import { getCZMLData, getHeatmapCZML, getAllSessionsHeatmapCZML, getFlightScenarios, getCellTowers, getSatelliteDirectionCZML, getTowerConnectionsCZML, getSignalLossSegments } from '@/services/api';
 import type { FlightScenario, FlightSession } from '@/types/flight';
 import { UnifiedControlPanel } from './UnifiedControlPanel';
 import { AnalyticsPanel } from './AnalyticsPanel';
@@ -29,6 +29,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const lapBoundarySegmentRef = useRef<number | null>(null); // segment index where lap 2 starts
   const lapFilterRef = useRef<0 | 1 | 2>(0);               // always-current lapFilter value
 
+  // Track previous session/flight to determine if camera should fly
+  const prevSessionIdRef = useRef<string | null>(null);
+  const prevFlightIdRef = useRef<number | null>(null);
+
   // Heatmap data source refs
   const lteHeatmapSourceRef = useRef<any>(null);
   const starlinkHeatmapSourceRef = useRef<any>(null);
@@ -54,6 +58,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [starlinkHeatmap, setStarlinkHeatmap] = useState<boolean>(false);
   const [combinedHeatmap, setCombinedHeatmap] = useState<boolean>(false);
   const [heatmapStyle, setHeatmapStyle] = useState<'hexagon'>('hexagon');
+  const [allSessionsMode, setAllSessionsMode] = useState<boolean>(false);
 
   // Hexagon heatmap parameters (updated defaults for 3D voxel grid)
   const [hexagonResolution, setHexagonResolution] = useState<number>(9);  // 174m edge (better for <1km paths)
@@ -93,7 +98,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   type PathColorMode = 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' | 'lte_outage' |
+    'lte_composite_quality' | 'lte_packet_loss_rate' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_band' | 'lte_outage' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime' | 'lap_number';
@@ -464,16 +470,23 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
           console.error('❌ No clock info in CZML document packet!');
         }
 
-        // 카메라를 비행 경로 위치로 직접 이동 (고도 + 500m 상공에서 관찰)
-        cesiumViewerRef.current.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(lon, lat, alt + 500),
-          orientation: {
-            heading: Cesium.Math.toRadians(0),
-            pitch: Cesium.Math.toRadians(-45),
-            roll: 0.0,
-          },
-          duration: 2,
-        });
+        // 세션 또는 시나리오가 바뀐 경우에만 카메라 이동 (컬러 모드 변경 시 포커싱 안 함)
+        const sessionChanged = selectedSessionId !== prevSessionIdRef.current;
+        const flightChanged = selectedFlightId !== prevFlightIdRef.current;
+        prevSessionIdRef.current = selectedSessionId;
+        prevFlightIdRef.current = selectedFlightId;
+
+        if ((sessionChanged || flightChanged) && lon !== undefined && lat !== undefined) {
+          cesiumViewerRef.current.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat, alt + 500),
+            orientation: {
+              heading: Cesium.Math.toRadians(0),
+              pitch: Cesium.Math.toRadians(-45),
+              roll: 0.0,
+            },
+            duration: 2,
+          });
+        }
 
         console.log('✅ Flight path visualization complete');
         console.log('⏸️ Timeline paused (autoplay disabled)');
@@ -548,7 +561,10 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
 
   // LTE Heatmap 로드 및 토글
   useEffect(() => {
-    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+    if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+    if (!allSessionsMode && !selectedSessionId) {
       return;
     }
 
@@ -576,21 +592,24 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         if (lteHeatmapSourceRef.current) {
           cesiumViewerRef.current.dataSources.remove(lteHeatmapSourceRef.current);
           lteHeatmapSourceRef.current = null;
-          console.log('🗑️ LTE heatmap removed (style change)');
         }
 
-        console.log(`🗺️ Loading LTE quality heatmap (${heatmapStyle})...`);
-        const czmlData = await getHeatmapCZML(
-          selectedSessionId,
-          'lte',
-          heatmapStyle,
-          selectedFlightId !== null ? selectedFlightId : undefined,
-          {
-            resolution: hexagonResolution,
-            aggregation: hexagonAggregation,
-            altitude_bin_size: hexagonAltitudeBinSize
-          }
-        );
+        const hexOptions = { resolution: hexagonResolution, aggregation: hexagonAggregation, altitude_bin_size: hexagonAltitudeBinSize };
+
+        let czmlData;
+        if (allSessionsMode) {
+          console.log('🌍 Loading LTE heatmap (All Sessions)...');
+          czmlData = await getAllSessionsHeatmapCZML('lte', hexOptions);
+        } else {
+          console.log(`🗺️ Loading LTE quality heatmap (${heatmapStyle})...`);
+          czmlData = await getHeatmapCZML(
+            selectedSessionId!,
+            'lte',
+            heatmapStyle,
+            selectedFlightId !== null ? selectedFlightId : undefined,
+            hexOptions
+          );
+        }
 
         // Extract heatmap metadata from CZML document header
         if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
@@ -598,7 +617,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
             starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
           });
-          console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
         }
 
         const Cesium = window.Cesium;
@@ -627,11 +645,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize]);
+  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode]);
 
   // Starlink Heatmap 로드 및 토글
   useEffect(() => {
-    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+    if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+    if (!allSessionsMode && !selectedSessionId) {
       return;
     }
 
@@ -659,21 +680,24 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         if (starlinkHeatmapSourceRef.current) {
           cesiumViewerRef.current.dataSources.remove(starlinkHeatmapSourceRef.current);
           starlinkHeatmapSourceRef.current = null;
-          console.log('🗑️ Starlink heatmap removed (style change)');
         }
 
-        console.log(`🗺️ Loading Starlink quality heatmap (${heatmapStyle})...`);
-        const czmlData = await getHeatmapCZML(
-          selectedSessionId,
-          'starlink',
-          heatmapStyle,
-          selectedFlightId !== null ? selectedFlightId : undefined,
-          {
-            resolution: hexagonResolution,
-            aggregation: hexagonAggregation,
-            altitude_bin_size: hexagonAltitudeBinSize
-          }
-        );
+        const hexOptions = { resolution: hexagonResolution, aggregation: hexagonAggregation, altitude_bin_size: hexagonAltitudeBinSize };
+
+        let czmlData;
+        if (allSessionsMode) {
+          console.log('🌍 Loading Starlink heatmap (All Sessions)...');
+          czmlData = await getAllSessionsHeatmapCZML('starlink', hexOptions);
+        } else {
+          console.log(`🗺️ Loading Starlink quality heatmap (${heatmapStyle})...`);
+          czmlData = await getHeatmapCZML(
+            selectedSessionId!,
+            'starlink',
+            heatmapStyle,
+            selectedFlightId !== null ? selectedFlightId : undefined,
+            hexOptions
+          );
+        }
 
         // Extract heatmap metadata from CZML document header
         if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
@@ -681,7 +705,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
             starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
           });
-          console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
         }
 
         const Cesium = window.Cesium;
@@ -710,11 +733,14 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize]);
+  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode]);
 
   // Combined Heatmap 로드 및 토글
   useEffect(() => {
-    if (!selectedSessionId || !cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+    if (!cesiumViewerRef.current || typeof window.Cesium === 'undefined') {
+      return;
+    }
+    if (!allSessionsMode && !selectedSessionId) {
       return;
     }
 
@@ -742,21 +768,24 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         if (combinedHeatmapSourceRef.current) {
           cesiumViewerRef.current.dataSources.remove(combinedHeatmapSourceRef.current);
           combinedHeatmapSourceRef.current = null;
-          console.log('🗑️ Combined heatmap removed (style change)');
         }
 
-        console.log(`🗺️ Loading Combined quality heatmap (${heatmapStyle})...`);
-        const czmlData = await getHeatmapCZML(
-          selectedSessionId,
-          'combined',
-          heatmapStyle,
-          selectedFlightId !== null ? selectedFlightId : undefined,
-          {
-            resolution: hexagonResolution,
-            aggregation: hexagonAggregation,
-            altitude_bin_size: hexagonAltitudeBinSize
-          }
-        );
+        const hexOptions = { resolution: hexagonResolution, aggregation: hexagonAggregation, altitude_bin_size: hexagonAltitudeBinSize };
+
+        let czmlData;
+        if (allSessionsMode) {
+          console.log('🌍 Loading Combined heatmap (All Sessions)...');
+          czmlData = await getAllSessionsHeatmapCZML('combined', hexOptions);
+        } else {
+          console.log(`🗺️ Loading Combined quality heatmap (${heatmapStyle})...`);
+          czmlData = await getHeatmapCZML(
+            selectedSessionId!,
+            'combined',
+            heatmapStyle,
+            selectedFlightId !== null ? selectedFlightId : undefined,
+            hexOptions
+          );
+        }
 
         // Extract heatmap metadata from CZML document header
         if (Array.isArray(czmlData) && czmlData.length > 0 && czmlData[0].heatmapMetadata) {
@@ -764,7 +793,6 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             lteColumn: czmlData[0].heatmapMetadata.lteColumn || null,
             starlinkColumn: czmlData[0].heatmapMetadata.starlinkColumn || null
           });
-          console.log('📊 Heatmap metadata:', czmlData[0].heatmapMetadata);
         }
 
         const Cesium = window.Cesium;
@@ -793,7 +821,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize]);
+  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode]);
 
   // Cell Tower 데이터 로드
   useEffect(() => {
@@ -1213,7 +1241,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
     const timelineWidth = timelineRect.width;
 
     // Add marker for each segment
-    signalLossSegments.forEach((segment, index) => {
+    signalLossSegments.forEach((segment) => {
       const segmentStartTime = Cesium.JulianDate.fromIso8601(segment.start_time);
       const secondsFromStart = Cesium.JulianDate.secondsDifference(segmentStartTime, startTime);
       const positionRatio = secondsFromStart / totalSeconds;
@@ -1265,6 +1293,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onLteHeatmapToggle={handleLteHeatmapToggle}
         onStarlinkHeatmapToggle={handleStarlinkHeatmapToggle}
         onCombinedHeatmapToggle={handleCombinedHeatmapToggle}
+        allSessionsMode={allSessionsMode}
+        onAllSessionsModeToggle={setAllSessionsMode}
         onHeatmapStyleChange={setHeatmapStyle}
         hexagonResolution={hexagonResolution}
         hexagonAggregation={hexagonAggregation}

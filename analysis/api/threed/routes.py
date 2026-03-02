@@ -507,6 +507,154 @@ def get_heatmap_czml(session_id):
 
 
 
+@api_3d_bp.route('/heatmap/all-sessions', methods=['GET'])
+def get_all_sessions_heatmap_czml():
+    """
+    Generate and return heatmap CZML combining data from ALL completed sessions.
+
+    Query Parameters:
+        - mode: Heatmap mode ('lte', 'starlink', or 'combined') (default: 'combined')
+        - resolution: H3 resolution for hexagon (7-10) (default: 8)
+        - aggregation: Aggregation method ('mean', 'max', 'min', 'median') (default: 'mean')
+        - altitude_bin_size: Altitude bin size in meters (default: 25)
+
+    Returns:
+        CZML JSON data with heatmap entities aggregated across all sessions
+    """
+    try:
+        import pandas as pd
+
+        mode = request.args.get('mode', 'combined', type=str)
+        resolution = request.args.get('resolution', 8, type=int)
+        aggregation = request.args.get('aggregation', 'mean', type=str)
+        altitude_bin_size = request.args.get('altitude_bin_size', 25.0, type=float)
+
+        if mode not in ['lte', 'starlink', 'combined']:
+            return jsonify({'error': 'Invalid mode. Must be lte, starlink, or combined'}), 400
+        if not 7 <= resolution <= 10:
+            return jsonify({'error': 'Invalid resolution. Must be between 7 and 10'}), 400
+        if aggregation not in ['mean', 'max', 'min', 'median']:
+            return jsonify({'error': 'Invalid aggregation.'}), 400
+        if not 10 <= altitude_bin_size <= 100:
+            return jsonify({'error': 'Invalid altitude_bin_size. Must be between 10 and 100'}), 400
+
+        cache_key = f"heatmap:all-sessions:{mode}:hexagon:{resolution}:{aggregation}:{altitude_bin_size}"
+
+        if redis_client:
+            try:
+                cached_json = redis_client.get(cache_key)
+                if cached_json:
+                    print(f"✅ Cache HIT: {cache_key}")
+                    response = make_response(cached_json)
+                    response.headers['Content-Type'] = 'application/json'
+                    response.headers['X-Cache'] = 'HIT'
+                    return response
+            except Exception as e:
+                print(f"⚠️ Cache read error: {e}")
+
+        # Load all completed sessions' merged_data.csv
+        start_time = time.time()
+        results_base = Path(__file__).parent.parent.parent / 'results'
+
+        sessions = Session.get_all()
+        completed_sessions = [s for s in sessions if s.status == 'completed']
+
+        dfs = []
+        for session in completed_sessions:
+            merged_data_path = results_base / session.id / 'merged_data.csv'
+            if merged_data_path.exists():
+                try:
+                    df_session = pd.read_csv(merged_data_path, low_memory=False)
+                    df_session['_session_id'] = session.id
+                    dfs.append(df_session)
+                    print(f"  ✅ Loaded session {session.id}: {len(df_session)} rows")
+                except Exception as e:
+                    print(f"  ⚠️ Failed to load {session.id}: {e}")
+
+        if not dfs:
+            return jsonify({'error': 'No completed session data found'}), 404
+
+        df = pd.concat(dfs, ignore_index=True)
+        print(f"📊 All-sessions combined: {len(df)} total rows from {len(dfs)} sessions")
+
+        # Pre-compute normalized columns (same as single-session endpoint)
+        df = df.copy()
+
+        has_lte_cqs = ('lte_rsrp' in df.columns and not df['lte_rsrp'].isna().all() and
+                       'lte_sinr' in df.columns and 'lte_rsrq' in df.columns)
+        has_starlink_dl = ('starlink_downlink_throughput_bps' in df.columns and
+                           not df['starlink_downlink_throughput_bps'].isna().all())
+
+        if has_lte_cqs:
+            df['_lte_cqs'] = compute_lte_cqs_scores(df)
+            print(f"📊 CQS pre-computed ({df['_lte_cqs'].notna().sum()} valid rows)")
+
+        if has_starlink_dl:
+            dl_mbps = pd.to_numeric(df['starlink_downlink_throughput_bps'], errors='coerce') / 1_000_000.0
+            df['_starlink_dl_norm'] = (dl_mbps / 0.3).clip(0, 1)
+            print(f"📊 Starlink DL norm pre-computed ({df['_starlink_dl_norm'].notna().sum()} valid rows)")
+
+        if mode == 'combined' and has_lte_cqs and has_starlink_dl:
+            lte = df['_lte_cqs']
+            sl = df['_starlink_dl_norm']
+            both = lte.notna() & sl.notna()
+            lte_only = lte.notna() & sl.isna()
+            sl_only = lte.isna() & sl.notna()
+            combined = pd.Series(float('nan'), index=df.index)
+            combined[both] = (lte[both] + sl[both]) / 2.0
+            combined[lte_only] = lte[lte_only]
+            combined[sl_only] = sl[sl_only]
+            df['_combined_score'] = combined
+            quality_mode = '_combined_score'
+        elif mode == 'combined' and has_lte_cqs:
+            quality_mode = '_lte_cqs'
+        elif mode == 'combined' and has_starlink_dl:
+            quality_mode = '_starlink_dl_norm'
+        elif mode == 'lte':
+            quality_mode = '_lte_cqs' if has_lte_cqs else None
+        elif mode == 'starlink':
+            quality_mode = '_starlink_dl_norm' if has_starlink_dl else None
+        else:
+            quality_mode = None
+
+        if quality_mode is None:
+            return jsonify([{"id": "document", "version": "1.0", "name": f"Empty All-Sessions Heatmap - No {mode.upper()} data"}]), 200
+
+        hex_generator = HexagonalHeatmapGenerator(
+            resolution=resolution,
+            altitude_bin_size=altitude_bin_size
+        )
+        czml_data = hex_generator.generate_czml(
+            df=df,
+            mode=quality_mode,
+            aggregation=aggregation,
+            extrusion_height=0
+        )
+
+        generation_time = (time.time() - start_time) * 1000
+        voxel_count = len(czml_data) - 1
+        print(f"⏱️ All-sessions heatmap: {generation_time:.1f}ms, {voxel_count} voxels, {len(dfs)} sessions")
+
+        czml_json = json.dumps(czml_data)
+
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 3600, czml_json)
+                print(f"💾 Cache saved: {cache_key} ({len(czml_json)} bytes)")
+            except Exception as e:
+                print(f"⚠️ Cache write error: {e}")
+
+        response = make_response(czml_json)
+        response.headers['Content-Type'] = 'application/json'
+        response.headers['X-Cache'] = 'MISS'
+        return response
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @api_3d_bp.route('/cell-towers/<session_id>', methods=['GET'])
 def get_cell_towers(session_id):
     """

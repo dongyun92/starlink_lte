@@ -41,9 +41,11 @@ interface UnifiedControlPanelProps {
   starlinkHeatmap: boolean;
   combinedHeatmap: boolean;
   heatmapStyle: 'hexagon';
+  allSessionsMode: boolean;
   onLteHeatmapToggle: (enabled: boolean) => void;
   onStarlinkHeatmapToggle: (enabled: boolean) => void;
   onCombinedHeatmapToggle: (enabled: boolean) => void;
+  onAllSessionsModeToggle: (enabled: boolean) => void;
   onHeatmapStyleChange: (style: 'hexagon') => void;
 
   // Hexagon heatmap controls
@@ -68,7 +70,7 @@ interface UnifiedControlPanelProps {
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
     'lte_composite_quality' | 'lte_packet_loss_rate' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' | 'lte_outage' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_band' | 'lte_outage' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime' | 'lap_number';
@@ -76,7 +78,7 @@ interface UnifiedControlPanelProps {
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
     'lte_composite_quality' | 'lte_packet_loss_rate' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_band' | 'lte_outage' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_band' | 'lte_outage' |
     'starlink_quality_combined' | 'starlink_latency' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime' | 'lap_number') => void;
@@ -132,9 +134,11 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   starlinkHeatmap,
   combinedHeatmap,
   heatmapStyle,
+  allSessionsMode,
   onLteHeatmapToggle,
   onStarlinkHeatmapToggle,
   onCombinedHeatmapToggle,
+  onAllSessionsModeToggle,
   onHeatmapStyleChange,
   hexagonResolution,
   hexagonAggregation,
@@ -751,6 +755,24 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
           {/* Quality Heatmaps */}
           <div className="space-y-2">
             <div className="text-xs font-bold text-gray-700 mb-2">Quality Heatmaps</div>
+
+            {/* All Sessions Mode Toggle */}
+            <div className={`p-2 rounded border ${allSessionsMode ? 'bg-indigo-50 border-indigo-300' : 'bg-gray-50 border-gray-200'}`}>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allSessionsMode}
+                  onChange={(e) => onAllSessionsModeToggle(e.target.checked)}
+                  className="w-3 h-3"
+                />
+                <span className={`text-xs font-semibold ${allSessionsMode ? 'text-indigo-800' : 'text-gray-700'}`}>
+                  🌍 전체 세션 합산
+                </span>
+              </label>
+              <p className="text-[10px] ml-5 mt-0.5 text-gray-500">
+                {allSessionsMode ? '모든 세션 데이터를 합산하여 표시 중' : '현재 세션만 표시 — 활성화하면 전체 합산'}
+              </p>
+            </div>
 
             {/* Hexagon controls */}
             <div className="bg-blue-50 p-2 rounded border border-blue-200 space-y-2">

@@ -164,6 +164,40 @@ export async function getHeatmapCZML(
 }
 
 /**
+ * Get heatmap CZML data combining all completed sessions
+ */
+export async function getAllSessionsHeatmapCZML(
+  mode: 'lte' | 'starlink' | 'combined',
+  hexagonOptions?: {
+    resolution?: number;
+    aggregation?: 'mean' | 'max' | 'min' | 'median';
+    altitude_bin_size?: number;
+  }
+): Promise<CZMLDocument> {
+  const params = new URLSearchParams({ mode });
+  if (hexagonOptions) {
+    if (hexagonOptions.resolution !== undefined) {
+      params.append('resolution', hexagonOptions.resolution.toString());
+    }
+    if (hexagonOptions.aggregation) {
+      params.append('aggregation', hexagonOptions.aggregation);
+    }
+    if (hexagonOptions.altitude_bin_size !== undefined) {
+      params.append('altitude_bin_size', hexagonOptions.altitude_bin_size.toString());
+    }
+  }
+
+  const url = `${API_BASE_URL}/api/3d/heatmap/all-sessions?${params.toString()}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch all-sessions heatmap CZML: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Get satellite direction CZML data for Starlink visualization
  */
 export async function getSatelliteDirectionCZML(
