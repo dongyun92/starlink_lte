@@ -139,20 +139,15 @@ class LTEModule:
         self.connected = False
 
     def _detect_port(self):
-        """자동으로 EC25 AT 포트 감지 (ttyUSB0, ttyUSB1, ttyUSB2, ttyUSB3 순서로 시도)"""
-        ports = [p.device for p in list_ports.comports()]
-        if not ports:
-            return None
+        """EC25 AT 포트 감지 — 지정된 후보 포트만 시도 (전체 스캔 금지)
 
-        # ttyUSB 포트를 숫자 순서대로 정렬
-        def rank_port(name):
-            import re
-            m = re.search(r'ttyUSB(\d+)', name)
-            if m:
-                return int(m.group(1))  # 숫자 추출해서 정렬
-            return 999  # ttyUSB가 아닌 포트는 마지막
-
-        for port in sorted(ports, key=rank_port):
+        전체 ttyUSB 스캔은 관제 시리얼 포트를 침범해 관제권 상실 원인이 됨.
+        알려진 EC25 포트 번호(USB2~USB4)만 순서대로 확인한다.
+        """
+        preferred_ports = ["/dev/ttyUSB2", "/dev/ttyUSB3", "/dev/ttyUSB4"]
+        for port in preferred_ports:
+            if not os.path.exists(port):
+                continue
             print(f"[INFO] Probing {port} for AT commands...")
             if self._probe_port(port):
                 print(f"[SUCCESS] Found EC25 AT port: {port}")
