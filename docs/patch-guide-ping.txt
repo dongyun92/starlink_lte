@@ -71,7 +71,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/hanul/starlink_lte
-ExecStart=/usr/bin/python3 /home/hanul/starlink_lte/lte_remote_collector_en.py --serial-port /dev/ttyUSB2 --data-dir /home/hanul/lte-collector-data --control-port 8897 --interval 0.5 --ping-target 8.8.8.8
+ExecStart=/usr/bin/python3 /home/hanul/starlink_lte/lte_remote_collector_en.py --serial-port auto --exclude-ports /dev/ttyUSB0,/dev/ttyUSB1 --data-dir /home/hanul/lte-collector-data --control-port 8897 --interval 0.5 --ping-target 8.8.8.8
 Restart=always
 RestartSec=1
 StartLimitIntervalSec=0

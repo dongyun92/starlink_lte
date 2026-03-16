@@ -28,6 +28,7 @@ CSV_ROTATION_MINUTES = 10
 CSV_MAX_SIZE_MB = 30
 SERIAL_PORT = "auto"
 SERIAL_BAUDRATE = 115200
+SERIAL_EXCLUDE_PORTS = []   # auto 모드에서 절대 탐지하지 않을 포트 목록
 COLLECTION_INTERVAL = 1.0
 PING_TARGET = "8.8.8.8"
 PING_INTERFACE = None
@@ -132,20 +133,26 @@ class PingMonitor:
 
 # ================= LTE MODULE =================
 class LTEModule:
-    def __init__(self, port, baudrate):
+    def __init__(self, port, baudrate, exclude_ports=None):
         self.port = port
         self.baudrate = baudrate
+        self.exclude_ports = set(exclude_ports or [])
         self.ser = None
         self.connected = False
 
     def _detect_port(self):
-        """EC25 AT 포트 감지 — 지정된 후보 포트만 시도 (전체 스캔 금지)
+        """ttyUSB* 전체를 숫자 순서로 탐지 — exclude_ports에 있는 포트는 건너뜀
 
-        전체 ttyUSB 스캔은 관제 시리얼 포트를 침범해 관제권 상실 원인이 됨.
-        알려진 EC25 포트 번호(USB2~USB4)만 순서대로 확인한다.
+        관제 시리얼 등 건드리면 안 되는 포트는 --exclude-ports 로 제외할 것.
         """
-        preferred_ports = ["/dev/ttyUSB2", "/dev/ttyUSB3", "/dev/ttyUSB4"]
-        for port in preferred_ports:
+        ports = [p.device for p in list_ports.comports()
+                 if re.search(r'ttyUSB\d+', p.device)]
+        ports.sort(key=lambda n: int(re.search(r'(\d+)$', n).group(1)))
+
+        for port in ports:
+            if port in self.exclude_ports:
+                print(f"[SKIP] {port} is in exclude list")
+                continue
             if not os.path.exists(port):
                 continue
             print(f"[INFO] Probing {port} for AT commands...")
@@ -477,7 +484,7 @@ class LTEDataCollector:
 
         os.makedirs(DATA_DIR, exist_ok=True)
 
-        self.modem = LTEModule(SERIAL_PORT, SERIAL_BAUDRATE)
+        self.modem = LTEModule(SERIAL_PORT, SERIAL_BAUDRATE, SERIAL_EXCLUDE_PORTS)
         if not self.modem.connect():
             raise RuntimeError("LTE module not available")
         self.ping_monitor = PingMonitor(target=PING_TARGET, interface=PING_INTERFACE)
@@ -658,6 +665,7 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", default=DATA_DIR, help="Data directory")
     parser.add_argument("--control-port", type=int, default=CONTROL_PORT, help="Control API port")
     parser.add_argument("--serial-port", default=SERIAL_PORT, help="Serial port for LTE module (use 'auto' to detect)")
+    parser.add_argument("--exclude-ports", default="", help="Comma-separated ports to skip during auto-detect, e.g. /dev/ttyUSB0,/dev/ttyUSB1")
     parser.add_argument("--interval", type=float, default=COLLECTION_INTERVAL, help="Collection interval in seconds")
     parser.add_argument("--ping-target", default="8.8.8.8", help="Ping target for internet connectivity check (default: 8.8.8.8)")
     parser.add_argument("--ping-interface", default=None, help="Network interface for ping, e.g. wwan0 (default: auto)")
@@ -667,6 +675,7 @@ if __name__ == "__main__":
     DATA_DIR = args.data_dir
     CONTROL_PORT = args.control_port
     SERIAL_PORT = args.serial_port
+    SERIAL_EXCLUDE_PORTS = [p.strip() for p in args.exclude_ports.split(",") if p.strip()]
     COLLECTION_INTERVAL = args.interval
     PING_TARGET = args.ping_target
     PING_INTERFACE = args.ping_interface
