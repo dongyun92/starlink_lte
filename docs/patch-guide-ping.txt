@@ -38,6 +38,11 @@
 
   ※ "Already up to date." 가 나와도 괜찮습니다. 다음 단계 진행하세요.
 
+git clone --depth 1 --single-branch \
+  --branch feature/collector-only \
+  https://github.com/dongyun92/starlink_lte.git \
+  starlink_lte
+
 ================================================================================
   STEP 2  서비스 파일 업데이트
 ================================================================================
