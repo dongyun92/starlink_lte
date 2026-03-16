@@ -1,6 +1,6 @@
 ================================================================================
   라즈베리파이 패치 적용 가이드 — ping 기능 추가
-  작성: 버티(Verti Inc.)  |  2026-03-09
+  작성: 버티(Verti Inc.)  |  2026-03-09  (2026-03-16 수정)
 ================================================================================
 
   적용 대상: 라즈베리파이 2대
@@ -30,7 +30,7 @@
 
   정상 출력 예시 (이미 있을 때):
     Already on 'feature/collector-only'
-    Updating 0c43ffd..3286a0c
+    Updating 0c43ffd..cd80c69
     Fast-forward
      lte_remote_collector_en.py               | 45 +++++++++
      starlink/collector/grpc_web_collector.py | 52 +++++++++
@@ -38,41 +38,49 @@
 
   ※ "Already up to date." 가 나와도 괜찮습니다. 다음 단계 진행하세요.
 
-git clone --depth 1 --single-branch \
-  --branch feature/collector-only \
-  https://github.com/dongyun92/starlink_lte.git \
-  starlink_lte
+  ──────────────────────────────────────────────────────────────────────────────
+  ※ 처음 설치하는 경우 (starlink_lte 폴더 자체가 없을 때):
+
+    git clone --depth 1 --single-branch \
+      --branch feature/collector-only \
+      https://github.com/dongyun92/starlink_lte.git \
+      starlink_lte
+
+  클론 완료 후 STEP 2 로 이동하세요.
+  ──────────────────────────────────────────────────────────────────────────────
 
 ================================================================================
   STEP 2  서비스 파일 업데이트
 ================================================================================
 
-  아래 명령을 한 번에 복사해서 붙여넣기 하세요.
-  마지막 줄 EOF 까지 전부 포함해야 합니다.
+  !! 중요 !!
+  아래 명령 블록을 복사할 때 EOF 줄이 반드시 포함되어야 합니다.
+  줄 맨 앞에 공백이 없어야 합니다 (공백 있으면 인식 못 함).
 
 
   [ Pi-1 에서만 실행 — LTE 수집기 ]
 
+  아래 블록 전체를 복사해서 터미널에 붙여넣기:
   --------------------------------------------------------------------------
-  sudo tee /etc/systemd/system/lte-collector.service > /dev/null << 'EOF'
-  [Unit]
-  Description=LTE Remote Collector
-  After=network-online.target
-  Wants=network-online.target
+sudo tee /etc/systemd/system/lte-collector.service > /dev/null << 'EOF'
+[Unit]
+Description=LTE Remote Collector
+After=network-online.target
+Wants=network-online.target
 
-  [Service]
-  Type=simple
-  WorkingDirectory=/home/hanul/starlink_lte
-  ExecStart=/usr/bin/python3 /home/hanul/starlink_lte/lte_remote_collector_en.py --serial-port /dev/ttyUSB2 --data-dir /home/hanul/lte-collector-data --control-port 8897 --interval 0.5 --ping-target 8.8.8.8
-  Restart=always
-  RestartSec=1
-  StartLimitIntervalSec=0
-  User=hanul
-  Group=hanul
+[Service]
+Type=simple
+WorkingDirectory=/home/hanul/starlink_lte
+ExecStart=/usr/bin/python3 /home/hanul/starlink_lte/lte_remote_collector_en.py --serial-port /dev/ttyUSB2 --data-dir /home/hanul/lte-collector-data --control-port 8897 --interval 0.5 --ping-target 8.8.8.8
+Restart=always
+RestartSec=1
+StartLimitIntervalSec=0
+User=hanul
+Group=hanul
 
-  [Install]
-  WantedBy=multi-user.target
-  EOF
+[Install]
+WantedBy=multi-user.target
+EOF
   --------------------------------------------------------------------------
 
   정상 출력 예시: (아무것도 출력 안 되면 정상입니다)
@@ -88,26 +96,27 @@ git clone --depth 1 --single-branch \
 
   [ Pi-2 에서만 실행 — Starlink 수집기 ]
 
+  아래 블록 전체를 복사해서 터미널에 붙여넣기:
   --------------------------------------------------------------------------
-  sudo tee /etc/systemd/system/starlink-real-collector.service > /dev/null << 'EOF'
-  [Unit]
-  Description=Starlink gRPC-Web Collector
-  After=network-online.target
-  Wants=network-online.target
-  StartLimitIntervalSec=0
+sudo tee /etc/systemd/system/starlink-real-collector.service > /dev/null << 'EOF'
+[Unit]
+Description=Starlink gRPC-Web Collector
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
 
-  [Service]
-  Type=simple
-  WorkingDirectory=/home/hanul/starlink_lte
-  ExecStart=/usr/bin/python3 /home/hanul/starlink_lte/starlink/collector/grpc_web_collector.py --control-port 9201 --grpc-host 192.168.100.1 --grpc-port 9200 --interval 0.5 --data-dir /home/hanul/starlink-collect-data --ping-target 8.8.8.8
-  Restart=always
-  RestartSec=1
-  User=hanul
-  Group=hanul
+[Service]
+Type=simple
+WorkingDirectory=/home/hanul/starlink_lte
+ExecStart=/usr/bin/python3 /home/hanul/starlink_lte/starlink/collector/grpc_web_collector.py --control-port 9201 --grpc-host 192.168.100.1 --grpc-port 9200 --interval 0.5 --data-dir /home/hanul/starlink-collect-data --ping-target 8.8.8.8
+Restart=always
+RestartSec=1
+User=hanul
+Group=hanul
 
-  [Install]
-  WantedBy=multi-user.target
-  EOF
+[Install]
+WantedBy=multi-user.target
+EOF
   --------------------------------------------------------------------------
 
   정상 출력 예시: (아무것도 출력 안 되면 정상입니다)
@@ -185,6 +194,10 @@ git clone --depth 1 --single-branch \
     에러: ModuleNotFoundError
     원인: Python 패키지 부족
     조치: pip3 install -r /home/hanul/starlink_lte/requirements.txt 실행 후 재시작
+
+    에러: 셸이 > 프롬프트만 계속 나오고 멈춤
+    원인: 복붙 시 EOF 앞에 공백이 들어간 것
+    조치: Ctrl+C 로 취소 후 명령 블록을 다시 복붙 (공백 없이)
 
   해결 안 되면 에러 로그 캡처해서 공유해주세요.
 
