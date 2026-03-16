@@ -46,8 +46,26 @@
       https://github.com/dongyun92/starlink_lte.git \
       starlink_lte
 
-  클론 완료 후 STEP 2 로 이동하세요.
+  클론 완료 후 STEP 1-B 로 이동하세요.
   ──────────────────────────────────────────────────────────────────────────────
+
+================================================================================
+  STEP 1-B  Python 패키지 설치  (Pi-1, Pi-2 둘 다 — 처음 한 번만)
+================================================================================
+
+  [ Pi-1 — LTE 수집기 ]
+
+    pip3 install pyserial flask --break-system-packages
+
+  [ Pi-2 — Starlink 수집기 ]
+
+    pip3 install grpcio yagrc flask --break-system-packages
+
+  정상 출력 예시:
+    Successfully installed grpcio-x.x.x yagrc-x.x.x flask-x.x.x
+
+  ※ "already satisfied" 가 나와도 정상입니다.
+  ※ --break-system-packages 는 전용 Pi 에서 안전합니다.
 
 ================================================================================
   STEP 2  서비스 파일 업데이트
