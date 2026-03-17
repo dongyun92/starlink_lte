@@ -97,6 +97,53 @@ class PingMonitor:
             return self._rtt_ms, self._loss
 
 
+class PopMonitor:
+    """Background thread that periodically resolves public IP and Starlink POP via PTR record."""
+
+    def __init__(self, interval: float = 10.0):
+        self.interval = interval
+        self._lock = threading.Lock()
+        self._public_ip: str = ""
+        self._ptr_record: str = ""
+        self._pop_name: str = ""
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _resolve_once(self):
+        import urllib.request
+        try:
+            ip = urllib.request.urlopen("https://ifconfig.me", timeout=5).read().decode().strip()
+        except Exception:
+            return "", "", ""
+        ptr = ""
+        try:
+            result = subprocess.run(
+                ["dig", "-x", ip, "+short"],
+                capture_output=True, text=True, timeout=5,
+            )
+            ptr = result.stdout.strip().rstrip(".")
+        except Exception:
+            pass
+        pop = ""
+        m = re.search(r"customer\.([^.]+)\.pop\.starlinkisp\.net", ptr)
+        if m:
+            pop = m.group(1)
+        return ip, ptr, pop
+
+    def _run(self):
+        while True:
+            ip, ptr, pop = self._resolve_once()
+            with self._lock:
+                self._public_ip = ip
+                self._ptr_record = ptr
+                self._pop_name = pop
+            time.sleep(self.interval)
+
+    def get_result(self):
+        with self._lock:
+            return self._public_ip, self._ptr_record, self._pop_name
+
+
 class GrpcWebCollector:
     def __init__(self, grpc_host: str, grpc_port: int, interval: float, data_dir: str, ping_target: str = "8.8.8.8", ping_interface: str = None):
         self.grpc_host = grpc_host
@@ -117,6 +164,7 @@ class GrpcWebCollector:
         self._thread = None
         self._stop_event = threading.Event()
         self.ping_monitor = PingMonitor(target=ping_target, interface=ping_interface)
+        self.pop_monitor = PopMonitor(interval=10.0)
 
     def start(self):
         if self.state == CollectorState.RUNNING:
@@ -150,6 +198,7 @@ class GrpcWebCollector:
 
     def _fetch_status(self):
         ping_rtt_ms, ping_loss = self.ping_monitor.get_result()
+        public_ip, ptr_record, pop_name = self.pop_monitor.get_result()
         status, obstruction, alerts = starlink_grpc.status_data(context=self.context)
         location = starlink_grpc.location_data(context=self.context)
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -180,6 +229,9 @@ class GrpcWebCollector:
             "raw_location": location,
             "ext_ping_rtt_ms": ping_rtt_ms,
             "ext_ping_loss": ping_loss,
+            "public_ip": public_ip,
+            "ptr_record": ptr_record,
+            "pop_name": pop_name,
         }
 
     def _maybe_rotate_file(self):
