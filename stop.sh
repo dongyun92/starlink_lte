@@ -1,46 +1,28 @@
 #!/bin/bash
+# 통신품질 분석 서버 중지 (Flask + Vite)
 
-###############################################################################
-# Starlink Flight Analysis - Server Stop Script
-#
-# 모든 서버를 안전하게 중지합니다.
-#
-# Usage: ./stop.sh
-###############################################################################
+FLASK_PID_FILE="/tmp/starlink_flask.pid"
+VITE_PID_FILE="/tmp/starlink_vite.pid"
+BACKEND_PORT=5002
+FRONTEND_PORT=5173
 
-echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo "  Starlink Flight Analysis - Server Stop"
-echo "═══════════════════════════════════════════════════════════════"
-echo ""
-
-# Kill all Vite processes
-echo "🔪 Stopping Vite dev server..."
-pkill -f "vite" 2>/dev/null || true
-pgrep -lf "node.*frontend" | awk '{print $1}' | xargs kill -9 2>/dev/null || true
-
-# Kill specific ports
-for port in 5173 5020 5021 5022 5023; do
-    if lsof -ti:$port > /dev/null 2>&1; then
-        echo "  ├─ Killing process on port $port..."
-        kill -9 $(lsof -ti:$port) 2>/dev/null || true
+kill_by_pid_file() {
+    local pid_file="$1" name="$2"
+    if [ -f "$pid_file" ]; then
+        local pid; pid=$(cat "$pid_file")
+        if kill -0 "$pid" 2>/dev/null; then
+            pkill -P "$pid" 2>/dev/null || true
+            kill -9 "$pid" 2>/dev/null && echo "[STOP] $name (PID $pid)"
+        fi
+        rm -f "$pid_file"
     fi
-done
+}
 
-# Kill Flask server (port 5002)
-if lsof -ti:5002 > /dev/null 2>&1; then
-    echo "🔪 Stopping Flask server (port 5002)..."
-    kill -9 $(lsof -ti:5002) 2>/dev/null || true
-fi
+kill_by_pid_file "$FLASK_PID_FILE" "Backend"
+kill_by_pid_file "$VITE_PID_FILE"  "Frontend"
 
-# Kill any Python processes in analysis directory
-pkill -f "python.*app.py" 2>/dev/null || true
+# fallback: 포트로 잔존 프로세스 정리
+lsof -ti:$BACKEND_PORT  | xargs kill -9 2>/dev/null || true
+lsof -ti:$FRONTEND_PORT | xargs kill -9 2>/dev/null || true
 
-sleep 2
-
-echo "  └─ ✅ All servers stopped"
-echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo "  🛑 Shutdown complete"
-echo "═══════════════════════════════════════════════════════════════"
-echo ""
+echo "[DONE] All services stopped"

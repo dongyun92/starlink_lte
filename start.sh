@@ -1,100 +1,56 @@
 #!/bin/bash
+# 통신품질 분석 서버 시작 (Flask + Vite)
 
-###############################################################################
-# Starlink Flight Analysis - Server Start Script
-#
-# 모든 서버를 시작합니다. (기존 프로세스는 중지하지 않음)
-#
-# Usage: ./start.sh
-###############################################################################
+BACKEND_DIR="/Users/dykim/dev/starlink/analysis"
+FRONTEND_DIR="/Users/dykim/dev/starlink/frontend"
+FLASK_PID_FILE="/tmp/starlink_flask.pid"
+VITE_PID_FILE="/tmp/starlink_vite.pid"
+BACKEND_PORT=5002
+FRONTEND_PORT=5173
 
-set -e  # Exit on error
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 
-echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo "  Starlink Flight Analysis - Server Start"
-echo "═══════════════════════════════════════════════════════════════"
-echo ""
+is_running() { lsof -ti:"$1" > /dev/null 2>&1; }
 
-# Check if servers are already running
-if lsof -ti:5002 > /dev/null 2>&1; then
-    echo "⚠️  Flask server already running on port 5002"
-    echo "   Use ./restart.sh to restart or ./stop.sh first"
-    exit 1
-fi
-
-if lsof -ti:5173 > /dev/null 2>&1; then
-    echo "⚠️  Vite server already running on port 5173"
-    echo "   Use ./restart.sh to restart or ./stop.sh first"
-    exit 1
-fi
-
-# Step 1: Clear Redis cache
-echo "🗑️  Step 1/3: Clearing Redis cache..."
-redis-cli FLUSHALL > /dev/null 2>&1 && echo "  └─ ✅ Redis cache cleared" || echo "  └─ ⚠️  Redis not available"
-echo ""
-
-# Step 2: Start Flask server
-echo "🚀 Step 2/3: Starting Flask server (port 5002)..."
-cd /Users/dykim/dev/starlink/analysis
-nohup /Users/dykim/dev/starlink/analysis_env/bin/python3 app.py > flask.log 2>&1 &
-
-# Wait for Flask to start (max 10 seconds)
-echo "  ├─ Waiting for Flask to start..."
-for i in {1..10}; do
-    if lsof -ti:5002 > /dev/null 2>&1; then
-        echo "  └─ ✅ Flask server started successfully (${i}s)"
-        break
+# Backend
+if is_running $BACKEND_PORT; then
+    echo -e "${YELLOW}[SKIP] Backend already running on :$BACKEND_PORT${NC}"
+else
+    echo "[START] Backend (Flask :$BACKEND_PORT)..."
+    cd "$BACKEND_DIR"
+    nohup /Users/dykim/dev/starlink/analysis_env/bin/python3 app.py > flask.log 2>&1 &
+    echo $! > "$FLASK_PID_FILE"
+    for i in {1..10}; do
+        is_running $BACKEND_PORT && break
+        sleep 1
+    done
+    if is_running $BACKEND_PORT; then
+        echo -e "${GREEN}[OK] Backend started${NC}"
+    else
+        echo -e "${RED}[FAIL] Backend failed — check analysis/flask.log${NC}"; exit 1
     fi
-    sleep 1
-done
-
-# Final verification
-if ! lsof -ti:5002 > /dev/null 2>&1; then
-    echo "  └─ ❌ Flask server failed to start after 10 seconds"
-    echo ""
-    echo "Flask logs (last 30 lines):"
-    tail -30 flask.log
-    exit 1
 fi
-echo ""
 
-# Step 3: Start Vite dev server
-echo "🚀 Step 3/3: Starting Vite dev server (port 5173)..."
-cd /Users/dykim/dev/starlink/frontend
-nohup npm run dev -- --port 5173 --strictPort > /tmp/vite.log 2>&1 &
-
-# Wait for Vite to start (max 10 seconds)
-echo "  ├─ Waiting for Vite to start..."
-for i in {1..10}; do
-    if lsof -ti:5173 > /dev/null 2>&1; then
-        echo "  └─ ✅ Vite dev server started successfully (${i}s)"
-        break
+# Frontend
+if is_running $FRONTEND_PORT; then
+    echo -e "${YELLOW}[SKIP] Frontend already running on :$FRONTEND_PORT${NC}"
+else
+    echo "[START] Frontend (Vite :$FRONTEND_PORT)..."
+    cd "$FRONTEND_DIR"
+    nohup npm run dev -- --port $FRONTEND_PORT --strictPort > /tmp/vite.log 2>&1 &
+    echo $! > "$VITE_PID_FILE"
+    for i in {1..10}; do
+        is_running $FRONTEND_PORT && break
+        sleep 1
+    done
+    if is_running $FRONTEND_PORT; then
+        echo -e "${GREEN}[OK] Frontend started${NC}"
+    else
+        echo -e "${RED}[FAIL] Frontend failed — check /tmp/vite.log${NC}"; exit 1
     fi
-    sleep 1
-done
-
-# Final verification
-if ! lsof -ti:5173 > /dev/null 2>&1; then
-    echo "  └─ ❌ Vite dev server failed to start after 10 seconds"
-    echo ""
-    echo "Vite logs (last 30 lines):"
-    tail -30 /tmp/vite.log
-    exit 1
 fi
-echo ""
 
-# Display status
-echo "✅ System Status"
 echo ""
-echo "  Frontend (Vite):  http://localhost:5173"
-echo "  Backend (Flask):  http://localhost:5002"
-echo ""
-echo "Logs:"
-echo "  Flask:  tail -f /Users/dykim/dev/starlink/analysis/flask.log"
-echo "  Vite:   tail -f /tmp/vite.log"
-echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo "  🎉 All services started successfully!"
-echo "═══════════════════════════════════════════════════════════════"
-echo ""
+echo "  Dashboard : http://localhost:$FRONTEND_PORT"
+echo "  API       : http://localhost:$BACKEND_PORT"
+echo "  Logs      : tail -f analysis/flask.log  /  tail -f /tmp/vite.log"
