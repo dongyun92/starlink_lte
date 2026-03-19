@@ -267,15 +267,31 @@ class GrpcWebCollector:
             return
         flat = self._flatten(payload)
         fieldnames = list(flat.keys())
-        if self.current_fields != fieldnames:
+        if self.current_fields is None:
+            # First write — create file with header
             self.current_fields = fieldnames
             with self.current_file.open("w", newline="") as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=self.current_fields)
                 writer.writeheader()
                 writer.writerow(flat)
             return
+        if set(fieldnames) - set(self.current_fields):
+            # New fields appeared — merge and rewrite file with all data
+            merged = list(self.current_fields) + [f for f in fieldnames if f not in self.current_fields]
+            existing_rows = []
+            if self.current_file.exists():
+                with self.current_file.open("r", newline="") as csvfile:
+                    existing_rows = list(csv.DictReader(csvfile))
+            self.current_fields = merged
+            with self.current_file.open("w", newline="") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=self.current_fields, extrasaction="ignore")
+                writer.writeheader()
+                for row in existing_rows:
+                    writer.writerow(row)
+                writer.writerow(flat)
+            return
         with self.current_file.open("a", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=self.current_fields)
+            writer = csv.DictWriter(csvfile, fieldnames=self.current_fields, extrasaction="ignore")
             writer.writerow(flat)
 
     def status(self) -> CollectorStatus:
