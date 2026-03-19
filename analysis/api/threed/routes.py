@@ -451,7 +451,16 @@ def get_heatmap_czml(session_id):
             elif mode == 'lte':
                 quality_mode = '_lte_cqs' if has_lte_cqs else None
             elif mode == 'starlink':
-                quality_mode = '_starlink_dl_norm' if has_starlink_dl else None
+                # ext_ping_rtt_ms as primary (actual internet connectivity)
+                has_ext_ping = ('starlink_ext_ping_rtt_ms' in df.columns and
+                               not df['starlink_ext_ping_rtt_ms'].isna().all())
+                if has_ext_ping:
+                    quality_mode = 'starlink_ext_ping_rtt_ms'
+                    print(f"📊 Starlink heatmap: using ext_ping_rtt_ms (actual internet)", flush=True)
+                elif has_starlink_dl:
+                    quality_mode = '_starlink_dl_norm'
+                else:
+                    quality_mode = None
             else:
                 quality_mode = None
 
@@ -531,6 +540,7 @@ def get_all_sessions_heatmap_czml():
         import pandas as pd
 
         mode = request.args.get('mode', 'combined', type=str)
+        metric = request.args.get('metric', None, type=str)
         resolution = request.args.get('resolution', 8, type=int)
         aggregation = request.args.get('aggregation', 'mean', type=str)
         altitude_bin_size = request.args.get('altitude_bin_size', 25.0, type=float)
@@ -544,7 +554,7 @@ def get_all_sessions_heatmap_czml():
         if not 10 <= altitude_bin_size <= 100:
             return jsonify({'error': 'Invalid altitude_bin_size. Must be between 10 and 100'}), 400
 
-        cache_key = f"heatmap:all-sessions:{mode}:hexagon:{resolution}:{aggregation}:{altitude_bin_size}"
+        cache_key = f"heatmap:all-sessions:{mode}:{metric}:hexagon:{resolution}:{aggregation}:{altitude_bin_size}"
 
         if redis_client:
             try:
@@ -619,9 +629,23 @@ def get_all_sessions_heatmap_czml():
         elif mode == 'lte':
             quality_mode = '_lte_cqs' if has_lte_cqs else None
         elif mode == 'starlink':
-            quality_mode = '_starlink_dl_norm' if has_starlink_dl else None
+            # ext_ping_rtt_ms as primary Starlink metric (actual internet connectivity)
+            has_ext_ping = ('starlink_ext_ping_rtt_ms' in df.columns and
+                           not df['starlink_ext_ping_rtt_ms'].isna().all())
+            if has_ext_ping:
+                quality_mode = 'starlink_ext_ping_rtt_ms'
+                print(f"📊 Starlink heatmap: using ext_ping_rtt_ms (actual internet)", flush=True)
+            elif has_starlink_dl:
+                quality_mode = '_starlink_dl_norm'
+            else:
+                quality_mode = None
         else:
             quality_mode = None
+
+        # Explicit metric override (from dropdown selection)
+        if metric and metric in df.columns:
+            quality_mode = metric
+            print(f"📊 All-sessions heatmap metric override: {metric}", flush=True)
 
         if quality_mode is None:
             return jsonify([{"id": "document", "version": "1.0", "name": f"Empty All-Sessions Heatmap - No {mode.upper()} data"}]), 200
