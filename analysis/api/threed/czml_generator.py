@@ -1306,6 +1306,11 @@ class CZMLGenerator:
             if 'lte_rssi' not in df.columns:
                 raise ValueError(f"❌ LTE RSSI data not available in this session")
             values = df['lte_rssi'].values
+        elif color_by == 'lte_ping_rtt':
+            if 'lte_ping_rtt_ms' not in df.columns:
+                raise ValueError(f"❌ LTE Ping RTT data not available in this session")
+            values = df['lte_ping_rtt_ms'].values
+            column_name = 'lte_ping_rtt'
 
         # Starlink modes
         elif color_by == 'starlink_quality_combined':
@@ -1386,6 +1391,11 @@ class CZMLGenerator:
                 raise ValueError(f"❌ Starlink uptime data not available in this session")
             values = df['starlink_uptime'].values / 3600  # Convert seconds to hours
             column_name = 'starlink_uptime'
+        elif color_by == 'starlink_ext_ping_rtt':
+            if 'starlink_ext_ping_rtt_ms' not in df.columns:
+                raise ValueError(f"❌ Starlink external Ping RTT data not available in this session")
+            values = df['starlink_ext_ping_rtt_ms'].values
+            column_name = 'starlink_ext_ping_rtt'
 
         else:
             # Default to altitude

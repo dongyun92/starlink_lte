@@ -58,6 +58,8 @@ class HexagonalHeatmapGenerator:
         '_starlink_dl_norm': (0.0, 1.0),                 # Starlink DL normalized 0-1 (higher = better)
         '_combined_score': (0.0, 1.0),                   # Combined CQS + Starlink DL nanmax (higher = better)
         'starlink_downlink_throughput_bps': (0.0, 50_000_000.0),  # 0~50 Mbps (higher = better)
+        'lte_ping_rtt_ms': (0, 200),                              # ms (lower = better)
+        'starlink_ext_ping_rtt_ms': (0, 200),                     # ms (lower = better)
     }
 
     def __init__(self, resolution: int = None, altitude_bin_size: float = None):
@@ -301,8 +303,8 @@ class HexagonalHeatmapGenerator:
         normalized = (values - vmin) / (vmax - vmin)
         normalized = np.clip(normalized, 0, 1)
 
-        # Invert for latency (lower latency = better quality)
-        if 'latency' in mode:
+        # Invert for latency/ping RTT (lower = better quality)
+        if 'latency' in mode or 'ping_rtt' in mode:
             normalized = 1 - normalized
 
         return normalized.values

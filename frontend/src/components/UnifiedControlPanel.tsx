@@ -70,16 +70,16 @@ interface UnifiedControlPanelProps {
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
     'lte_composite_quality' | 'lte_packet_loss_rate' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_band' | 'lte_outage' |
-    'starlink_quality_combined' | 'starlink_latency' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_ping_rtt' | 'lte_band' | 'lte_outage' |
+    'starlink_quality_combined' | 'starlink_latency' | 'starlink_ext_ping_rtt' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime' | 'lap_number';
   onPathColorModeChange: (mode: 'altitude' | 'speed' |
     'pitch' | 'roll' | 'pitch_performance' |
     'combined_connectivity' |
     'lte_composite_quality' | 'lte_packet_loss_rate' |
-    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_band' | 'lte_outage' |
-    'starlink_quality_combined' | 'starlink_latency' |
+    'lte_quality_combined' | 'lte_rsrp' | 'lte_sinr' | 'lte_rsrq' | 'lte_rssi' | 'lte_ping_rtt' | 'lte_band' | 'lte_outage' |
+    'starlink_quality_combined' | 'starlink_latency' | 'starlink_ext_ping_rtt' |
     'starlink_packet_loss' | 'starlink_throughput_down' | 'starlink_throughput_up' |
     'starlink_obstruction' | 'starlink_uptime' | 'lap_number') => void;
   lapFilter: 0 | 1 | 2;
@@ -504,6 +504,15 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                       />
                       <span className="text-xs">Internet Outage (관제 단절)</span>
                     </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'lte_ping_rtt'}
+                        onChange={() => onPathColorModeChange('lte_ping_rtt')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">Ping RTT (외부 응답시간)</span>
+                    </label>
                     {pathColorMode === 'lte_outage' && (
                       <div className="ml-1 mt-1 p-1.5 bg-red-50 rounded border border-red-200 space-y-0.5">
                         <div className="text-[9px] font-semibold text-gray-500 mb-1">색상 범례</div>
@@ -587,6 +596,15 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                         className="w-2.5 h-2.5"
                       />
                       <span className="text-xs">Latency (Response Time)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={pathColorMode === 'starlink_ext_ping_rtt'}
+                        onChange={() => onPathColorModeChange('starlink_ext_ping_rtt')}
+                        className="w-2.5 h-2.5"
+                      />
+                      <span className="text-xs">External Ping RTT (외부 응답시간)</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
