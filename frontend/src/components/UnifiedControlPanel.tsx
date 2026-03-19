@@ -55,6 +55,8 @@ interface UnifiedControlPanelProps {
   onHexagonResolutionChange: (resolution: number) => void;
   onHexagonAggregationChange: (aggregation: 'mean' | 'max' | 'min' | 'median') => void;
   onHexagonAltitudeBinSizeChange: (size: number) => void;
+  heatmapMetric: string;
+  onHeatmapMetricChange: (metric: string) => void;
 
   // Flight scenario controls
   scenarios: FlightScenario[];
@@ -146,6 +148,8 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
   onHexagonResolutionChange,
   onHexagonAggregationChange,
   onHexagonAltitudeBinSizeChange,
+  heatmapMetric,
+  onHeatmapMetricChange,
   scenarios,
   selectedFlightId,
   onFlightSelect,
@@ -858,6 +862,32 @@ export const UnifiedControlPanel: React.FC<UnifiedControlPanelProps> = ({
                   </div>
                 </div>
               </div>
+
+            {/* Heatmap Metric Selector */}
+            <div className="space-y-1">
+              <div className="text-[10px] font-semibold text-gray-600">Heatmap Metric</div>
+              <select
+                value={heatmapMetric}
+                onChange={(e) => onHeatmapMetricChange(e.target.value)}
+                className="w-full text-xs p-1 rounded border border-gray-300 bg-white"
+              >
+                <optgroup label="Default">
+                  <option value="auto">Auto (CQS / DL Speed)</option>
+                </optgroup>
+                <optgroup label="LTE">
+                  <option value="lte_rsrp">RSRP (Signal Strength)</option>
+                  <option value="lte_sinr">SINR (Signal Quality)</option>
+                  <option value="lte_rsrq">RSRQ (Reference Quality)</option>
+                  <option value="lte_rssi">RSSI (Received Power)</option>
+                  <option value="lte_ping_rtt_ms">Ping RTT (External)</option>
+                </optgroup>
+                <optgroup label="Starlink">
+                  <option value="starlink_latency">Latency (Internal)</option>
+                  <option value="starlink_ext_ping_rtt_ms">Ping RTT (External)</option>
+                  <option value="starlink_downlink_throughput_bps">Download Speed</option>
+                </optgroup>
+              </select>
+            </div>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input

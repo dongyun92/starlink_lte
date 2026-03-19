@@ -64,6 +64,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
   const [hexagonResolution, setHexagonResolution] = useState<number>(9);  // 174m edge (better for <1km paths)
   const [hexagonAggregation, setHexagonAggregation] = useState<'mean' | 'max' | 'min' | 'median'>('mean');
   const [hexagonAltitudeBinSize, setHexagonAltitudeBinSize] = useState<number>(25);  // 25m altitude bins
+  const [heatmapMetric, setHeatmapMetric] = useState<string>('auto');
 
   // Mutual exclusive heatmap toggle handlers
   const handleLteHeatmapToggle = (enabled: boolean) => {
@@ -607,7 +608,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             'lte',
             heatmapStyle,
             selectedFlightId !== null ? selectedFlightId : undefined,
-            hexOptions
+            hexOptions,
+            heatmapMetric !== 'auto' ? heatmapMetric : undefined
           );
         }
 
@@ -645,7 +647,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode]);
+  }, [selectedSessionId, lteHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode, heatmapMetric]);
 
   // Starlink Heatmap 로드 및 토글
   useEffect(() => {
@@ -695,7 +697,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
             'starlink',
             heatmapStyle,
             selectedFlightId !== null ? selectedFlightId : undefined,
-            hexOptions
+            hexOptions,
+            heatmapMetric !== 'auto' ? heatmapMetric : undefined
           );
         }
 
@@ -733,7 +736,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode]);
+  }, [selectedSessionId, starlinkHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode, heatmapMetric]);
 
   // Combined Heatmap 로드 및 토글
   useEffect(() => {
@@ -821,7 +824,7 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         }
       }
     };
-  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode]);
+  }, [selectedSessionId, combinedHeatmap, heatmapStyle, selectedFlightId, hexagonResolution, hexagonAggregation, hexagonAltitudeBinSize, allSessionsMode, heatmapMetric]);
 
   // Cell Tower 데이터 로드
   useEffect(() => {
@@ -1315,6 +1318,8 @@ export default function CesiumViewer({ className = 'w-full h-screen', selectedSe
         onCustomMetricsChange={setCustomMetrics}
         colorMetadata={colorMetadata}
         heatmapMetadata={heatmapMetadata}
+        heatmapMetric={heatmapMetric}
+        onHeatmapMetricChange={setHeatmapMetric}
         showCellTowers={showCellTowers}
         onCellTowersToggle={setShowCellTowers}
         showSatelliteDirection={showSatelliteDirection}

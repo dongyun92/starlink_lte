@@ -344,6 +344,7 @@ def get_heatmap_czml(session_id):
     try:
         # Get query parameters
         mode = request.args.get('mode', 'lte', type=str)
+        metric = request.args.get('metric', None, type=str)  # Explicit metric override
         style = 'hexagon'  # Only hexagon style supported
         flight_id = request.args.get('flight_id', None, type=int)
         resolution = request.args.get('resolution', 8, type=int)
@@ -364,7 +365,7 @@ def get_heatmap_czml(session_id):
                 return jsonify({'error': 'Invalid altitude_bin_size. Must be between 10 and 100'}), 400
 
         # Create cache key (include hexagon parameters)
-        cache_key = f"heatmap:{session_id}:{mode}:{style}:{flight_id}:{resolution}:{aggregation}:{altitude_bin_size}"
+        cache_key = f"heatmap:{session_id}:{mode}:{metric}:{style}:{flight_id}:{resolution}:{aggregation}:{altitude_bin_size}"
 
         # Try to get from cache
         if redis_client:
@@ -453,6 +454,11 @@ def get_heatmap_czml(session_id):
                 quality_mode = '_starlink_dl_norm' if has_starlink_dl else None
             else:
                 quality_mode = None
+
+            # Explicit metric override (from dropdown selection)
+            if metric and metric in df.columns:
+                quality_mode = metric
+                print(f"📊 Heatmap metric override: {metric}", flush=True)
 
             # Check if requested mode has data
             if quality_mode is None:

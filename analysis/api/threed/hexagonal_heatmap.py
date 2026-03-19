@@ -262,7 +262,9 @@ class HexagonalHeatmapGenerator:
             'lte_rssi': 'lte_rssi',
             'lte_sinr': 'lte_sinr',
             'lte_rsrq': 'lte_rsrq',
+            'lte_ping_rtt_ms': 'lte_ping_rtt_ms',
             'starlink_latency': 'starlink_latency',
+            'starlink_ext_ping_rtt_ms': 'starlink_ext_ping_rtt_ms',
             'altitude': 'altitude',
             'speed': 'speed_mps',
         }

@@ -129,9 +129,13 @@ export async function getHeatmapCZML(
     resolution?: number;
     aggregation?: 'mean' | 'max' | 'min' | 'median';
     altitude_bin_size?: number;
-  }
+  },
+  metric?: string
 ): Promise<CZMLDocument> {
   const params = new URLSearchParams({ mode, style });
+  if (metric) {
+    params.append('metric', metric);
+  }
   if (flight_id !== undefined) {
     params.append('flight_id', flight_id.toString());
   }
