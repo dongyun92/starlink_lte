@@ -295,6 +295,11 @@ class HexagonalHeatmapGenerator:
         Returns:
             Normalized values (0-1) where 1 = best quality
         """
+        # ext_ping: -1.0 or 0 = timeout/no internet → treat as worst quality
+        if 'ping_rtt' in mode:
+            values = values.copy()
+            values[(values <= 0) | values.isna()] = 9999.0
+
         if mode in self.DOMAIN_RANGES and self.DOMAIN_RANGES[mode] is not None:
             vmin, vmax = self.DOMAIN_RANGES[mode]
         else:

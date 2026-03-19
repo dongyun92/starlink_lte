@@ -1309,7 +1309,8 @@ class CZMLGenerator:
         elif color_by == 'lte_ping_rtt':
             if 'lte_ping_rtt_ms' not in df.columns:
                 raise ValueError(f"❌ LTE Ping RTT data not available in this session")
-            values = df['lte_ping_rtt_ms'].values
+            values = df['lte_ping_rtt_ms'].values.copy()
+            values[(values <= 0) | np.isnan(values)] = 9999.0  # timeout/no internet = worst
             column_name = 'lte_ping_rtt'
 
         # Starlink modes
@@ -1394,7 +1395,8 @@ class CZMLGenerator:
         elif color_by == 'starlink_ext_ping_rtt':
             if 'starlink_ext_ping_rtt_ms' not in df.columns:
                 raise ValueError(f"❌ Starlink external Ping RTT data not available in this session")
-            values = df['starlink_ext_ping_rtt_ms'].values
+            values = df['starlink_ext_ping_rtt_ms'].values.copy()
+            values[(values <= 0) | np.isnan(values)] = 9999.0  # timeout/no internet = worst
             column_name = 'starlink_ext_ping_rtt'
 
         else:
